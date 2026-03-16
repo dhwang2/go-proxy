@@ -54,7 +54,7 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case components.MenuSelectMsg:
 		switch msg.ID {
 		case "back":
-			return v, func() tea.Msg { return tui.BackMsg{} }
+			return v, tui.BackCmd
 		case "list":
 			v.step = userList
 			return v, v.listUsers
@@ -84,7 +84,7 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tui.InputResultMsg:
 		if msg.Cancelled {
 			v.step = userMenu
-			return v, func() tea.Msg { return tui.DismissOverlayMsg{} }
+			return v, nil
 		}
 		switch v.step {
 		case userAdd:
@@ -117,7 +117,7 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case tui.ResultDismissedMsg:
 		v.step = userMenu
-		return v, func() tea.Msg { return tui.DismissOverlayMsg{} }
+		return v, nil
 
 	default:
 		if v.step == userMenu {

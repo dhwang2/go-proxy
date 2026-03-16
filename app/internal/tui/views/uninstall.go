@@ -41,7 +41,7 @@ func (v *UninstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.ConfirmResultMsg:
 		if !msg.Confirmed {
-			return v, func() tea.Msg { return tui.BackMsg{} }
+			return v, tui.BackCmd
 		}
 		return v, v.doUninstall
 

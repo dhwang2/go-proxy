@@ -28,7 +28,7 @@ func (v *SelfUpdateView) Init() tea.Cmd {
 func (v *SelfUpdateView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg.(type) {
 	case tui.ResultDismissedMsg:
-		return v, func() tea.Msg { return tui.BackMsg{} }
+		return v, tui.BackCmd
 	}
 	return v, nil
 }

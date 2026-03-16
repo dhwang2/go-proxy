@@ -57,7 +57,7 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case components.MenuSelectMsg:
 		if msg.ID == "back" {
-			return v, func() tea.Msg { return tui.BackMsg{} }
+			return v, tui.BackCmd
 		}
 		v.pendingTag = msg.ID
 		v.step = protoRemoveConfirm
@@ -71,7 +71,7 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tui.ConfirmResultMsg:
 		if !msg.Confirmed {
 			v.step = protoRemoveMenu
-			return v, func() tea.Msg { return tui.DismissOverlayMsg{} }
+			return v, nil
 		}
 		tag := v.pendingTag
 		return v, func() tea.Msg {
@@ -93,14 +93,8 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 
 	case tui.ResultDismissedMsg:
-		v.step = protoRemoveMenu
-		cmd := v.Init()
-		return v, func() tea.Msg {
-			if cmd != nil {
-				cmd()
-			}
-			return tui.DismissOverlayMsg{}
-		}
+		v.Init()
+		return v, nil
 
 	default:
 		if v.step == protoRemoveMenu {

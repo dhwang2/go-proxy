@@ -35,7 +35,7 @@ func (v *RoutingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case components.MenuSelectMsg:
 		switch msg.ID {
 		case "back":
-			return v, func() tea.Msg { return tui.BackMsg{} }
+			return v, tui.BackCmd
 		case "sync-dns":
 			return v, v.syncDNS
 		default:
@@ -52,7 +52,7 @@ func (v *RoutingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 		}
 	case tui.ResultDismissedMsg:
-		return v, func() tea.Msg { return tui.DismissOverlayMsg{} }
+		return v, nil
 	default:
 		var cmd tea.Cmd
 		v.menu, cmd = v.menu.Update(msg)

@@ -52,7 +52,7 @@ func (v *ServiceView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case components.MenuSelectMsg:
 		if msg.ID == "back" {
-			return v, func() tea.Msg { return tui.BackMsg{} }
+			return v, tui.BackCmd
 		}
 		v.pendingSvc = service.Name(msg.ID)
 		v.step = serviceActions
