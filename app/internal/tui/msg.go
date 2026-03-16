@@ -10,6 +10,9 @@ type NavigateMsg struct {
 // BackMsg requests returning to the previous view.
 type BackMsg struct{}
 
+// BackCmd is a tea.Cmd that emits a BackMsg.
+func BackCmd() tea.Msg { return BackMsg{} }
+
 // ShowOverlayMsg requests displaying an overlay.
 type ShowOverlayMsg struct {
 	Overlay OverlayModel

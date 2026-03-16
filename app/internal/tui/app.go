@@ -139,7 +139,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case key.Matches(msg, Keys.Back):
 			if m.nav.Depth() > 1 {
-				return m, func() tea.Msg { return BackMsg{} }
+				return m, BackCmd
 			}
 			return m, nil
 		}

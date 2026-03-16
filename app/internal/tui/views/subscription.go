@@ -60,7 +60,7 @@ func (v *SubscriptionView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case components.MenuSelectMsg:
 		if msg.ID == "back" {
-			return v, func() tea.Msg { return tui.BackMsg{} }
+			return v, tui.BackCmd
 		}
 		if v.step == subMenu {
 			v.pendingUser = msg.ID
@@ -107,7 +107,7 @@ func (v *SubscriptionView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 
 	case tui.ResultDismissedMsg:
-		return v, func() tea.Msg { return tui.BackMsg{} }
+		return v, tui.BackCmd
 
 	default:
 		if v.step == subMenu {

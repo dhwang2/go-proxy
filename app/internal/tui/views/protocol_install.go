@@ -56,7 +56,7 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case components.MenuSelectMsg:
 		if msg.ID == "back" {
-			return v, func() tea.Msg { return tui.BackMsg{} }
+			return v, tui.BackCmd
 		}
 		v.pendingType = protocol.Type(msg.ID)
 		v.step = protoInstallPort
@@ -69,7 +69,7 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tui.InputResultMsg:
 		if msg.Cancelled {
 			v.step = protoInstallMenu
-			return v, func() tea.Msg { return tui.DismissOverlayMsg{} }
+			return v, nil
 		}
 		pt := v.pendingType
 		portStr := msg.Value
@@ -86,14 +86,8 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 
 	case tui.ResultDismissedMsg:
-		v.step = protoInstallMenu
-		cmd := v.Init()
-		return v, func() tea.Msg {
-			if cmd != nil {
-				cmd()
-			}
-			return tui.DismissOverlayMsg{}
-		}
+		v.Init()
+		return v, nil
 
 	default:
 		if v.step == protoInstallMenu {

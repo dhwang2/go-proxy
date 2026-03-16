@@ -32,7 +32,7 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case components.MenuSelectMsg:
 		switch msg.ID {
 		case "back":
-			return v, func() tea.Msg { return tui.BackMsg{} }
+			return v, tui.BackCmd
 		default:
 			return v, func() tea.Msg {
 				return tui.ShowOverlayMsg{
@@ -41,7 +41,7 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 		}
 	case tui.ResultDismissedMsg:
-		return v, func() tea.Msg { return tui.DismissOverlayMsg{} }
+		return v, nil
 	default:
 		var cmd tea.Cmd
 		v.menu, cmd = v.menu.Update(msg)
