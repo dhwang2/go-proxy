@@ -37,6 +37,20 @@ func Add(s *store.Store, name string) error {
 		}
 	}
 
+	// Register in default group.
+	const defaultGroup = "~/.groups"
+	if s.UserMeta.Groups == nil {
+		s.UserMeta.Groups = make(map[string][]string)
+	}
+	members := s.UserMeta.Groups[defaultGroup]
+	for _, m := range members {
+		if m == name {
+			goto skipGroup
+		}
+	}
+	s.UserMeta.Groups[defaultGroup] = append(members, name)
+skipGroup:
+
 	s.MarkDirty(store.FileSingBox)
 	s.MarkDirty(store.FileUserMeta)
 	return nil
