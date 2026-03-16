@@ -1,15 +1,33 @@
 package views
 
 import (
+	"context"
+	"fmt"
+	"os/exec"
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 
+	"go-proxy/internal/config"
+	"go-proxy/internal/core"
 	"go-proxy/internal/tui"
 	"go-proxy/internal/tui/components"
 )
 
+type coreStep int
+
+const (
+	coreMenu coreStep = iota
+	coreWorking
+	coreConfirm
+	coreResult
+)
+
 type CoreView struct {
-	model *tui.Model
-	menu  components.MenuModel
+	model   *tui.Model
+	menu    components.MenuModel
+	step    coreStep
+	pending []core.UpdateCheck
 }
 
 func NewCoreView(model *tui.Model) *CoreView {
@@ -17,7 +35,7 @@ func NewCoreView(model *tui.Model) *CoreView {
 	v.menu = components.NewMenu("内核管理", []components.MenuItem{
 		{Key: '1', Label: "查看版本", ID: "versions"},
 		{Key: '2', Label: "检查更新", ID: "check"},
-		{Key: '3', Label: "更新内核", ID: "update"},
+		{Key: '3', Label: "执行更新", ID: "update"},
 		{Key: '0', Label: "返回", ID: "back"},
 	})
 	return v
@@ -25,7 +43,11 @@ func NewCoreView(model *tui.Model) *CoreView {
 
 func (v *CoreView) Name() string { return "core" }
 
-func (v *CoreView) Init() tea.Cmd { return nil }
+func (v *CoreView) Init() tea.Cmd {
+	v.step = coreMenu
+	v.pending = nil
+	return nil
+}
 
 func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -33,20 +55,193 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		switch msg.ID {
 		case "back":
 			return v, tui.BackCmd
-		default:
+		case "versions":
+			v.step = coreWorking
+			return v, tea.Batch(
+				func() tea.Msg {
+					return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在检测版本...")}
+				},
+				v.doVersions,
+			)
+		case "check":
+			v.step = coreWorking
+			return v, tea.Batch(
+				func() tea.Msg {
+					return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在检查更新...")}
+				},
+				func() tea.Msg { return v.doCheckUpdates(false) },
+			)
+		case "update":
+			v.step = coreWorking
+			return v, tea.Batch(
+				func() tea.Msg {
+					return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在检查更新...")}
+				},
+				func() tea.Msg { return v.doCheckUpdates(true) },
+			)
+		}
+
+	case coreVersionsDoneMsg:
+		v.step = coreResult
+		return v, func() tea.Msg {
+			return tui.ShowOverlayMsg{Overlay: components.NewResult(msg.result)}
+		}
+
+	case coreCheckDoneMsg:
+		if msg.forUpdate && len(msg.updates) > 0 {
+			v.pending = msg.updates
+			v.step = coreConfirm
 			return v, func() tea.Msg {
 				return tui.ShowOverlayMsg{
-					Overlay: components.NewResult("功能尚未实现"),
+					Overlay: components.NewConfirm(msg.result + "\n\n是否执行更新？"),
 				}
 			}
 		}
-	case tui.ResultDismissedMsg:
+		v.step = coreResult
+		return v, func() tea.Msg {
+			return tui.ShowOverlayMsg{Overlay: components.NewResult(msg.result)}
+		}
+
+	case tui.ConfirmResultMsg:
+		if msg.Confirmed && len(v.pending) > 0 {
+			updates := v.pending
+			v.pending = nil
+			v.step = coreWorking
+			return v, tea.Batch(
+				func() tea.Msg {
+					return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在下载更新...")}
+				},
+				func() tea.Msg { return v.doUpdate(updates) },
+			)
+		}
+		v.step = coreMenu
 		return v, nil
+
+	case coreUpdateDoneMsg:
+		v.step = coreResult
+		return v, func() tea.Msg {
+			return tui.ShowOverlayMsg{Overlay: components.NewResult(msg.result)}
+		}
+
+	case tui.ResultDismissedMsg:
+		v.step = coreMenu
+		return v, nil
+
 	default:
-		var cmd tea.Cmd
-		v.menu, cmd = v.menu.Update(msg)
-		return v, cmd
+		if v.step == coreMenu {
+			var cmd tea.Cmd
+			v.menu, cmd = v.menu.Update(msg)
+			return v, cmd
+		}
 	}
+	return v, nil
 }
 
 func (v *CoreView) View() string { return v.menu.View() }
+
+type coreVersionsDoneMsg struct{ result string }
+type coreCheckDoneMsg struct {
+	result    string
+	updates   []core.UpdateCheck
+	forUpdate bool
+}
+type coreUpdateDoneMsg struct{ result string }
+
+func binPath(comp core.Component) string {
+	switch comp {
+	case core.CompSingBox:
+		return config.SingBoxBin
+	case core.CompSnell:
+		return config.SnellBin
+	case core.CompShadowTLS:
+		return config.ShadowTLSBin
+	case core.CompCaddy:
+		return config.CaddyBin
+	default:
+		return ""
+	}
+}
+
+func (v *CoreView) doVersions() tea.Msg {
+	var sb strings.Builder
+	sb.WriteString("组件版本\n\n")
+	for _, comp := range core.AllComponents() {
+		info := core.DetectVersion(binPath(comp), comp)
+		if info.Installed {
+			sb.WriteString(fmt.Sprintf("  %s: %s\n", comp, info.Version))
+		} else {
+			sb.WriteString(fmt.Sprintf("  %s: 未安装\n", comp))
+		}
+	}
+	return coreVersionsDoneMsg{result: sb.String()}
+}
+
+func (v *CoreView) doCheckUpdates(forUpdate bool) tea.Msg {
+	ctx := context.Background()
+	var sb strings.Builder
+	var avail []core.UpdateCheck
+	sb.WriteString("更新检查\n\n")
+
+	for _, comp := range core.AllComponents() {
+		bp := binPath(comp)
+		check, err := core.CheckUpdate(ctx, comp, bp)
+		if err != nil {
+			sb.WriteString(fmt.Sprintf("  %s: 检查失败 (%s)\n", comp, err))
+			continue
+		}
+		if check.UpdateAvail {
+			sb.WriteString(fmt.Sprintf("  %s: %s → %s (可更新)\n",
+				comp, check.CurrentVersion, check.LatestVersion))
+			avail = append(avail, *check)
+		} else {
+			sb.WriteString(fmt.Sprintf("  %s: %s (最新)\n",
+				comp, check.CurrentVersion))
+		}
+	}
+
+	if len(avail) == 0 {
+		sb.WriteString("\n所有组件已是最新版本")
+	}
+
+	return coreCheckDoneMsg{result: sb.String(), updates: avail, forUpdate: forUpdate}
+}
+
+func (v *CoreView) doUpdate(updates []core.UpdateCheck) tea.Msg {
+	ctx := context.Background()
+	var sb strings.Builder
+	sb.WriteString("更新结果\n\n")
+
+	for _, u := range updates {
+		if u.DownloadURL == "" {
+			sb.WriteString(fmt.Sprintf("  %s: 无下载地址，跳过\n", u.Component))
+			continue
+		}
+		bp := binPath(u.Component)
+		if err := core.DownloadBinary(ctx, u.DownloadURL, bp); err != nil {
+			sb.WriteString(fmt.Sprintf("  %s: 下载失败 (%s)\n", u.Component, err))
+			continue
+		}
+		sb.WriteString(fmt.Sprintf("  %s: %s → %s 更新成功\n",
+			u.Component, u.CurrentVersion, u.LatestVersion))
+		svc := componentService(u.Component)
+		if svc != "" {
+			exec.Command("systemctl", "restart", svc).Run()
+		}
+	}
+	return coreUpdateDoneMsg{result: sb.String()}
+}
+
+func componentService(comp core.Component) string {
+	switch comp {
+	case core.CompSingBox:
+		return "sing-box"
+	case core.CompSnell:
+		return "snell-v5"
+	case core.CompShadowTLS:
+		return "shadow-tls"
+	case core.CompCaddy:
+		return "caddy-sub"
+	default:
+		return ""
+	}
+}
