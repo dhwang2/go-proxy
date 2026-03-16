@@ -110,12 +110,12 @@ func (m MenuModel) View() string {
 	}
 
 	for i, item := range m.items {
-		label := fmt.Sprintf("  %c) %s", item.Key, item.Label)
+		label := fmt.Sprintf("    %c)  %s", item.Key, item.Label)
 		if i == m.cursor {
 			style := lipgloss.NewStyle().
 				Foreground(tui.ColorPrimary).
 				Bold(true)
-			b.WriteString(style.Render("▸" + label[1:]))
+			b.WriteString(style.Render("  ▸" + label[3:]))
 		} else {
 			b.WriteString(label)
 		}

@@ -27,10 +27,10 @@ func RenderDashboard(s *store.Store, version string, width int) string {
 	title := fmt.Sprintf("go-proxy 一键脚本 [%s]", version)
 
 	// Info lines.
-	sysLine := fmt.Sprintf("   系统: %s | 架构: %s", runtime.GOOS, displayArch())
-	protoLine := fmt.Sprintf("   协议: %s", stats.Protocols)
-	portLine := fmt.Sprintf("   端口: %s", stats.Ports)
-	userLine := fmt.Sprintf("   用户: %d个用户", stats.UserCount)
+	sysLine := fmt.Sprintf("    系统: %s | 架构: %s", runtime.GOOS, displayArch())
+	protoLine := fmt.Sprintf("    协议: %s", stats.Protocols)
+	portLine := fmt.Sprintf("    端口: %s", stats.Ports)
+	userLine := fmt.Sprintf("    用户: %d个用户", stats.UserCount)
 
 	// Center the title.
 	titlePad := inner - lipgloss.Width(title)

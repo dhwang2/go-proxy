@@ -58,8 +58,8 @@ func (m ConfirmModel) View() string {
 	}
 
 	buttons := lipgloss.JoinHorizontal(lipgloss.Center,
-		yesStyle.Render("[ Yes ]"),
-		noStyle.Render("[ No ]"),
+		yesStyle.Render("[ 是 ]"),
+		noStyle.Render("[ 否 ]"),
 	)
 
 	content := lipgloss.JoinVertical(lipgloss.Center,
