@@ -84,8 +84,16 @@ func systemctl(ctx context.Context, args ...string) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "systemctl", args...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("systemctl %s: %s: %s", strings.Join(args, " "), err, string(out))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if strings.Contains(msg, "Interactive authentication required") {
+			return fmt.Errorf("permission denied, try running with sudo")
+		}
+		if strings.Contains(msg, "not found") {
+			return fmt.Errorf("service %s is not installed", args[len(args)-1])
+		}
+		return fmt.Errorf("systemctl %s: %s: %s", strings.Join(args, " "), err, msg)
 	}
 	return nil
 }

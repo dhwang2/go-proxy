@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -53,11 +54,13 @@ func main() {
 	case "update":
 		fmt.Println("self-update not yet implemented in CLI mode")
 	case "log":
-		fmt.Println("use 'journalctl -u sing-box -f' for logs")
+		cmdLog()
 	case "core":
 		fmt.Println("core management not yet implemented in CLI mode")
 	case "network":
 		fmt.Println("network management not yet implemented in CLI mode")
+	case "help", "--help", "-h":
+		printUsage()
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		printUsage()
@@ -130,11 +133,26 @@ func cmdServiceAction(action string) {
 	fmt.Printf("%s %s: ok\n", action, svc)
 }
 
-func cmdConfig() {
-	sub := "view"
+func cmdLog() {
+	unit := "sing-box"
 	if len(os.Args) > 2 {
-		sub = os.Args[2]
+		unit = os.Args[2]
 	}
+	cmd := exec.Command("journalctl", "-u", unit, "-n", "50", "--no-pager")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to read logs: %v\nhint: try 'sudo proxy log' or 'journalctl -u %s -f'\n", err, unit)
+		os.Exit(1)
+	}
+}
+
+func cmdConfig() {
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "usage: proxy config view|validate")
+		os.Exit(1)
+	}
+	sub := os.Args[2]
 	switch sub {
 	case "view":
 		s, err := store.Load()
@@ -186,10 +204,7 @@ func cmdUser() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
-		if err := s.Apply(); err != nil {
-			fmt.Fprintf(os.Stderr, "apply error: %v\n", err)
-			os.Exit(1)
-		}
+		applyOrExit(s)
 		fmt.Printf("added user: %s\n", name)
 	case "rename":
 		old := argOrEmpty(3)
@@ -202,10 +217,7 @@ func cmdUser() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
-		if err := s.Apply(); err != nil {
-			fmt.Fprintf(os.Stderr, "apply error: %v\n", err)
-			os.Exit(1)
-		}
+		applyOrExit(s)
 		fmt.Printf("renamed: %s → %s\n", old, new)
 	case "delete":
 		name := argOrEmpty(3)
@@ -217,10 +229,7 @@ func cmdUser() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
-		if err := s.Apply(); err != nil {
-			fmt.Fprintf(os.Stderr, "apply error: %v\n", err)
-			os.Exit(1)
-		}
+		applyOrExit(s)
 		fmt.Printf("deleted user: %s\n", name)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown user subcommand: %s\n", os.Args[2])
@@ -280,18 +289,44 @@ func cmdRouting() {
 			n := routing.ClearAll(s)
 			fmt.Printf("cleared %d rules\n", n)
 		}
-		if err := s.Apply(); err != nil {
-			fmt.Fprintf(os.Stderr, "apply error: %v\n", err)
-			os.Exit(1)
-		}
+		applyOrExit(s)
 	case "sync-dns":
 		routing.SyncDNS(s, nil, "ipv4_only")
 		routing.SyncRouteRules(s)
-		if err := s.Apply(); err != nil {
-			fmt.Fprintf(os.Stderr, "apply error: %v\n", err)
+		applyOrExit(s)
+		fmt.Println("dns and route rules synced")
+	case "set":
+		userName := argOrEmpty(3)
+		preset := argOrEmpty(4)
+		outbound := argOrEmpty(5)
+		if userName == "" || preset == "" || outbound == "" {
+			fmt.Fprintln(os.Stderr, "usage: proxy routing set <user> <preset> <outbound>")
+			fmt.Fprintln(os.Stderr, "\npresets:")
+			for _, p := range routing.BuiltinPresets() {
+				fmt.Fprintf(os.Stderr, "  %s\n", p.Name)
+			}
 			os.Exit(1)
 		}
-		fmt.Println("dns and route rules synced")
+		var matched *routing.Preset
+		for _, p := range routing.BuiltinPresets() {
+			if strings.EqualFold(p.Name, preset) {
+				matched = &p
+				break
+			}
+		}
+		if matched == nil {
+			fmt.Fprintf(os.Stderr, "unknown preset: %s\n", preset)
+			os.Exit(1)
+		}
+		rule := routing.PresetToRule(*matched, userName, outbound)
+		if err := routing.SetRule(s, userName, rule); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		routing.SyncDNS(s, nil, "ipv4_only")
+		routing.SyncRouteRules(s)
+		applyOrExit(s)
+		fmt.Printf("set routing rule: %s → %s for %s\n", matched.Name, outbound, userName)
 	case "test":
 		userName := argOrEmpty(3)
 		domain := argOrEmpty(4)
@@ -354,7 +389,47 @@ func cmdSub() {
 
 func configJSON(s *store.Store) string {
 	data, _ := json.MarshalIndent(s.SingBox, "", "  ")
-	return string(data)
+	return maskCredentials(string(data))
+}
+
+// maskCredentials replaces UUID and password values with masked versions.
+func maskCredentials(s string) string {
+	var result strings.Builder
+	for _, line := range strings.Split(s, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "\"uuid\"") ||
+			strings.HasPrefix(trimmed, "\"password\"") {
+			// Mask the value: keep first 8 chars of the credential, replace rest.
+			parts := strings.SplitN(line, ": ", 2)
+			if len(parts) == 2 {
+				val := strings.Trim(strings.TrimSuffix(strings.TrimSpace(parts[1]), ","), "\"")
+				hasSuffix := strings.HasSuffix(strings.TrimSpace(parts[1]), ",")
+				masked := val
+				if len(val) > 8 {
+					masked = val[:8] + "********"
+				}
+				suffix := ""
+				if hasSuffix {
+					suffix = ","
+				}
+				result.WriteString(parts[0] + ": \"" + masked + "\"" + suffix + "\n")
+				continue
+			}
+		}
+		result.WriteString(line + "\n")
+	}
+	return strings.TrimRight(result.String(), "\n")
+}
+
+func applyOrExit(s *store.Store) {
+	if err := s.Apply(); err != nil {
+		if os.IsPermission(err) || strings.Contains(err.Error(), "permission denied") {
+			fmt.Fprintln(os.Stderr, "permission denied, try running with sudo")
+		} else {
+			fmt.Fprintf(os.Stderr, "apply error: %v\n", err)
+		}
+		os.Exit(1)
+	}
 }
 
 func argOrEmpty(i int) string {
