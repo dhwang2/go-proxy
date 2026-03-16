@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/rivo/tview"
+	tea "github.com/charmbracelet/bubbletea"
 
 	"go-proxy/internal/derived"
 	"go-proxy/internal/routing"
@@ -15,7 +15,7 @@ import (
 	"go-proxy/internal/store"
 	"go-proxy/internal/subscription"
 	"go-proxy/internal/tui"
-	"go-proxy/internal/tui/pages"
+	"go-proxy/internal/tui/views"
 	"go-proxy/internal/user"
 )
 
@@ -72,43 +72,25 @@ func runTUI() {
 		os.Exit(1)
 	}
 
-	app := tview.NewApplication()
-	state := tui.NewApp(app, s, version)
+	m := tui.NewModel(s, version)
 
-	// Create all pages.
-	mainMenu := pages.NewMainMenuPage(state)
-	protoInstall := pages.NewProtocolInstallPage(state)
-	protoRemove := pages.NewProtocolRemovePage(state)
-	userPage := pages.NewUserPage(state)
-	servicePage := pages.NewServicePage(state)
-	subPage := pages.NewSubscriptionPage(state)
-	configPage := pages.NewConfigPage(state)
-	routingPage := pages.NewRoutingPage(state)
-	networkPage := pages.NewNetworkPage(state)
-	corePage := pages.NewCorePage(state)
-	logsPage := pages.NewLogsPage(state)
-	uninstallPage := pages.NewUninstallPage(state)
-	selfUpdatePage := pages.NewSelfUpdatePage(state)
+	// Register all views.
+	m.RegisterView(views.NewMainMenuView(&m))
+	m.RegisterView(views.NewProtocolInstallView(&m))
+	m.RegisterView(views.NewProtocolRemoveView(&m))
+	m.RegisterView(views.NewUserView(&m))
+	m.RegisterView(views.NewServiceView(&m))
+	m.RegisterView(views.NewSubscriptionView(&m))
+	m.RegisterView(views.NewConfigView(&m))
+	m.RegisterView(views.NewRoutingView(&m))
+	m.RegisterView(views.NewNetworkView(&m))
+	m.RegisterView(views.NewCoreView(&m))
+	m.RegisterView(views.NewLogsView(&m))
+	m.RegisterView(views.NewUninstallView(&m))
+	m.RegisterView(views.NewSelfUpdateView(&m))
 
-	// Register all pages.
-	allPages := []tui.Page{
-		mainMenu, protoInstall, protoRemove, userPage,
-		servicePage, subPage, configPage, routingPage,
-		networkPage, corePage, logsPage, uninstallPage, selfUpdatePage,
-	}
-	for _, p := range allPages {
-		state.RegisterPage(p)
-	}
-
-	// Register sub-pages with main menu for OnEnter callbacks.
-	for _, p := range allPages[1:] {
-		mainMenu.RegisterSubPage(p)
-	}
-
-	// Start at main menu.
-	state.NavigateWithCallback(mainMenu)
-
-	if err := app.EnableMouse(false).Run(); err != nil {
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "tui error: %v\n", err)
 		os.Exit(1)
 	}
