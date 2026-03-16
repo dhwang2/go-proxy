@@ -43,7 +43,7 @@ func (v *ServiceView) Init() tea.Cmd {
 			ID:    string(svc),
 		})
 	}
-	items = append(items, components.MenuItem{Key: '0', Label: "返回  Back", ID: "back"})
+	items = append(items, components.MenuItem{Key: '0', Label: "返回", ID: "back"})
 	v.menu = v.menu.SetItems(items)
 	return nil
 }
@@ -57,11 +57,11 @@ func (v *ServiceView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.pendingSvc = service.Name(msg.ID)
 		v.step = serviceActions
 		actionMenu := components.NewMenu(string(v.pendingSvc), []components.MenuItem{
-			{Key: '1', Label: "启动  Start", ID: "start"},
-			{Key: '2', Label: "停止  Stop", ID: "stop"},
-			{Key: '3', Label: "重启  Restart", ID: "restart"},
-			{Key: '4', Label: "状态  Status", ID: "status"},
-			{Key: '0', Label: "返回  Back", ID: "action-back"},
+			{Key: '1', Label: "启动", ID: "start"},
+			{Key: '2', Label: "停止", ID: "stop"},
+			{Key: '3', Label: "重启", ID: "restart"},
+			{Key: '4', Label: "状态", ID: "status"},
+			{Key: '0', Label: "返回", ID: "action-back"},
 		})
 		return v, func() tea.Msg {
 			return tui.ShowOverlayMsg{Overlay: overlayMenu{menu: actionMenu}}

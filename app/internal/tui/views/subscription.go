@@ -51,7 +51,7 @@ func (v *SubscriptionView) Init() tea.Cmd {
 		}
 		items = append(items, components.MenuItem{Key: k, Label: name, ID: name})
 	}
-	items = append(items, components.MenuItem{Key: '0', Label: "返回  Back", ID: "back"})
+	items = append(items, components.MenuItem{Key: '0', Label: "返回", ID: "back"})
 	v.menu = v.menu.SetItems(items)
 	return nil
 }
@@ -65,10 +65,10 @@ func (v *SubscriptionView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		if v.step == subMenu {
 			v.pendingUser = msg.ID
 			v.step = subFormat
-			formatMenu := components.NewMenu("Select Format", []components.MenuItem{
+			formatMenu := components.NewMenu("选择格式", []components.MenuItem{
 				{Key: '1', Label: "Surge", ID: "surge"},
 				{Key: '2', Label: "sing-box", ID: "singbox"},
-				{Key: '0', Label: "返回  Back", ID: "back"},
+				{Key: '0', Label: "返回", ID: "back"},
 			})
 			return v, func() tea.Msg {
 				return tui.ShowOverlayMsg{Overlay: overlayMenu{menu: formatMenu}}

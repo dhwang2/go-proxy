@@ -22,10 +22,10 @@ func NewLogsView(model *tui.Model) *LogsView {
 			ID:    src,
 		})
 	}
-	items = append(items, components.MenuItem{Key: '0', Label: "返回  Back", ID: "back"})
+	items = append(items, components.MenuItem{Key: '0', Label: "返回", ID: "back"})
 
 	v := &LogsView{model: model}
-	v.menu = components.NewMenu("Runtime Logs", items)
+	v.menu = components.NewMenu("运行日志", items)
 	return v
 }
 

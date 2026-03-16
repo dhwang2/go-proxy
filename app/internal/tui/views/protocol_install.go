@@ -47,7 +47,7 @@ func (v *ProtocolInstallView) Init() tea.Cmd {
 			ID:    string(t),
 		})
 	}
-	items = append(items, components.MenuItem{Key: '0', Label: "返回  Back", ID: "back"})
+	items = append(items, components.MenuItem{Key: '0', Label: "返回", ID: "back"})
 	v.menu = v.menu.SetItems(items)
 	return nil
 }
