@@ -1,64 +1,27 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import "github.com/gdamore/tcell/v2"
 
-// Colors.
+// Colors matching the original palette.
 var (
-	ColorPrimary = lipgloss.Color("#00BCD4")
-	ColorSuccess = lipgloss.Color("#4CAF50")
-	ColorError   = lipgloss.Color("#F44336")
-	ColorWarning = lipgloss.Color("#FFC107")
-	ColorMuted   = lipgloss.Color("#9E9E9E")
-	ColorAccent  = lipgloss.Color("#7C4DFF")
+	ColorPrimary = tcell.ColorTeal       // #00BCD4
+	ColorSuccess = tcell.ColorGreen      // #4CAF50
+	ColorError   = tcell.ColorRed        // #F44336
+	ColorWarning = tcell.ColorYellow     // #FFC107
+	ColorMuted   = tcell.ColorGray       // #9E9E9E
+	ColorAccent  = tcell.ColorDarkViolet // #7C4DFF
+	ColorBorder  = tcell.ColorTeal
 )
 
-// Text styles.
-var (
-	StyleTitle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(ColorPrimary)
-
-	StyleSubtitle = lipgloss.NewStyle().
-			Foreground(ColorMuted)
-
-	StyleSuccess = lipgloss.NewStyle().
-			Foreground(ColorSuccess)
-
-	StyleError = lipgloss.NewStyle().
-			Foreground(ColorError)
-
-	StyleWarning = lipgloss.NewStyle().
-			Foreground(ColorWarning)
-
-	StyleMuted = lipgloss.NewStyle().
-			Foreground(ColorMuted)
-
-	StyleAccent = lipgloss.NewStyle().
-			Foreground(ColorAccent).
-			Bold(true)
-
-	StyleMenuItem = lipgloss.NewStyle().
-			PaddingLeft(2)
-
-	StyleMenuItemActive = lipgloss.NewStyle().
-				PaddingLeft(2).
-				Foreground(ColorPrimary).
-				Bold(true)
-
-	StyleBorder = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(ColorPrimary).
-			Padding(0, 1)
-
-	StyleHeader = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(ColorPrimary).
-			BorderBottom(true).
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(ColorMuted).
-			MarginBottom(1)
-
-	StyleStatusBar = lipgloss.NewStyle().
-			Foreground(ColorMuted).
-			MarginTop(1)
+// DashboardBorder characters (double-line).
+const (
+	BorderH  = '═'
+	BorderV  = '║'
+	BorderTL = '╔'
+	BorderTR = '╗'
+	BorderBL = '╚'
+	BorderBR = '╝'
+	BorderML = '╠'
+	BorderMR = '╣'
+	Bullet   = '●'
 )
