@@ -35,7 +35,7 @@ func NewUserView(model *tui.Model) *UserView {
 	v.menu = components.NewMenu("用户管理", []components.MenuItem{
 		{Key: '1', Label: "用户列表", ID: "list"},
 		{Key: '2', Label: "添加用户", ID: "add"},
-		{Key: '3', Label: "重命名用户", ID: "rename"},
+		{Key: '3', Label: "重置用户", ID: "rename"},
 		{Key: '4', Label: "删除用户", ID: "delete"},
 		{Key: '0', Label: "返回", ID: "back"},
 	})
@@ -136,9 +136,9 @@ type userActionDoneMsg struct{ result string }
 func (v *UserView) listUsers() tea.Msg {
 	users := user.List(v.model.Store())
 	var sb strings.Builder
-	sb.WriteString("Users\n\n")
+	sb.WriteString("用户列表\n\n")
 	if len(users) == 0 {
-		sb.WriteString("No users found")
+		sb.WriteString("暂无用户")
 	}
 	for _, u := range users {
 		sb.WriteString(fmt.Sprintf("  %s  (%d protocols, %d routes)\n",
@@ -149,30 +149,30 @@ func (v *UserView) listUsers() tea.Msg {
 
 func (v *UserView) doAdd(name string) tea.Msg {
 	if err := user.Add(v.model.Store(), name); err != nil {
-		return userActionDoneMsg{result: "Error: " + err.Error()}
+		return userActionDoneMsg{result: "失败: " + err.Error()}
 	}
 	if err := v.model.Store().Apply(); err != nil {
-		return userActionDoneMsg{result: "Failed to save: " + err.Error()}
+		return userActionDoneMsg{result: "失败: " + err.Error()}
 	}
-	return userActionDoneMsg{result: "Added user: " + name}
+	return userActionDoneMsg{result: "已添加用户: " + name}
 }
 
 func (v *UserView) doRename(oldName, newName string) tea.Msg {
 	if err := user.Rename(v.model.Store(), oldName, newName); err != nil {
-		return userActionDoneMsg{result: "Error: " + err.Error()}
+		return userActionDoneMsg{result: "失败: " + err.Error()}
 	}
 	if err := v.model.Store().Apply(); err != nil {
-		return userActionDoneMsg{result: "Failed to save: " + err.Error()}
+		return userActionDoneMsg{result: "失败: " + err.Error()}
 	}
-	return userActionDoneMsg{result: fmt.Sprintf("Renamed %s → %s", oldName, newName)}
+	return userActionDoneMsg{result: fmt.Sprintf("已重置 %s → %s", oldName, newName)}
 }
 
 func (v *UserView) doDelete(name string) tea.Msg {
 	if err := user.Delete(v.model.Store(), name); err != nil {
-		return userActionDoneMsg{result: "Error: " + err.Error()}
+		return userActionDoneMsg{result: "失败: " + err.Error()}
 	}
 	if err := v.model.Store().Apply(); err != nil {
-		return userActionDoneMsg{result: "Failed to save: " + err.Error()}
+		return userActionDoneMsg{result: "失败: " + err.Error()}
 	}
-	return userActionDoneMsg{result: "Deleted user: " + name}
+	return userActionDoneMsg{result: "已删除用户: " + name}
 }
