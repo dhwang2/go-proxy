@@ -32,7 +32,7 @@ func (v *UninstallView) Init() tea.Cmd {
 	v.step = uninstallConfirm
 	return func() tea.Msg {
 		return tui.ShowOverlayMsg{
-			Overlay: components.NewConfirm("Uninstall all services and configuration?"),
+			Overlay: components.NewConfirm("确认卸载所有服务和配置?"),
 		}
 	}
 }

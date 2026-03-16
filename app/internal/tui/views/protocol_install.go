@@ -62,7 +62,7 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.step = protoInstallPort
 		return v, func() tea.Msg {
 			return tui.ShowOverlayMsg{
-				Overlay: components.NewTextInput("Port number:", "8443"),
+				Overlay: components.NewTextInput("端口号:", "8443"),
 			}
 		}
 

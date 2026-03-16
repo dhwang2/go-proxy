@@ -59,7 +59,7 @@ func (v *MainMenuView) View() string {
 
 	status := lipgloss.NewStyle().
 		Foreground(tui.ColorMuted).
-		PaddingLeft(2).
+		PaddingLeft(4).
 		Render("ESC: 返回 | q: 退出")
 
 	return lipgloss.JoinVertical(lipgloss.Left,

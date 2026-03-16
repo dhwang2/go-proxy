@@ -62,21 +62,21 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.step = userAdd
 			return v, func() tea.Msg {
 				return tui.ShowOverlayMsg{
-					Overlay: components.NewTextInput("Username:", "user2"),
+					Overlay: components.NewTextInput("用户名:", "user2"),
 				}
 			}
 		case "rename":
 			v.step = userRenameOld
 			return v, func() tea.Msg {
 				return tui.ShowOverlayMsg{
-					Overlay: components.NewTextInput("Current username:", ""),
+					Overlay: components.NewTextInput("当前用户名:", ""),
 				}
 			}
 		case "delete":
 			v.step = userDelete
 			return v, func() tea.Msg {
 				return tui.ShowOverlayMsg{
-					Overlay: components.NewTextInput("Username to delete:", ""),
+					Overlay: components.NewTextInput("要删除的用户名:", ""),
 				}
 			}
 		}
@@ -95,7 +95,7 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.step = userRenameNew
 			return v, func() tea.Msg {
 				return tui.ShowOverlayMsg{
-					Overlay: components.NewTextInput("New username:", ""),
+					Overlay: components.NewTextInput("新用户名:", ""),
 				}
 			}
 		case userRenameNew:

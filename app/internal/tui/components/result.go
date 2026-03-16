@@ -44,7 +44,7 @@ func (m ResultModel) View() string {
 	content := lipgloss.JoinVertical(lipgloss.Center,
 		m.message,
 		"",
-		okStyle.Render("[ OK ]"),
+		okStyle.Render("[ 确定 ]"),
 	)
 
 	return tui.DialogStyle.Render(content)
