@@ -74,20 +74,14 @@ func RenderDashboard(s *store.Store, version string, width int) string {
 	)
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		"",
 		centeredTitle,
 		centeredSubtitle,
-		"",
 		sep,
 		"",
 		sysLine,
-		"",
 		protoLine,
-		"",
 		portLine,
-		"",
 		userLine,
-		"",
 	)
 
 	style := lipgloss.NewStyle().
