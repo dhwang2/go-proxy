@@ -138,6 +138,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 		case key.Matches(msg, Keys.Back):
+			if m.current == "main-menu" {
+				return m, tea.Quit
+			}
 			if m.nav.Depth() > 1 {
 				return m, BackCmd
 			}

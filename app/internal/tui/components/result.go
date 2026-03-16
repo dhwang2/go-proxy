@@ -42,9 +42,12 @@ func (m ResultModel) View() string {
 		Padding(0, 2)
 
 	content := lipgloss.JoinVertical(lipgloss.Center,
+		"",
 		m.message,
 		"",
+		"",
 		okStyle.Render("[ 确定 ]"),
+		"",
 	)
 
 	return tui.DialogStyle.Render(content)

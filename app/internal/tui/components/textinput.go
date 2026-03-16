@@ -84,16 +84,19 @@ func (m TextInputModel) View() string {
 	}
 
 	buttons := lipgloss.JoinHorizontal(lipgloss.Center,
-		okStyle.Render("[ OK ]"),
-		cancelStyle.Render("[ Cancel ]"),
+		okStyle.Render("[ 确定 ]"),
+		cancelStyle.Render("[ 取消 ]"),
 	)
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
+		"",
 		m.prompt,
 		"",
 		m.input.View(),
 		"",
+		"",
 		buttons,
+		"",
 	)
 
 	return tui.DialogStyle.Render(content)
