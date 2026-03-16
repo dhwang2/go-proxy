@@ -119,6 +119,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Ctrl+C always quits, even with an overlay active.
+		if key.Matches(msg, Keys.Quit) {
+			return m, tea.Quit
+		}
+
 		// If overlay is active, delegate to overlay.
 		if m.overlay != nil {
 			var cmd tea.Cmd
@@ -128,10 +133,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Global keys (only when no overlay).
 		switch {
-		case key.Matches(msg, Keys.Quit):
-			if m.current == "main-menu" {
-				return m, tea.Quit
-			}
 		case key.Matches(msg, Keys.QuitQ):
 			if m.current == "main-menu" {
 				return m, tea.Quit

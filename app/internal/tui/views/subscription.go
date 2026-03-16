@@ -107,8 +107,7 @@ func (v *SubscriptionView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 
 	case tui.ResultDismissedMsg:
-		v.step = subMenu
-		return v, nil
+		return v, func() tea.Msg { return tui.BackMsg{} }
 
 	default:
 		if v.step == subMenu {
