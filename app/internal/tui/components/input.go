@@ -42,8 +42,7 @@ func (m InputModel) Init() tea.Cmd {
 func (m InputModel) Update(msg tea.Msg) (InputModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "enter":
+		if msg.Type == tea.KeyEnter {
 			val := strings.TrimSpace(m.input.Value())
 			if m.Validate != nil {
 				if err := m.Validate(val); err != nil {
