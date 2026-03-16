@@ -14,11 +14,11 @@ type NetworkView struct {
 
 func NewNetworkView(model *tui.Model) *NetworkView {
 	v := &NetworkView{model: model}
-	v.menu = components.NewMenu("Network Management", []components.MenuItem{
-		{Key: '1', Label: "BBR 状态  BBR Status", ID: "bbr-status"},
-		{Key: '2', Label: "启用 BBR  Enable BBR", ID: "bbr-enable"},
-		{Key: '3', Label: "防火墙  Firewall Rules", ID: "firewall"},
-		{Key: '0', Label: "返回  Back", ID: "back"},
+	v.menu = components.NewMenu("网络管理", []components.MenuItem{
+		{Key: '1', Label: "BBR 状态", ID: "bbr-status"},
+		{Key: '2', Label: "启用 BBR", ID: "bbr-enable"},
+		{Key: '3', Label: "防火墙规则", ID: "firewall"},
+		{Key: '0', Label: "返回", ID: "back"},
 	})
 	return v
 }

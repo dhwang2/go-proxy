@@ -15,13 +15,13 @@ type RoutingView struct {
 
 func NewRoutingView(model *tui.Model) *RoutingView {
 	v := &RoutingView{model: model}
-	v.menu = components.NewMenu("Routing Management", []components.MenuItem{
-		{Key: '1', Label: "设置规则  Set Rules", ID: "set"},
-		{Key: '2', Label: "清除规则  Clear Rules", ID: "clear"},
-		{Key: '3', Label: "链式代理  Chain Proxy", ID: "chain"},
-		{Key: '4', Label: "测试规则  Test Rules", ID: "test"},
-		{Key: '5', Label: "同步 DNS  Sync DNS", ID: "sync-dns"},
-		{Key: '0', Label: "返回  Back", ID: "back"},
+	v.menu = components.NewMenu("分流管理", []components.MenuItem{
+		{Key: '1', Label: "设置规则", ID: "set"},
+		{Key: '2', Label: "清除规则", ID: "clear"},
+		{Key: '3', Label: "链式代理", ID: "chain"},
+		{Key: '4', Label: "测试规则", ID: "test"},
+		{Key: '5', Label: "同步 DNS", ID: "sync-dns"},
+		{Key: '0', Label: "返回", ID: "back"},
 	})
 	return v
 }

@@ -14,11 +14,11 @@ type CoreView struct {
 
 func NewCoreView(model *tui.Model) *CoreView {
 	v := &CoreView{model: model}
-	v.menu = components.NewMenu("Core Management", []components.MenuItem{
-		{Key: '1', Label: "查看版本  View Versions", ID: "versions"},
-		{Key: '2', Label: "检查更新  Check Updates", ID: "check"},
-		{Key: '3', Label: "更新内核  Update Core", ID: "update"},
-		{Key: '0', Label: "返回  Back", ID: "back"},
+	v.menu = components.NewMenu("内核管理", []components.MenuItem{
+		{Key: '1', Label: "查看版本", ID: "versions"},
+		{Key: '2', Label: "检查更新", ID: "check"},
+		{Key: '3', Label: "更新内核", ID: "update"},
+		{Key: '0', Label: "返回", ID: "back"},
 	})
 	return v
 }

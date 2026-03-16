@@ -48,7 +48,7 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 			ID:    info.Tag,
 		})
 	}
-	items = append(items, components.MenuItem{Key: '0', Label: "返回  Back", ID: "back"})
+	items = append(items, components.MenuItem{Key: '0', Label: "返回", ID: "back"})
 	v.menu = v.menu.SetItems(items)
 	return nil
 }
