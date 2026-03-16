@@ -63,9 +63,12 @@ func (m ConfirmModel) View() string {
 	)
 
 	content := lipgloss.JoinVertical(lipgloss.Center,
+		"",
 		m.prompt,
 		"",
+		"",
 		buttons,
+		"",
 	)
 
 	return tui.DialogStyle.Render(content)

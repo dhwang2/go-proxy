@@ -101,25 +101,26 @@ func (m MenuModel) View() string {
 	titleStyle := lipgloss.NewStyle().
 		Foreground(tui.ColorPrimary).
 		Bold(true).
-		PaddingLeft(1)
+		PaddingLeft(2)
 
 	if m.title != "" {
 		b.WriteString(titleStyle.Render(m.title))
-		b.WriteByte('\n')
-		b.WriteByte('\n')
+		b.WriteString("\n\n")
 	}
 
+	selectedStyle := lipgloss.NewStyle().
+		Foreground(tui.ColorPrimary).
+		Bold(true)
+
 	for i, item := range m.items {
-		label := fmt.Sprintf("    %c)  %s", item.Key, item.Label)
+		label := fmt.Sprintf("      (%c)  %s", item.Key, item.Label)
+
 		if i == m.cursor {
-			style := lipgloss.NewStyle().
-				Foreground(tui.ColorPrimary).
-				Bold(true)
-			b.WriteString(style.Render("  ▸" + label[3:]))
+			b.WriteString(selectedStyle.Render(fmt.Sprintf("   ▸  (%c)  %s", item.Key, item.Label)))
 		} else {
 			b.WriteString(label)
 		}
-		b.WriteByte('\n')
+		b.WriteString("\n\n")
 	}
 
 	return b.String()

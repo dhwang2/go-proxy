@@ -57,16 +57,18 @@ func (v *MainMenuView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 func (v *MainMenuView) View() string {
 	dashboard := tui.RenderDashboard(v.model.Store(), v.model.Version(), v.model.Width())
 
-	status := lipgloss.NewStyle().
+	hintStyle := lipgloss.NewStyle().
 		Foreground(tui.ColorMuted).
-		PaddingLeft(4).
-		Render("ESC: 返回 | q: 退出")
+		PaddingLeft(6)
+
+	hint := hintStyle.Render("ESC/q: 退出  |  ↑↓: 选择  |  Enter: 确认")
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		"",
 		dashboard,
 		"",
+		"",
 		v.menu.View(),
-		status,
+		hint,
 	)
 }

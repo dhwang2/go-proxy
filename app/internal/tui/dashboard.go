@@ -23,33 +23,71 @@ func RenderDashboard(s *store.Store, version string, width int) string {
 	}
 	inner := width - 4 // padding for border
 
-	// Title line.
-	title := fmt.Sprintf("go-proxy 一键脚本 [%s]", version)
+	// Styles for colored values.
+	titleStyle := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
+	labelStyle := lipgloss.NewStyle().Foreground(ColorLabel).Bold(true)
+	sysValStyle := lipgloss.NewStyle().Foreground(ColorValSys).Bold(true)
+	portValStyle := lipgloss.NewStyle().Foreground(ColorValPort).Bold(true)
+	protoValStyle := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
+	ruleValStyle := lipgloss.NewStyle().Foreground(ColorSuccess).Bold(true)
+	mutedStyle := lipgloss.NewStyle().Foreground(ColorMuted)
 
-	// Info lines.
-	sysLine := fmt.Sprintf("    系统: %s | 架构: %s", runtime.GOOS, displayArch())
-	protoLine := fmt.Sprintf("    协议: %s", stats.Protocols)
-	portLine := fmt.Sprintf("    端口: %s", stats.Ports)
-	userLine := fmt.Sprintf("    用户: %d个用户", stats.UserCount)
+	// Title lines.
+	title := titleStyle.Render("go-proxy 一键部署 [服务端]")
+	subtitle := fmt.Sprintf("作者: dhwang2    命令: proxy    版本: %s", version)
+	subtitleRendered := mutedStyle.Render(subtitle)
 
-	// Center the title.
-	titlePad := inner - lipgloss.Width(title)
+	// Center both lines.
+	titlePad := (inner - lipgloss.Width(title)) / 2
 	if titlePad < 0 {
 		titlePad = 0
 	}
-	leftPad := titlePad / 2
-	centeredTitle := strings.Repeat(" ", leftPad) + title
+	subtitlePad := (inner - lipgloss.Width(subtitleRendered)) / 2
+	if subtitlePad < 0 {
+		subtitlePad = 0
+	}
+	centeredTitle := strings.Repeat(" ", titlePad) + title
+	centeredSubtitle := strings.Repeat(" ", subtitlePad) + subtitleRendered
 
 	sep := strings.Repeat(string(BorderH), inner)
 
+	// Dashboard info lines with colored labels and values.
+	sysInfo := fmt.Sprintf("%s | %s",
+		sysValStyle.Render(runtime.GOOS),
+		sysValStyle.Render(displayArch()),
+	)
+	sysLine := fmt.Sprintf("     %s  %s", labelStyle.Render("系统:"), sysInfo)
+
+	protoLine := fmt.Sprintf("     %s  %s",
+		labelStyle.Render("协议:"),
+		protoValStyle.Render(stats.Protocols),
+	)
+
+	portLine := fmt.Sprintf("     %s  %s",
+		labelStyle.Render("端口:"),
+		portValStyle.Render(stats.Ports),
+	)
+
+	userLine := fmt.Sprintf("     %s  %s",
+		labelStyle.Render("用户:"),
+		ruleValStyle.Render(fmt.Sprintf("%d 个用户", stats.UserCount)),
+	)
+
 	content := lipgloss.JoinVertical(lipgloss.Left,
+		"",
 		centeredTitle,
+		centeredSubtitle,
 		"",
 		sep,
+		"",
 		sysLine,
+		"",
 		protoLine,
+		"",
 		portLine,
+		"",
 		userLine,
+		"",
 	)
 
 	style := lipgloss.NewStyle().
