@@ -28,7 +28,7 @@ func NewMainMenuView(model *tui.Model) *MainMenuView {
 		{Key: 'a', Label: "网络管理", ID: "network"},
 		{Key: 'b', Label: "脚本更新", ID: "self-update"},
 		{Key: 'c', Label: "卸载服务", ID: "uninstall"},
-		{Key: '0', Label: "安全退出", ID: "quit"},
+		{Key: '0', Label: "完全退出", ID: "quit"},
 	})
 	return v
 }
@@ -66,7 +66,6 @@ func (v *MainMenuView) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left,
 		"",
 		dashboard,
-		"",
 		"",
 		v.menu.View(),
 		hint,

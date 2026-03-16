@@ -113,14 +113,14 @@ func (m MenuModel) View() string {
 		Bold(true)
 
 	for i, item := range m.items {
-		label := fmt.Sprintf("      (%c)  %s", item.Key, item.Label)
+		label := fmt.Sprintf("      （%c）  %s", item.Key, item.Label)
 
 		if i == m.cursor {
-			b.WriteString(selectedStyle.Render(fmt.Sprintf("   ▸  (%c)  %s", item.Key, item.Label)))
+			b.WriteString(selectedStyle.Render(fmt.Sprintf("   ▸  （%c）  %s", item.Key, item.Label)))
 		} else {
 			b.WriteString(label)
 		}
-		b.WriteString("\n\n")
+		b.WriteString("\n")
 	}
 
 	return b.String()
