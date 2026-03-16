@@ -51,36 +51,29 @@ func (v *ServiceView) Init() tea.Cmd {
 func (v *ServiceView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case components.MenuSelectMsg:
-		switch v.step {
-		case serviceMenu:
-			if msg.ID == "back" {
-				return v, func() tea.Msg { return tui.BackMsg{} }
-			}
-			v.pendingSvc = service.Name(msg.ID)
-			v.step = serviceActions
-			actionMenu := components.NewMenu(string(v.pendingSvc), []components.MenuItem{
-				{Key: '1', Label: "启动  Start", ID: "start"},
-				{Key: '2', Label: "停止  Stop", ID: "stop"},
-				{Key: '3', Label: "重启  Restart", ID: "restart"},
-				{Key: '4', Label: "状态  Status", ID: "status"},
-				{Key: '0', Label: "返回  Back", ID: "action-back"},
-			})
-			return v, func() tea.Msg {
-				return tui.ShowOverlayMsg{Overlay: menuOverlay{menu: actionMenu}}
-			}
-
-		case serviceActions:
-			// This comes from the overlay menu.
+		if msg.ID == "back" {
+			return v, func() tea.Msg { return tui.BackMsg{} }
 		}
-		return v, nil
+		v.pendingSvc = service.Name(msg.ID)
+		v.step = serviceActions
+		actionMenu := components.NewMenu(string(v.pendingSvc), []components.MenuItem{
+			{Key: '1', Label: "启动  Start", ID: "start"},
+			{Key: '2', Label: "停止  Stop", ID: "stop"},
+			{Key: '3', Label: "重启  Restart", ID: "restart"},
+			{Key: '4', Label: "状态  Status", ID: "status"},
+			{Key: '0', Label: "返回  Back", ID: "action-back"},
+		})
+		return v, func() tea.Msg {
+			return tui.ShowOverlayMsg{Overlay: overlayMenu{menu: actionMenu}}
+		}
 
-	case svcActionSelectMsg:
-		if msg.id == "action-back" {
+	case tui.OverlaySelectMsg:
+		if msg.ID == "action-back" {
 			v.step = serviceMenu
-			return v, func() tea.Msg { return tui.DismissOverlayMsg{} }
+			return v, nil
 		}
 		svc := v.pendingSvc
-		action := msg.id
+		action := msg.ID
 		return v, func() tea.Msg { return v.doAction(svc, action) }
 
 	case svcActionDoneMsg:
@@ -93,7 +86,7 @@ func (v *ServiceView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case tui.ResultDismissedMsg:
 		v.step = serviceMenu
-		return v, func() tea.Msg { return tui.DismissOverlayMsg{} }
+		return v, nil
 
 	default:
 		if v.step == serviceMenu {
@@ -108,7 +101,6 @@ func (v *ServiceView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 func (v *ServiceView) View() string { return v.menu.View() }
 
 type svcActionDoneMsg struct{ result string }
-type svcActionSelectMsg struct{ id string }
 
 func (v *ServiceView) doAction(svc service.Name, action string) tea.Msg {
 	ctx := context.Background()
@@ -142,18 +134,18 @@ func (v *ServiceView) doAction(svc service.Name, action string) tea.Msg {
 	return svcActionDoneMsg{result: "unknown action"}
 }
 
-// menuOverlay wraps a MenuModel as an OverlayModel for service actions.
-type menuOverlay struct {
+// overlayMenu wraps a MenuModel as an OverlayModel.
+type overlayMenu struct {
 	menu components.MenuModel
 }
 
-func (o menuOverlay) Init() tea.Cmd { return nil }
+func (o overlayMenu) Init() tea.Cmd { return nil }
 
-func (o menuOverlay) Update(msg tea.Msg) (tui.OverlayModel, tea.Cmd) {
+func (o overlayMenu) Update(msg tea.Msg) (tui.OverlayModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case components.MenuSelectMsg:
 		id := msg.ID
-		return o, func() tea.Msg { return svcActionSelectMsg{id: id} }
+		return o, func() tea.Msg { return tui.OverlaySelectMsg{ID: id} }
 	default:
 		var cmd tea.Cmd
 		o.menu, cmd = o.menu.Update(msg)
@@ -161,6 +153,6 @@ func (o menuOverlay) Update(msg tea.Msg) (tui.OverlayModel, tea.Cmd) {
 	}
 }
 
-func (o menuOverlay) View() string {
+func (o overlayMenu) View() string {
 	return tui.DialogStyle.Render(o.menu.View())
 }
