@@ -71,18 +71,18 @@ func (v *SubscriptionView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				{Key: '0', Label: "返回  Back", ID: "back"},
 			})
 			return v, func() tea.Msg {
-				return tui.ShowOverlayMsg{Overlay: subFormatOverlay{menu: formatMenu}}
+				return tui.ShowOverlayMsg{Overlay: overlayMenu{menu: formatMenu}}
 			}
 		}
 		return v, nil
 
-	case subFormatSelectMsg:
-		if msg.id == "back" {
+	case tui.OverlaySelectMsg:
+		if msg.ID == "back" {
 			v.step = subMenu
-			return v, func() tea.Msg { return tui.DismissOverlayMsg{} }
+			return v, nil
 		}
 		var format subscription.Format
-		if msg.id == "singbox" {
+		if msg.ID == "singbox" {
 			format = subscription.FormatSingBox
 		} else {
 			format = subscription.FormatSurge
@@ -108,7 +108,7 @@ func (v *SubscriptionView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case tui.ResultDismissedMsg:
 		v.step = subMenu
-		return v, func() tea.Msg { return tui.DismissOverlayMsg{} }
+		return v, nil
 
 	default:
 		if v.step == subMenu {
@@ -121,27 +121,3 @@ func (v *SubscriptionView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *SubscriptionView) View() string { return v.menu.View() }
-
-type subFormatSelectMsg struct{ id string }
-
-type subFormatOverlay struct {
-	menu components.MenuModel
-}
-
-func (o subFormatOverlay) Init() tea.Cmd { return nil }
-
-func (o subFormatOverlay) Update(msg tea.Msg) (tui.OverlayModel, tea.Cmd) {
-	switch msg := msg.(type) {
-	case components.MenuSelectMsg:
-		id := msg.ID
-		return o, func() tea.Msg { return subFormatSelectMsg{id: id} }
-	default:
-		var cmd tea.Cmd
-		o.menu, cmd = o.menu.Update(msg)
-		return o, cmd
-	}
-}
-
-func (o subFormatOverlay) View() string {
-	return tui.DialogStyle.Render(o.menu.View())
-}

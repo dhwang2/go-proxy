@@ -32,6 +32,11 @@ type ConfirmResultMsg struct {
 // ResultDismissedMsg signals a result overlay was dismissed.
 type ResultDismissedMsg struct{}
 
+// OverlaySelectMsg carries a selection from an overlay menu.
+type OverlaySelectMsg struct {
+	ID string
+}
+
 // OverlayModel is the interface for overlay components.
 type OverlayModel interface {
 	Init() tea.Cmd

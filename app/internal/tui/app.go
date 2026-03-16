@@ -108,6 +108,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.overlay = nil
 		return m, nil
 
+	case InputResultMsg, ConfirmResultMsg, ResultDismissedMsg, OverlaySelectMsg:
+		// Overlay result messages: dismiss overlay and route to current view.
+		m.overlay = nil
+		if v, ok := m.views[m.current]; ok {
+			newView, cmd := v.Update(msg)
+			m.views[m.current] = newView
+			return m, cmd
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		// If overlay is active, delegate to overlay.
 		if m.overlay != nil {
@@ -134,16 +144,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Delegate to overlay if active (non-key messages).
+	// Delegate to overlay if active (non-key messages like spinner ticks).
 	if m.overlay != nil {
-		switch msg.(type) {
-		case tea.KeyMsg:
-			// Already handled above.
-		default:
-			var cmd tea.Cmd
-			m.overlay, cmd = m.overlay.Update(msg)
-			return m, cmd
-		}
+		var cmd tea.Cmd
+		m.overlay, cmd = m.overlay.Update(msg)
+		return m, cmd
 	}
 
 	// Delegate to current view.
