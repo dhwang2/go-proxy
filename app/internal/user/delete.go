@@ -36,16 +36,14 @@ func Delete(s *store.Store, name string) error {
 		ib.Users = kept
 	}
 
-	if !found {
-		return fmt.Errorf("user %q not found", name)
-	}
-
 	// Remove from groups.
 	for groupName, members := range s.UserMeta.Groups {
 		var kept []string
 		for _, m := range members {
 			if m != name {
 				kept = append(kept, m)
+			} else {
+				found = true
 			}
 		}
 		if len(kept) == 0 {
@@ -53,6 +51,10 @@ func Delete(s *store.Store, name string) error {
 		} else {
 			s.UserMeta.Groups[groupName] = kept
 		}
+	}
+
+	if !found {
+		return fmt.Errorf("user %q not found", name)
 	}
 
 	// Prune orphan auth_user references from route and DNS rules.

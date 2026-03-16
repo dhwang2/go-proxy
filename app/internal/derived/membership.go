@@ -40,7 +40,7 @@ func Membership(s *store.Store) map[string][]MembershipEntry {
 	return result
 }
 
-// UserNames returns a deduplicated, sorted list of all user names across inbounds.
+// UserNames returns a deduplicated list of all user names from inbounds and groups.
 func UserNames(s *store.Store) []string {
 	seen := make(map[string]bool)
 	var names []string
@@ -49,6 +49,15 @@ func UserNames(s *store.Store) []string {
 			if !seen[u.Name] {
 				seen[u.Name] = true
 				names = append(names, u.Name)
+			}
+		}
+	}
+	// Include users registered in groups but not yet in any inbound.
+	for _, members := range s.UserMeta.Groups {
+		for _, name := range members {
+			if !seen[name] {
+				seen[name] = true
+				names = append(names, name)
 			}
 		}
 	}

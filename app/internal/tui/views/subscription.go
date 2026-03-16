@@ -39,7 +39,7 @@ func (v *SubscriptionView) Init() tea.Cmd {
 	if len(names) == 0 {
 		return func() tea.Msg {
 			return tui.ShowOverlayMsg{
-				Overlay: components.NewResult("No users found"),
+				Overlay: components.NewResult("暂无用户"),
 			}
 		}
 	}
@@ -90,13 +90,13 @@ func (v *SubscriptionView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		user := v.pendingUser
 		links := subscription.Render(v.model.Store(), user, format, "")
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("Subscription: %s (%s)\n\n", user, format))
+		sb.WriteString(fmt.Sprintf("订阅: %s (%s)\n\n", user, format))
 		for _, l := range links {
 			sb.WriteString(l.Tag + "\n")
 			sb.WriteString(l.Content + "\n\n")
 		}
 		if len(links) == 0 {
-			sb.WriteString("No subscriptions available")
+			sb.WriteString("暂无可用订阅")
 		}
 		v.step = subResult
 		result := sb.String()
@@ -120,3 +120,26 @@ func (v *SubscriptionView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *SubscriptionView) View() string { return v.menu.View() }
+
+// overlayMenu wraps a MenuModel as an OverlayModel.
+type overlayMenu struct {
+	menu components.MenuModel
+}
+
+func (o overlayMenu) Init() tea.Cmd { return nil }
+
+func (o overlayMenu) Update(msg tea.Msg) (tui.OverlayModel, tea.Cmd) {
+	switch msg := msg.(type) {
+	case components.MenuSelectMsg:
+		id := msg.ID
+		return o, func() tea.Msg { return tui.OverlaySelectMsg{ID: id} }
+	default:
+		var cmd tea.Cmd
+		o.menu, cmd = o.menu.Update(msg)
+		return o, cmd
+	}
+}
+
+func (o overlayMenu) View() string {
+	return tui.DialogStyle.Render(o.menu.View())
+}

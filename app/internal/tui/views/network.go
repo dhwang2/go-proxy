@@ -36,7 +36,7 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		default:
 			return v, func() tea.Msg {
 				return tui.ShowOverlayMsg{
-					Overlay: components.NewResult("Not implemented yet (requires Linux)"),
+					Overlay: components.NewResult("功能尚未实现（需要 Linux）"),
 				}
 			}
 		}
