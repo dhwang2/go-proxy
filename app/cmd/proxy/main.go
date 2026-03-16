@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	"github.com/rivo/tview"
 
 	"go-proxy/internal/derived"
 	"go-proxy/internal/routing"
@@ -15,6 +15,7 @@ import (
 	"go-proxy/internal/store"
 	"go-proxy/internal/subscription"
 	"go-proxy/internal/tui"
+	"go-proxy/internal/tui/pages"
 	"go-proxy/internal/user"
 )
 
@@ -70,9 +71,44 @@ func runTUI() {
 		fmt.Fprintf(os.Stderr, "error loading config: %v\n", err)
 		os.Exit(1)
 	}
-	app := tui.New(s, version)
-	p := tea.NewProgram(app, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
+
+	app := tview.NewApplication()
+	state := tui.NewApp(app, s, version)
+
+	// Create all pages.
+	mainMenu := pages.NewMainMenuPage(state)
+	protoInstall := pages.NewProtocolInstallPage(state)
+	protoRemove := pages.NewProtocolRemovePage(state)
+	userPage := pages.NewUserPage(state)
+	servicePage := pages.NewServicePage(state)
+	subPage := pages.NewSubscriptionPage(state)
+	configPage := pages.NewConfigPage(state)
+	routingPage := pages.NewRoutingPage(state)
+	networkPage := pages.NewNetworkPage(state)
+	corePage := pages.NewCorePage(state)
+	logsPage := pages.NewLogsPage(state)
+	uninstallPage := pages.NewUninstallPage(state)
+	selfUpdatePage := pages.NewSelfUpdatePage(state)
+
+	// Register all pages.
+	allPages := []tui.Page{
+		mainMenu, protoInstall, protoRemove, userPage,
+		servicePage, subPage, configPage, routingPage,
+		networkPage, corePage, logsPage, uninstallPage, selfUpdatePage,
+	}
+	for _, p := range allPages {
+		state.RegisterPage(p)
+	}
+
+	// Register sub-pages with main menu for OnEnter callbacks.
+	for _, p := range allPages[1:] {
+		mainMenu.RegisterSubPage(p)
+	}
+
+	// Start at main menu.
+	state.NavigateWithCallback(mainMenu)
+
+	if err := app.EnableMouse(false).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "tui error: %v\n", err)
 		os.Exit(1)
 	}
