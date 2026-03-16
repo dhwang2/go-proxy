@@ -67,6 +67,12 @@ func (m MenuModel) Init() tea.Cmd {
 func (m MenuModel) Update(msg tea.Msg) (MenuModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if msg.Type == tea.KeyEnter && len(m.Items) > 0 {
+			m.selected = m.cursor
+			return m, func() tea.Msg {
+				return MenuSelectedMsg{Index: m.cursor, Item: m.Items[m.cursor]}
+			}
+		}
 		switch msg.String() {
 		case "up", "k":
 			if m.cursor > 0 {
@@ -75,11 +81,6 @@ func (m MenuModel) Update(msg tea.Msg) (MenuModel, tea.Cmd) {
 		case "down", "j":
 			if m.cursor < len(m.Items)-1 {
 				m.cursor++
-			}
-		case "enter":
-			m.selected = m.cursor
-			return m, func() tea.Msg {
-				return MenuSelectedMsg{Index: m.cursor, Item: m.Items[m.cursor]}
 			}
 		default:
 			// Number key selection.

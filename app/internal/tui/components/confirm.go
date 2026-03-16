@@ -33,6 +33,13 @@ func (m ConfirmModel) Init() tea.Cmd {
 func (m ConfirmModel) Update(msg tea.Msg) (ConfirmModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if msg.Type == tea.KeyEsc {
+			m.confirmed = false
+			m.answered = true
+			return m, func() tea.Msg {
+				return ConfirmResultMsg{Confirmed: false}
+			}
+		}
 		switch msg.String() {
 		case "y", "Y":
 			m.confirmed = true
@@ -40,7 +47,7 @@ func (m ConfirmModel) Update(msg tea.Msg) (ConfirmModel, tea.Cmd) {
 			return m, func() tea.Msg {
 				return ConfirmResultMsg{Confirmed: true}
 			}
-		case "n", "N", "esc":
+		case "n", "N":
 			m.confirmed = false
 			m.answered = true
 			return m, func() tea.Msg {

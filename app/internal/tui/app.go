@@ -76,16 +76,19 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
+		if msg.Type == tea.KeyCtrlC {
 			if a.nav.Current() == ViewMainMenu {
 				return a, tea.Quit
 			}
-		case "esc":
+		}
+		if msg.Type == tea.KeyEsc {
 			if a.nav.Pop() {
 				a.resetView()
 				return a, nil
 			}
+		}
+		if msg.String() == "q" && a.nav.Current() == ViewMainMenu {
+			return a, tea.Quit
 		}
 
 	case components.ToastExpiredMsg:
