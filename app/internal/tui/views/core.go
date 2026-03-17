@@ -58,7 +58,7 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, tui.BackCmd
 		case "versions":
 			v.step = coreWorking
-			return v, tea.Batch(
+			return v, tea.Sequence(
 				func() tea.Msg {
 					return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在检测版本...")}
 				},
@@ -66,7 +66,7 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			)
 		case "check":
 			v.step = coreWorking
-			return v, tea.Batch(
+			return v, tea.Sequence(
 				func() tea.Msg {
 					return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在检查更新...")}
 				},
@@ -74,7 +74,7 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			)
 		case "update":
 			v.step = coreWorking
-			return v, tea.Batch(
+			return v, tea.Sequence(
 				func() tea.Msg {
 					return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在检查更新...")}
 				},
@@ -108,7 +108,7 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			updates := v.pending
 			v.pending = nil
 			v.step = coreWorking
-			return v, tea.Batch(
+			return v, tea.Sequence(
 				func() tea.Msg {
 					return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在下载更新...")}
 				},
