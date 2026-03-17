@@ -46,7 +46,7 @@ func (v *UninstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		if !msg.Confirmed {
 			return v, tui.BackCmd
 		}
-		return v, tea.Batch(
+		return v, tea.Sequence(
 			func() tea.Msg {
 				return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在卸载...")}
 			},

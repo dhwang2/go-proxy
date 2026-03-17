@@ -74,7 +74,7 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		pt := v.pendingType
 		portStr := msg.Value
-		return v, tea.Batch(
+		return v, tea.Sequence(
 			func() tea.Msg {
 				return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在安装依赖...")}
 			},
