@@ -149,7 +149,7 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *UserView) View() string {
-	return tui.RenderSubMenuFrame("", v.menu.View(), "返回(esc) | 选择(↑↓) | 确认(enter)", tui.SeparatorWidth)
+	return tui.RenderSubMenuFrame(v.menu.View(), tui.DefaultSubMenuHint, tui.SeparatorWidth)
 }
 
 type userActionDoneMsg struct{ result string }

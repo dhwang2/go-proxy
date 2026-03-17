@@ -1,48 +1,42 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Colors — high-contrast palette (orange/green/purple/black/white/yellow/deep blue).
+// Colors — One Dark inspired palette for terminal TUI.
 var (
-	ColorPrimary = lipgloss.Color("#1e40af") // Deep blue (titles)
-	ColorLabel   = lipgloss.Color("#ffffff") // White (labels/text)
-	ColorValSys  = lipgloss.Color("#eab308") // Yellow (system values, warnings)
-	ColorSuccess = lipgloss.Color("#22c55e") // Green (success/running)
-	ColorError   = lipgloss.Color("#f97316") // Orange (errors, stopped)
-	ColorWarning = lipgloss.Color("#eab308") // Yellow (warnings)
-	ColorMuted   = lipgloss.Color("#6b7280") // Gray (hints, inactive)
-	ColorAccent  = lipgloss.Color("#f97316") // Orange (accent, selected)
+	ColorPrimary   = lipgloss.Color("#61AFEF") // Blue (titles)
+	ColorTitle     = lipgloss.Color("#FF9500") // Orange (main title accent)
+	ColorLabel     = lipgloss.Color("#ABB2BF") // Light gray (menu items, labels)
+	ColorValSys    = lipgloss.Color("#E5C07B") // Yellow (system values)
+	ColorSuccess   = lipgloss.Color("#98C379") // Green (running)
+	ColorError     = lipgloss.Color("#E06C75") // Red (stopped/error)
+	ColorMuted     = lipgloss.Color("#5C6370") // Dark gray (hints, separators)
+	ColorAccent    = lipgloss.Color("#61AFEF") // Blue (selected item bg)
+	ColorAccentFg  = lipgloss.Color("#282C34") // Dark (selected item fg)
+	ColorFooterKey = lipgloss.Color("#C678DD") // Purple (footer shortcut keys)
 )
 
 // SeparatorWidth is the default width for double-line separators.
 const SeparatorWidth = 68
 
+// DefaultSubMenuHint is the standard hint shown at the bottom of sub-menus.
+const DefaultSubMenuHint = "返回(esc) | 选择(↑↓) | 确认(enter)"
+
 // Reusable styles.
 var (
-	TitleStyle = lipgloss.NewStyle().
-			Foreground(ColorPrimary).
-			Bold(true)
-
 	HeaderTitleStyle = lipgloss.NewStyle().
-				Foreground(ColorPrimary).
+				Foreground(ColorTitle).
 				Bold(true).
 				Align(lipgloss.Center)
 
 	HeaderSubStyle = lipgloss.NewStyle().
 			Foreground(ColorMuted).
 			Align(lipgloss.Center)
-
-	FooterHintStyle = lipgloss.NewStyle().
-			Foreground(ColorMuted).
-			Align(lipgloss.Center)
-
-	InfoLabelStyle = lipgloss.NewStyle().
-			Foreground(ColorLabel).
-			Bold(true)
 
 	LabelStyle = lipgloss.NewStyle().
 			Foreground(ColorLabel).
@@ -53,39 +47,79 @@ var (
 			BorderForeground(ColorPrimary).
 			Padding(1, 3)
 
-	MenuItemStyle = lipgloss.NewStyle().
-			PaddingLeft(2)
+	// Value styles used in dashboard and config views.
+	ValSysStyle   = lipgloss.NewStyle().Foreground(ColorValSys).Bold(true)
+	ValProtoStyle = lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
+	ValRuleStyle  = lipgloss.NewStyle().Foreground(ColorSuccess).Bold(true)
 
-	MenuSelectedStyle = lipgloss.NewStyle().
-				PaddingLeft(2).
-				Foreground(ColorAccent).
-				Bold(true)
+	// Outer frame style for the main menu.
+	OuterFrameStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(ColorPrimary).
+			Padding(0, 1)
 
-	StatusStyle = lipgloss.NewStyle().
-			Foreground(ColorMuted).
-			PaddingLeft(2)
+	// Status panel inset border.
+	StatusPanelStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(ColorMuted).
+				Padding(0, 2)
 )
 
-const (
-	Bullet = '●'
-)
+// Pre-computed separator at default width to avoid repeated allocation.
+var defaultSeparator = lipgloss.NewStyle().Foreground(ColorMuted).Render(strings.Repeat("─", SeparatorWidth))
 
-// SeparatorDouble renders a double-line separator (═) styled with ColorMuted.
+// SeparatorDouble renders a thin horizontal rule (─) styled with ColorMuted.
 func SeparatorDouble(width int) string {
-	return lipgloss.NewStyle().Foreground(ColorMuted).Render(strings.Repeat("═", width))
+	if width == SeparatorWidth {
+		return defaultSeparator
+	}
+	return lipgloss.NewStyle().Foreground(ColorMuted).Render(strings.Repeat("─", width))
 }
 
-// RenderSubMenuFrame wraps sub-menu content with separators, a title, and a hint line.
-// If title is empty, the title and its surrounding separator are omitted.
-func RenderSubMenuFrame(title, content, hint string, width int) string {
-	sep := SeparatorDouble(width)
-	hintRendered := FooterHintStyle.Width(width).Render(hint)
+// RenderFooterHint renders a footer hint line with highlighted shortcut keys.
+// Format: "action(key) | action(key) | ..."
+// Keys inside parentheses are rendered in ColorFooterKey, rest in ColorMuted.
+func RenderFooterHint(hint string, width int) string {
+	keyStyle := lipgloss.NewStyle().Foreground(ColorFooterKey)
+	textStyle := lipgloss.NewStyle().Foreground(ColorMuted)
 
-	parts := []string{sep}
-	if title != "" {
-		parts = append(parts, HeaderTitleStyle.Width(width).Render(title), sep)
+	var result strings.Builder
+	i := 0
+	for i < len(hint) {
+		open := strings.IndexByte(hint[i:], '(')
+		if open < 0 {
+			result.WriteString(textStyle.Render(hint[i:]))
+			break
+		}
+		close := strings.IndexByte(hint[i+open:], ')')
+		if close < 0 {
+			result.WriteString(textStyle.Render(hint[i:]))
+			break
+		}
+		// Text before '('
+		result.WriteString(textStyle.Render(hint[i : i+open]))
+		// Key including parens
+		keyText := hint[i+open : i+open+close+1]
+		result.WriteString(keyStyle.Render(keyText))
+		i = i + open + close + 1
 	}
-	parts = append(parts, content, sep, hintRendered, sep)
 
-	return lipgloss.JoinVertical(lipgloss.Center, parts...)
+	return lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(result.String())
+}
+
+// RenderSubMenuFrame wraps sub-menu content with separators and a hint line.
+func RenderSubMenuFrame(content, hint string, width int) string {
+	sep := SeparatorDouble(width)
+	hintRendered := RenderFooterHint(hint, width)
+
+	return lipgloss.JoinVertical(lipgloss.Center, sep, content, sep, hintRendered, sep)
+}
+
+// FormatUserCount renders the user count with red warning color if zero.
+func FormatUserCount(count int) string {
+	text := fmt.Sprintf("%d 个用户", count)
+	if count == 0 {
+		return lipgloss.NewStyle().Foreground(ColorError).Bold(true).Render(text)
+	}
+	return ValRuleStyle.Render(text)
 }
