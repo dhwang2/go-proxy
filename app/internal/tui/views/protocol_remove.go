@@ -18,6 +18,7 @@ type ProtocolRemoveView struct {
 	step        protoRemoveStep
 	pendingTag  string
 	tableHeader string
+	emptyResult bool
 }
 
 type protoRemoveStep int
@@ -37,12 +38,14 @@ func (v *ProtocolRemoveView) Name() string { return "protocol-remove" }
 func (v *ProtocolRemoveView) Init() tea.Cmd {
 	v.step = protoRemoveMenu
 	v.pendingTag = ""
+	v.emptyResult = false
 	// Reload store from disk to pick up changes from protocol install.
 	v.model.Store().Reload()
 	inv := derived.Inventory(v.model.Store())
 
 	if len(inv) == 0 {
 		v.step = protoRemoveResult
+		v.emptyResult = true
 		return func() tea.Msg {
 			return tui.ShowOverlayMsg{
 				Overlay: components.NewResult("没有已安装的协议"),
@@ -121,9 +124,14 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, nil
 		}
 		tag := v.pendingTag
-		return v, func() tea.Msg {
-			return protoRemoveDoneMsg{tag: tag, err: v.doRemove(tag)}
-		}
+		return v, tea.Sequence(
+			func() tea.Msg {
+				return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在卸载...")}
+			},
+			func() tea.Msg {
+				return protoRemoveDoneMsg{tag: tag, err: v.doRemove(tag)}
+			},
+		)
 
 	case protoRemoveDoneMsg:
 		v.step = protoRemoveResult
@@ -140,6 +148,9 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 
 	case tui.ResultDismissedMsg:
+		if v.emptyResult {
+			return v, tui.BackCmd
+		}
 		cmd := v.Init()
 		return v, cmd
 

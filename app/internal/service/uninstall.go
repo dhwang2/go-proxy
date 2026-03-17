@@ -12,8 +12,11 @@ import (
 func Uninstall(ctx context.Context) error {
 	var errs []error
 
-	// Stop all services.
+	// Stop all installed services.
 	for _, svc := range AllServices() {
+		if !IsInstalled(ctx, svc) {
+			continue
+		}
 		if err := Stop(ctx, svc); err != nil {
 			errs = append(errs, err)
 		}

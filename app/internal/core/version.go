@@ -80,12 +80,8 @@ func parseVersion(output string, component Component) string {
 		}
 	case CompShadowTLS:
 		// "shadow-tls 0.2.25" -> extract last field as version
-		if parts := strings.Fields(output); len(parts) >= 2 {
-			return parts[len(parts)-1]
-		}
-		// Single word output (just version number).
 		if parts := strings.Fields(output); len(parts) >= 1 {
-			return parts[0]
+			return parts[len(parts)-1]
 		}
 	default:
 		// First line, first word.
