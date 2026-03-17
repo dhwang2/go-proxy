@@ -30,47 +30,50 @@ func RenderDashboard(s *store.Store, version string, width int) string {
 		sepWidth = width
 	}
 
-	// Styles for colored values.
-	sysValStyle := lipgloss.NewStyle().Foreground(ColorValSys).Bold(true)
-	protoValStyle := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
-	ruleValStyle := lipgloss.NewStyle().Foreground(ColorSuccess).Bold(true)
-
-	sep := SeparatorDouble(sepWidth)
-
 	// Title lines.
 	title := HeaderTitleStyle.Width(sepWidth).Render("go-proxy 一键部署 [服务端]")
-	subtitle := fmt.Sprintf("作者: dhwang2    命令: proxy    版本: %s", version)
+	subtitle := fmt.Sprintf("作者: dhwang2 · 命令: proxy · 版本: %s", version)
 	subtitleRendered := HeaderSubStyle.Width(sepWidth).Render(subtitle)
 
-	// Dashboard info lines with 4-space indent + bold label + colored value.
+	// Status panel content — compact layout.
 	sysInfo := fmt.Sprintf("%s | %s",
-		sysValStyle.Render(runtime.GOOS),
-		sysValStyle.Render(displayArch()),
+		ValSysStyle.Render(runtime.GOOS),
+		ValSysStyle.Render(displayArch()),
 	)
-	sysLine := fmt.Sprintf("    %s  %s", InfoLabelStyle.Render("系统:"), sysInfo)
+	sysLine := fmt.Sprintf("  %s  %s", LabelStyle.Render("系统:"), sysInfo)
 
-	protoLine := fmt.Sprintf("    %s  %s",
-		InfoLabelStyle.Render("协议:"),
-		protoValStyle.Render(stats.Protocols),
-	)
-
-	userLine := fmt.Sprintf("    %s  %s",
-		InfoLabelStyle.Render("用户:"),
-		ruleValStyle.Render(fmt.Sprintf("%d 个用户", stats.UserCount)),
+	protoLine := fmt.Sprintf("  %s  %s",
+		LabelStyle.Render("协议:"),
+		ValProtoStyle.Render(stats.Protocols),
 	)
 
-	// Service status bar.
-	svcLine := fmt.Sprintf("    %s  %s", InfoLabelStyle.Render("服务:"), renderServiceStatus())
+	userLine := fmt.Sprintf("  %s  %s",
+		LabelStyle.Render("用户:"),
+		FormatUserCount(stats.UserCount),
+	)
 
-	content := lipgloss.JoinVertical(lipgloss.Center,
-		sep,
-		title,
-		subtitleRendered,
-		sep,
+	svcLine := fmt.Sprintf("  %s  %s", LabelStyle.Render("服务:"), renderServiceStatus())
+
+	// Wrap status info in an inset bordered panel.
+	statusContent := lipgloss.JoinVertical(lipgloss.Left,
 		sysLine,
 		protoLine,
 		userLine,
 		svcLine,
+	)
+	statusPanel := StatusPanelStyle.Width(sepWidth - 4).Render(statusContent)
+
+	// Center the status panel.
+	statusCentered := lipgloss.NewStyle().Width(sepWidth).Align(lipgloss.Center).Render(statusPanel)
+
+	sep := SeparatorDouble(sepWidth)
+
+	content := lipgloss.JoinVertical(lipgloss.Center,
+		"",
+		title,
+		subtitleRendered,
+		sep,
+		statusCentered,
 		sep,
 	)
 

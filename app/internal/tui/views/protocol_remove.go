@@ -165,12 +165,12 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *ProtocolRemoveView) View() string {
-	hint := "返回(esc) | 选择(↑↓) | 确认(enter)"
+	hint := tui.DefaultSubMenuHint
 	if v.step == protoRemoveMenu && v.tableHeader != "" {
 		content := v.tableHeader + "\n" + v.menu.View()
-		return tui.RenderSubMenuFrame("", content, hint, tui.SeparatorWidth)
+		return tui.RenderSubMenuFrame(content, hint, tui.SeparatorWidth)
 	}
-	return tui.RenderSubMenuFrame("", v.menu.View(), hint, tui.SeparatorWidth)
+	return tui.RenderSubMenuFrame(v.menu.View(), hint, tui.SeparatorWidth)
 }
 
 type protoRemoveDoneMsg struct {

@@ -9,12 +9,13 @@ import (
 )
 
 type MainMenuView struct {
-	model *tui.Model
-	menu  components.MenuModel
+	model    *tui.Model
+	menu     components.MenuModel
+	sepWidth int
 }
 
 func NewMainMenuView(model *tui.Model) *MainMenuView {
-	v := &MainMenuView{model: model}
+	v := &MainMenuView{model: model, sepWidth: tui.SeparatorWidth}
 	v.menu = components.NewMenu("", []components.MenuItem{
 		{Key: '1', Label: "󰒍 安装协议", ID: "protocol-install"},
 		{Key: '2', Label: "󰆴 卸载协议", ID: "protocol-remove"},
@@ -29,7 +30,7 @@ func NewMainMenuView(model *tui.Model) *MainMenuView {
 		{Key: 'b', Label: "󰁪 脚本更新", ID: "self-update"},
 		{Key: 'c', Label: "󰩺 卸载服务", ID: "uninstall"},
 		{Key: '0', Label: "󰗼 完全退出", ID: "quit"},
-	})
+	}).SetColumns(2).SetWidth(tui.SeparatorWidth)
 	return v
 }
 
@@ -39,6 +40,19 @@ func (v *MainMenuView) Init() tea.Cmd { return nil }
 
 func (v *MainMenuView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		w := msg.Width
+		v.sepWidth = tui.SeparatorWidth
+		if v.sepWidth > w {
+			v.sepWidth = w
+		}
+		if w < 60 {
+			v.menu = v.menu.SetColumns(1)
+		} else {
+			v.menu = v.menu.SetColumns(2)
+		}
+		v.menu = v.menu.SetWidth(v.sepWidth)
+		return v, nil
 	case components.MenuSelectMsg:
 		if msg.ID == "quit" {
 			return v, tea.Quit
@@ -58,20 +72,24 @@ func (v *MainMenuView) View() string {
 	w := v.model.Width()
 	dashboard := tui.RenderDashboard(v.model.Store(), v.model.Version(), w)
 
-	sepWidth := tui.SeparatorWidth
+	sepWidth := v.sepWidth
 	if sepWidth > w {
 		sepWidth = w
 	}
+
 	sep := tui.SeparatorDouble(sepWidth)
-	hint := tui.FooterHintStyle.Width(sepWidth).Render("退出(esc) | 选择(↑↓) | 确认(enter)")
+	hint := tui.RenderFooterHint("退出(esc) | 选择(↑↓←→) | 确认(enter)", sepWidth)
 
 	body := lipgloss.JoinVertical(lipgloss.Center,
 		dashboard,
 		v.menu.View(),
 		sep,
 		hint,
-		sep,
+		"",
 	)
 
-	return lipgloss.NewStyle().Width(w).Align(lipgloss.Center).Render(body)
+	// Wrap in rounded outer frame.
+	framed := tui.OuterFrameStyle.Width(sepWidth).Render(body)
+
+	return lipgloss.NewStyle().Width(w).Align(lipgloss.Center).Render(framed)
 }
