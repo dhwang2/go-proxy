@@ -38,6 +38,17 @@ func ParseSnellConfig(data string) (*SnellConfig, error) {
 	return conf, nil
 }
 
+// Port extracts the port number from the Listen address.
+func (c *SnellConfig) Port() int {
+	_, portStr, ok := strings.Cut(c.Listen, ":")
+	if !ok {
+		return 0
+	}
+	var port int
+	fmt.Sscanf(portStr, "%d", &port)
+	return port
+}
+
 // MarshalSnellConfig writes the snell config to INI format.
 func (c *SnellConfig) MarshalSnellConfig() []byte {
 	return []byte(fmt.Sprintf("[snell server]\nlisten = %s\npsk = %s\n", c.Listen, c.PSK))

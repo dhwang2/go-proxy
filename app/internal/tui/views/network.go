@@ -26,10 +26,10 @@ type NetworkView struct {
 
 func NewNetworkView(model *tui.Model) *NetworkView {
 	v := &NetworkView{model: model}
-	v.menu = components.NewMenu("网络管理", []components.MenuItem{
-		{Key: '1', Label: "BBR 网络优化", ID: "bbr"},
-		{Key: '2', Label: "服务器防火墙收敛", ID: "firewall"},
-		{Key: '0', Label: "返回", ID: "back"},
+	v.menu = components.NewMenu("󰀂  网络管理", []components.MenuItem{
+		{Key: '1', Label: "  BBR 网络优化", ID: "bbr"},
+		{Key: '2', Label: "󰒃  服务器防火墙收敛", ID: "firewall"},
+		{Key: '0', Label: "  返回", ID: "back"},
 	})
 	return v
 }

@@ -2,6 +2,9 @@ package views
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -43,10 +46,18 @@ func (v *UninstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		if !msg.Confirmed {
 			return v, tui.BackCmd
 		}
-		return v, v.doUninstall
+		return v, tea.Batch(
+			func() tea.Msg {
+				return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在卸载...")}
+			},
+			v.doUninstall,
+		)
 
 	case uninstallDoneMsg:
 		v.step = uninstallResult
+		if msg.success {
+			v.model.SetExitMessage("卸载完成，所有服务和配置已移除")
+		}
 		return v, func() tea.Msg {
 			return tui.ShowOverlayMsg{
 				Overlay: components.NewResult(msg.result),
@@ -61,12 +72,32 @@ func (v *UninstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 func (v *UninstallView) View() string { return "" }
 
-type uninstallDoneMsg struct{ result string }
+type uninstallDoneMsg struct {
+	result  string
+	success bool
+}
 
 func (v *UninstallView) doUninstall() tea.Msg {
 	ctx := context.Background()
+	var errs []string
+
+	// Stop and disable all services.
 	if err := service.Uninstall(ctx); err != nil {
-		return uninstallDoneMsg{result: "Uninstall error: " + err.Error()}
+		errs = append(errs, err.Error())
 	}
-	return uninstallDoneMsg{result: "Uninstalled successfully"}
+
+	// Remove the proxy binary itself.
+	if execPath, err := os.Executable(); err == nil {
+		if err := os.Remove(execPath); err != nil && !os.IsNotExist(err) {
+			errs = append(errs, fmt.Sprintf("remove binary: %v", err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return uninstallDoneMsg{
+			result:  "卸载完成（部分错误）:\n" + strings.Join(errs, "\n"),
+			success: true,
+		}
+	}
+	return uninstallDoneMsg{result: "卸载完成，所有服务和配置已移除", success: true}
 }

@@ -32,12 +32,12 @@ const (
 
 func NewUserView(model *tui.Model) *UserView {
 	v := &UserView{model: model}
-	v.menu = components.NewMenu("用户管理", []components.MenuItem{
-		{Key: '1', Label: "用户列表", ID: "list"},
-		{Key: '2', Label: "添加用户", ID: "add"},
-		{Key: '3', Label: "重置用户", ID: "rename"},
-		{Key: '4', Label: "删除用户", ID: "delete"},
-		{Key: '0', Label: "返回", ID: "back"},
+	v.menu = components.NewMenu("󰁥  用户管理", []components.MenuItem{
+		{Key: '1', Label: "  用户列表", ID: "list"},
+		{Key: '2', Label: "  添加用户", ID: "add"},
+		{Key: '3', Label: "  重置用户", ID: "rename"},
+		{Key: '4', Label: "  删除用户", ID: "delete"},
+		{Key: '0', Label: "  返回", ID: "back"},
 	})
 	return v
 }

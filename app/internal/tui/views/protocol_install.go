@@ -1,6 +1,7 @@
 package views
 
 import (
+	"context"
 	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -73,9 +74,14 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		pt := v.pendingType
 		portStr := msg.Value
-		return v, func() tea.Msg {
-			return v.doInstall(pt, portStr)
-		}
+		return v, tea.Batch(
+			func() tea.Msg {
+				return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在安装依赖...")}
+			},
+			func() tea.Msg {
+				return v.doInstall(pt, portStr)
+			},
+		)
 
 	case protoInstallDoneMsg:
 		v.step = protoInstallResult
@@ -109,23 +115,45 @@ func (v *ProtocolInstallView) doInstall(pt protocol.Type, portStr string) tea.Ms
 	var port int
 	fmt.Sscanf(portStr, "%d", &port)
 	if port <= 0 || port > 65535 {
-		return protoInstallDoneMsg{result: "Invalid port number"}
+		return protoInstallDoneMsg{result: "端口号无效"}
 	}
-	result, err := protocol.Install(v.model.Store(), protocol.InstallParams{
+
+	params := protocol.InstallParams{
 		ProtoType: pt,
 		Port:      port,
 		UserName:  "user",
-	})
+	}
+
+	// Provision dependencies (download binaries, create systemd services).
+	ctx := context.Background()
+	depSteps := protocol.ProvisionDeps(ctx, pt, params)
+	depReport := protocol.FormatDepSteps(depSteps)
+
+	if protocol.HasDepError(depSteps) {
+		msg := "依赖安装失败\n\n" + depReport
+		return protoInstallDoneMsg{result: msg}
+	}
+
+	// Install protocol configuration.
+	result, err := protocol.Install(v.model.Store(), params)
 	if err != nil {
-		return protoInstallDoneMsg{result: "Error: " + err.Error()}
+		msg := "协议安装失败: " + err.Error()
+		if depReport != "" {
+			msg = "依赖安装完成\n\n" + depReport + "\n" + msg
+		}
+		return protoInstallDoneMsg{result: msg}
 	}
 	if err := v.model.Store().Apply(); err != nil {
-		return protoInstallDoneMsg{result: "Failed to save: " + err.Error()}
+		return protoInstallDoneMsg{result: "保存失败: " + err.Error()}
 	}
-	msg := fmt.Sprintf("Installed %s on port %d\nTag: %s\nCredential: %s",
+
+	msg := fmt.Sprintf("安装 %s 端口 %d 成功\nTag: %s\nCredential: %s",
 		pt, result.Port, result.Tag, result.Credential)
 	if result.PublicKey != "" {
 		msg += "\nPublic Key: " + result.PublicKey
+	}
+	if depReport != "" {
+		msg = "依赖安装\n" + depReport + "\n" + msg
 	}
 	return protoInstallDoneMsg{result: msg}
 }

@@ -93,9 +93,17 @@ func runTUI() {
 	m.RegisterView(views.NewSelfUpdateView(&m))
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
+	finalModel, err := p.Run()
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "tui error: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Print post-exit message if set (e.g., after self-update or uninstall).
+	if fm, ok := finalModel.(tui.Model); ok {
+		if msg := fm.ExitMessage(); msg != "" {
+			fmt.Println(msg)
+		}
 	}
 }
 

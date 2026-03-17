@@ -12,10 +12,10 @@ import (
 )
 
 type SelfUpdateView struct {
-	model   *tui.Model
-	step    selfUpdateStep
-	check   *update.SelfUpdateCheck
-	status  string
+	model  *tui.Model
+	step   selfUpdateStep
+	check  *update.SelfUpdateCheck
+	status string
 }
 
 type selfUpdateStep int
@@ -79,18 +79,17 @@ func (v *SelfUpdateView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, v.doUpdate
 
 	case selfUpdateDoneMsg:
-		v.step = selfUpdateResult
-		var result string
 		if msg.err != nil {
-			result = "更新失败: " + msg.err.Error()
-		} else {
-			result = fmt.Sprintf("已更新到 %s\n请重启程序", v.check.LatestVersion)
-		}
-		return v, func() tea.Msg {
-			return tui.ShowOverlayMsg{
-				Overlay: components.NewResult(result),
+			v.step = selfUpdateResult
+			return v, func() tea.Msg {
+				return tui.ShowOverlayMsg{
+					Overlay: components.NewResult("更新失败: " + msg.err.Error()),
+				}
 			}
 		}
+		// Successful update: set exit message and quit immediately.
+		v.model.SetExitMessage(fmt.Sprintf("更新完成 (%s)，请重新运行 proxy", v.check.LatestVersion))
+		return v, tea.Quit
 
 	case tui.ResultDismissedMsg:
 		return v, tui.BackCmd
