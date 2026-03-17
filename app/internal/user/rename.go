@@ -23,10 +23,17 @@ func Rename(s *store.Store, oldName, newName string) error {
 			}
 		}
 	}
-	// Check new name doesn't already exist in user metadata.
+	// Check new name doesn't already exist in user metadata or groups.
 	for _, name := range s.UserMeta.Name {
 		if name == newName {
 			return fmt.Errorf("user %q already exists in user metadata", newName)
+		}
+	}
+	for _, members := range s.UserMeta.Groups {
+		for _, m := range members {
+			if m == newName {
+				return fmt.Errorf("user %q already exists in groups", newName)
+			}
 		}
 	}
 
@@ -42,25 +49,26 @@ func Rename(s *store.Store, oldName, newName string) error {
 		}
 	}
 
-	// Check user metadata if not found in inbounds.
-	if !found {
-		for _, name := range s.UserMeta.Name {
-			if name == oldName {
+	// Rename in user-management.json Name map.
+	for key, name := range s.UserMeta.Name {
+		if name == oldName {
+			s.UserMeta.Name[key] = newName
+			found = true
+		}
+	}
+
+	// Rename in groups.
+	for groupName, members := range s.UserMeta.Groups {
+		for i, m := range members {
+			if m == oldName {
+				s.UserMeta.Groups[groupName][i] = newName
 				found = true
-				break
 			}
 		}
 	}
 
 	if !found {
 		return fmt.Errorf("user %q not found", oldName)
-	}
-
-	// Rename in user-management.json Name map.
-	for key, name := range s.UserMeta.Name {
-		if name == oldName {
-			s.UserMeta.Name[key] = newName
-		}
 	}
 
 	// Rename in route rules auth_user.
