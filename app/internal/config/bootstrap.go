@@ -59,7 +59,6 @@ var defaultSingBoxConfig = map[string]any{
 					"enabled":     true,
 					"server_name": "dns.google",
 				},
-				"strategy": "ipv4_only",
 			},
 		},
 		"rules": []any{},
@@ -67,7 +66,8 @@ var defaultSingBoxConfig = map[string]any{
 	"inbounds":  []any{},
 	"outbounds": []map[string]any{{"type": "direct", "tag": "direct"}},
 	"route": map[string]any{
-		"rules": []any{},
+		"default_domain_resolver": "dns-direct",
+		"rules":                   []any{},
 	},
 }
 

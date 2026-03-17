@@ -15,12 +15,18 @@ func Rename(s *store.Store, oldName, newName string) error {
 		return nil
 	}
 
-	// Check new name doesn't already exist.
+	// Check new name doesn't already exist in inbounds.
 	for _, ib := range s.SingBox.Inbounds {
 		for _, u := range ib.Users {
 			if u.Name == newName {
 				return fmt.Errorf("user %q already exists in inbound %s", newName, ib.Tag)
 			}
+		}
+	}
+	// Check new name doesn't already exist in user metadata.
+	for _, name := range s.UserMeta.Name {
+		if name == newName {
+			return fmt.Errorf("user %q already exists in user metadata", newName)
 		}
 	}
 
@@ -32,6 +38,16 @@ func Rename(s *store.Store, oldName, newName string) error {
 			if s.SingBox.Inbounds[i].Users[j].Name == oldName {
 				s.SingBox.Inbounds[i].Users[j].Name = newName
 				found = true
+			}
+		}
+	}
+
+	// Check user metadata if not found in inbounds.
+	if !found {
+		for _, name := range s.UserMeta.Name {
+			if name == oldName {
+				found = true
+				break
 			}
 		}
 	}
