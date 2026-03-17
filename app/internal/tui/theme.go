@@ -2,17 +2,17 @@ package tui
 
 import "github.com/charmbracelet/lipgloss"
 
-// Colors — soft, modern palette (Catppuccin Mocha inspired).
+// Colors — high-contrast palette (orange/green/purple/black/white/yellow/deep blue).
 var (
-	ColorPrimary = lipgloss.Color("#89b4fa") // Blue (title, borders)
-	ColorLabel   = lipgloss.Color("#cdd6f4") // Lavender-white (dashboard labels)
-	ColorValSys  = lipgloss.Color("#f9e2af") // Peach-yellow (system/arch values)
-	ColorValPort = lipgloss.Color("#cba6f7") // Mauve (port values)
-	ColorSuccess = lipgloss.Color("#a6e3a1") // Green (status, rules)
-	ColorError   = lipgloss.Color("#f38ba8") // Rosewater-red (errors, stopped)
-	ColorWarning = lipgloss.Color("#fab387") // Peach (warnings)
-	ColorMuted   = lipgloss.Color("#6c7086") // Overlay0 gray (hints, inactive)
-	ColorAccent  = lipgloss.Color("#b4befe") // Lavender (accent)
+	ColorPrimary = lipgloss.Color("#1e40af") // Deep blue (titles)
+	ColorLabel   = lipgloss.Color("#ffffff") // White (labels/text)
+	ColorValSys  = lipgloss.Color("#eab308") // Yellow (system values, warnings)
+	ColorValPort = lipgloss.Color("#a855f7") // Purple (port values)
+	ColorSuccess = lipgloss.Color("#22c55e") // Green (success/running)
+	ColorError   = lipgloss.Color("#f97316") // Orange (errors, stopped)
+	ColorWarning = lipgloss.Color("#eab308") // Yellow (warnings)
+	ColorMuted   = lipgloss.Color("#6b7280") // Gray (hints, inactive)
+	ColorAccent  = lipgloss.Color("#f97316") // Orange (accent, selected)
 )
 
 // Reusable styles.
@@ -25,10 +25,6 @@ var (
 			Foreground(ColorLabel).
 			Bold(true)
 
-	BorderStyle = lipgloss.NewStyle().
-			Border(lipgloss.DoubleBorder()).
-			BorderForeground(ColorPrimary)
-
 	DialogStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(ColorPrimary).
@@ -39,7 +35,7 @@ var (
 
 	MenuSelectedStyle = lipgloss.NewStyle().
 				PaddingLeft(2).
-				Foreground(ColorPrimary).
+				Foreground(ColorAccent).
 				Bold(true)
 
 	StatusStyle = lipgloss.NewStyle().
@@ -47,15 +43,6 @@ var (
 			PaddingLeft(2)
 )
 
-// DashboardBorder characters (double-line).
 const (
-	BorderH  = '═'
-	BorderV  = '║'
-	BorderTL = '╔'
-	BorderTR = '╗'
-	BorderBL = '╚'
-	BorderBR = '╝'
-	BorderML = '╠'
-	BorderMR = '╣'
-	Bullet   = '●'
+	Bullet = '●'
 )

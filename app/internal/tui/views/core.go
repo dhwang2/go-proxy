@@ -33,11 +33,11 @@ type CoreView struct {
 
 func NewCoreView(model *tui.Model) *CoreView {
 	v := &CoreView{model: model}
-	v.menu = components.NewMenu("  内核管理", []components.MenuItem{
-		{Key: '1', Label: "  查看版本", ID: "versions"},
-		{Key: '2', Label: "  检查更新", ID: "check"},
-		{Key: '3', Label: "  执行更新", ID: "update"},
-		{Key: '0', Label: "  返回", ID: "back"},
+	v.menu = components.NewMenu("󰚗 内核管理", []components.MenuItem{
+		{Key: '1', Label: "󰋼 查看版本", ID: "versions"},
+		{Key: '2', Label: "󰁪 检查更新", ID: "check"},
+		{Key: '3', Label: "󰏗 执行更新", ID: "update"},
+		{Key: '0', Label: "󰌍 返回", ID: "back"},
 	})
 	return v
 }

@@ -44,11 +44,11 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 		}
 		items = append(items, components.MenuItem{
 			Key:   k,
-			Label: fmt.Sprintf("%s (port %d, %d users)", info.Tag, info.Port, info.UserCount),
+			Label: fmt.Sprintf("%s (端口 %d, %d 用户)", info.Tag, info.Port, info.UserCount),
 			ID:    info.Tag,
 		})
 	}
-	items = append(items, components.MenuItem{Key: '0', Label: "返回", ID: "back"})
+	items = append(items, components.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
 	v.menu = v.menu.SetItems(items)
 	return nil
 }
@@ -61,7 +61,7 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		v.pendingTag = msg.ID
 		v.step = protoRemoveConfirm
-		prompt := fmt.Sprintf("Remove %s?", v.pendingTag)
+		prompt := fmt.Sprintf("确认卸载 %s?", v.pendingTag)
 		return v, func() tea.Msg {
 			return tui.ShowOverlayMsg{
 				Overlay: components.NewConfirm(prompt),
@@ -82,9 +82,9 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.step = protoRemoveResult
 		var result string
 		if msg.err != nil {
-			result = "Error: " + msg.err.Error()
+			result = "卸载失败: " + msg.err.Error()
 		} else {
-			result = "Removed " + msg.tag
+			result = "已卸载: " + msg.tag
 		}
 		return v, func() tea.Msg {
 			return tui.ShowOverlayMsg{
