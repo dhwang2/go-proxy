@@ -125,10 +125,11 @@ func (v *ServiceView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *ServiceView) View() string {
+	hint := "返回(esc) | 选择(↑↓) | 确认(enter)"
 	if v.step == svcMenuIndividual {
-		return v.subMenu.View()
+		return tui.RenderSubMenuFrame("", v.subMenu.View(), hint, tui.SeparatorWidth)
 	}
-	return v.menu.View()
+	return tui.RenderSubMenuFrame("", v.menu.View(), hint, tui.SeparatorWidth)
 }
 
 type svcActionDoneMsg struct{ result string }

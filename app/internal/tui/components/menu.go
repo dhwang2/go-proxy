@@ -150,8 +150,11 @@ func (m MenuModel) View() string {
 	}
 
 	selectedStyle := lipgloss.NewStyle().
-		Foreground(tui.ColorPrimary).
+		Foreground(tui.ColorAccent).
 		Bold(true)
+
+	normalStyle := lipgloss.NewStyle().
+		Foreground(tui.ColorLabel)
 
 	for i, item := range m.items {
 		icon := item.Icon()
@@ -160,7 +163,7 @@ func (m MenuModel) View() string {
 		if i == m.cursor {
 			b.WriteString(selectedStyle.Render(fmt.Sprintf("  ▸ %c. %s %s", item.Key, icon, label)))
 		} else {
-			b.WriteString(fmt.Sprintf("    %c. %s %s", item.Key, icon, label))
+			b.WriteString(normalStyle.Render(fmt.Sprintf("    %c. %s %s", item.Key, icon, label)))
 		}
 		b.WriteString("\n")
 	}
