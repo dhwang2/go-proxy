@@ -58,6 +58,8 @@ type Model struct {
 	leftWidth    int  // left panel width
 	rightWidth   int  // right panel width
 	contentWidth int  // inner content width for sub-views
+	dragging     bool // true during panel divider drag
+	manualWidth  int  // manually-set left width via drag (0 = auto-calculate)
 	exitMessage  string
 }
 
@@ -134,22 +136,30 @@ func (m *Model) recalcLayout() {
 
 	m.splitPanel = true
 
-	// Left panel: 35% of width, clamped to [28, 36].
-	m.leftWidth = m.width * 35 / 100
-	if m.leftWidth < 28 {
-		m.leftWidth = 28
-	}
-	if m.leftWidth > 36 {
-		m.leftWidth = 36
+	if m.manualWidth > 0 {
+		m.leftWidth = m.manualWidth
+		if m.leftWidth > m.width-30 {
+			m.leftWidth = m.width - 30
+		}
+		if m.leftWidth < 24 {
+			m.leftWidth = 24
+		}
+	} else {
+		// Left panel: 30% of width, clamped to [32, 40].
+		m.leftWidth = m.width * 30 / 100
+		if m.leftWidth < 32 {
+			m.leftWidth = 32
+		}
+		if m.leftWidth > 40 {
+			m.leftWidth = 40
+		}
 	}
 
 	m.rightWidth = m.width - m.leftWidth
 
 	// Content width = right panel inner (minus border + padding: 2+2=4).
+	// No SeparatorWidth cap in split-panel — let content fill the panel.
 	m.contentWidth = m.rightWidth - 4
-	if m.contentWidth > SeparatorWidth {
-		m.contentWidth = SeparatorWidth
-	}
 	if m.contentWidth < 30 {
 		m.contentWidth = 30
 	}
@@ -175,6 +185,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.views[m.current] = newView
 				return m, cmd
 			}
+		}
+		return m, nil
+
+	case tea.MouseMsg:
+		if !m.splitPanel || m.overlay != nil {
+			return m, nil
+		}
+		switch msg.Action {
+		case tea.MouseActionPress:
+			if msg.Button == tea.MouseButtonLeft {
+				if msg.X >= m.leftWidth-1 && msg.X <= m.leftWidth+1 {
+					m.dragging = true
+				}
+			}
+		case tea.MouseActionMotion:
+			if m.dragging {
+				newLeft := msg.X
+				minLeft := 24
+				maxLeft := m.width * 60 / 100
+				if newLeft < minLeft {
+					newLeft = minLeft
+				}
+				if newLeft > maxLeft {
+					newLeft = maxLeft
+				}
+				m.manualWidth = newLeft
+				m.leftWidth = newLeft
+				m.rightWidth = m.width - m.leftWidth
+				m.contentWidth = m.rightWidth - 4
+				if m.contentWidth < 30 {
+					m.contentWidth = 30
+				}
+			}
+		case tea.MouseActionRelease:
+			m.dragging = false
 		}
 		return m, nil
 
@@ -350,6 +395,12 @@ func (m Model) viewSplitPanel() string {
 	} else {
 		leftStyle = LeftPanelStyle
 		rightStyle = RightPanelFocusedStyle
+	}
+
+	// Yellow border highlight during drag resize.
+	if m.dragging {
+		leftStyle = leftStyle.BorderForeground(ColorDragBorder)
+		rightStyle = rightStyle.BorderForeground(ColorDragBorder)
 	}
 
 	// Inner width = total - borders - padding.
