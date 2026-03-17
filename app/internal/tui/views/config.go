@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -14,6 +12,7 @@ import (
 
 	"go-proxy/internal/config"
 	"go-proxy/internal/derived"
+	"go-proxy/internal/service"
 	"go-proxy/internal/store"
 	"go-proxy/internal/tui"
 	"go-proxy/internal/tui/components"
@@ -387,19 +386,13 @@ func checkServiceActive(name string) string {
 	redStyle := lipgloss.NewStyle().Foreground(tui.ColorError).Bold(true)
 	grayStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	out, err := exec.CommandContext(ctx, "systemctl", "is-active", name).CombinedOutput()
-	status := strings.TrimSpace(string(out))
-	if err != nil {
-		if status == "inactive" {
-			return redStyle.Render("● 已停止")
-		}
+	ctx := context.Background()
+	st, _ := service.GetStatus(ctx, service.Name(name))
+	if st == nil {
 		return grayStyle.Render("● 未安装")
 	}
-	if status == "active" {
+	if st.Running {
 		return greenStyle.Render("● 运行中")
 	}
-	return redStyle.Render("● " + status)
+	return redStyle.Render("● 已停止")
 }

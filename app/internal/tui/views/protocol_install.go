@@ -149,7 +149,7 @@ type protoInstallDoneMsg struct {
 	installResult *protocol.InstallResult
 }
 
-func (v *ProtocolInstallView) computeDefaultPort(pt protocol.Type) int {
+func (v *ProtocolInstallView) collectUsedPorts() map[int]bool {
 	var ports []int
 	for _, ib := range v.model.Store().SingBox.Inbounds {
 		ports = append(ports, ib.ListenPort)
@@ -159,8 +159,11 @@ func (v *ProtocolInstallView) computeDefaultPort(pt protocol.Type) int {
 			ports = append(ports, p)
 		}
 	}
-	used := protocol.CollectUsedPorts(ports)
-	return protocol.DefaultPort(pt, used)
+	return protocol.CollectUsedPorts(ports)
+}
+
+func (v *ProtocolInstallView) computeDefaultPort(pt protocol.Type) int {
+	return protocol.DefaultPort(pt, v.collectUsedPorts())
 }
 
 func (v *ProtocolInstallView) doInstall(pt protocol.Type, portStr string) tea.Msg {
@@ -212,16 +215,12 @@ func (v *ProtocolInstallView) doInstall(pt protocol.Type, portStr string) tea.Ms
 
 func (v *ProtocolInstallView) doShadowTLSForSnell(snellPort int) tea.Msg {
 	// ShadowTLS listens on its own port, routes to snell backend.
-	var ports []int
-	for _, ib := range v.model.Store().SingBox.Inbounds {
-		ports = append(ports, ib.ListenPort)
-	}
-	ports = append(ports, snellPort)
-	used := protocol.CollectUsedPorts(ports)
+	used := v.collectUsedPorts()
+	used[snellPort] = true
 
 	// Pick a shadow-tls listen port from snell common ports, excluding the snell port itself.
 	stPort := 0
-	for _, p := range []int{443, 1443, 8443, 10443} {
+	for _, p := range protocol.CommonPorts(protocol.Snell) {
 		if !used[p] {
 			stPort = p
 			break

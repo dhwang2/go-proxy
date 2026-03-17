@@ -154,6 +154,22 @@ func CollectUsedPorts(ports []int) map[int]bool {
 	return used
 }
 
+// caddyCertIssuerDirs returns the issuer subdirectories under the caddy certificates directory.
+func caddyCertIssuerDirs() []string {
+	caddyCertDir := filepath.Join(config.ConfDir, "caddy", "certificates")
+	entries, err := os.ReadDir(caddyCertDir)
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	for _, e := range entries {
+		if e.IsDir() {
+			dirs = append(dirs, filepath.Join(caddyCertDir, e.Name()))
+		}
+	}
+	return dirs
+}
+
 // DetectTLSDomain reads the domain from /etc/go-proxy/.domain or detects it from
 // caddy certificate directory.
 func DetectTLSDomain() string {
@@ -165,17 +181,8 @@ func DetectTLSDomain() string {
 		}
 	}
 
-	// Try to detect from caddy certificates directory.
-	caddyCertDir := filepath.Join(config.ConfDir, "caddy", "certificates")
-	entries, err := os.ReadDir(caddyCertDir)
-	if err != nil {
-		return ""
-	}
-	for _, issuerDir := range entries {
-		if !issuerDir.IsDir() {
-			continue
-		}
-		domainEntries, err := os.ReadDir(filepath.Join(caddyCertDir, issuerDir.Name()))
+	for _, issuerDir := range caddyCertIssuerDirs() {
+		domainEntries, err := os.ReadDir(issuerDir)
 		if err != nil {
 			continue
 		}
@@ -193,16 +200,8 @@ func ResolveTLSCertPaths(domain string) (certPath, keyPath string) {
 	if domain == "" {
 		return "", ""
 	}
-	caddyCertDir := filepath.Join(config.ConfDir, "caddy", "certificates")
-	entries, err := os.ReadDir(caddyCertDir)
-	if err != nil {
-		return "", ""
-	}
-	for _, issuerDir := range entries {
-		if !issuerDir.IsDir() {
-			continue
-		}
-		domainDir := filepath.Join(caddyCertDir, issuerDir.Name(), domain)
+	for _, issuerDir := range caddyCertIssuerDirs() {
+		domainDir := filepath.Join(issuerDir, domain)
 		cert := filepath.Join(domainDir, domain+".crt")
 		key := filepath.Join(domainDir, domain+".key")
 		if _, err := os.Stat(cert); err == nil {

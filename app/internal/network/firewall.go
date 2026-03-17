@@ -15,7 +15,7 @@ func OpenPort(port int, proto string) error {
 	portStr := strconv.Itoa(port)
 
 	// Try nftables first.
-	if hasNftables() {
+	if HasNftables() {
 		return nftOpenPort(portStr, proto)
 	}
 	// Fall back to iptables.
@@ -29,7 +29,7 @@ func ClosePort(port int, proto string) error {
 	}
 	portStr := strconv.Itoa(port)
 
-	if hasNftables() {
+	if HasNftables() {
 		return nftClosePort(portStr, proto)
 	}
 	return iptablesClosePort(portStr, proto)
@@ -37,7 +37,7 @@ func ClosePort(port int, proto string) error {
 
 // ListOpenPorts returns currently open ports from iptables/nftables.
 func ListOpenPorts() (string, error) {
-	if hasNftables() {
+	if HasNftables() {
 		out, err := exec.Command("nft", "list", "ruleset").CombinedOutput()
 		return string(out), err
 	}
@@ -51,9 +51,6 @@ func HasNftables() bool {
 	return err == nil
 }
 
-func hasNftables() bool {
-	return HasNftables()
-}
 
 func nftOpenPort(port, proto string) error {
 	// Ensure table and chain exist.

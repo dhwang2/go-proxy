@@ -18,7 +18,8 @@ type Store struct {
 	UserTemplate *UserRouteTemplates
 	SnellConf    *SnellConfig // nil if snell is not installed
 
-	dirty map[string]bool
+	dirty   map[string]bool
+	applied bool // true after Apply() writes to disk — signals that Reload() should refresh
 }
 
 // File keys for MarkDirty/Apply.
@@ -84,7 +85,11 @@ func Load() (*Store, error) {
 }
 
 // Reload re-reads all configuration files from disk into this store.
+// Only performs I/O if the store was modified since last load (via Apply).
 func (s *Store) Reload() error {
+	if !s.applied {
+		return nil
+	}
 	fresh, err := Load()
 	if err != nil {
 		return err
@@ -160,6 +165,7 @@ func (s *Store) Apply() error {
 	for file := range backups {
 		fileutil.CleanBackup(s.filePath(file))
 	}
+	s.applied = true
 	return nil
 }
 
