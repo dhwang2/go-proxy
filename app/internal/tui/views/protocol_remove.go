@@ -38,6 +38,16 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 	v.step = protoRemoveMenu
 	v.pendingTag = ""
 	inv := derived.Inventory(v.model.Store())
+
+	if len(inv) == 0 {
+		v.step = protoRemoveResult
+		return func() tea.Msg {
+			return tui.ShowOverlayMsg{
+				Overlay: components.NewResult("没有已安装的协议"),
+			}
+		}
+	}
+
 	membership := derived.Membership(v.model.Store())
 
 	// Build a reverse map: tag -> list of user names.
@@ -90,6 +100,10 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		if msg.ID == "back" {
 			return v, tui.BackCmd
 		}
+		// Validate that the ID is a real protocol tag.
+		if derived.FindInbound(v.model.Store(), msg.ID) == nil {
+			return v, nil
+		}
 		v.pendingTag = msg.ID
 		v.step = protoRemoveConfirm
 		prompt := fmt.Sprintf("确认卸载 %s?", v.pendingTag)
@@ -124,8 +138,8 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 
 	case tui.ResultDismissedMsg:
-		v.Init()
-		return v, nil
+		cmd := v.Init()
+		return v, cmd
 
 	default:
 		if v.step == protoRemoveMenu {
