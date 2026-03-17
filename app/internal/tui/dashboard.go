@@ -1,9 +1,12 @@
 package tui
 
 import (
+	"context"
 	"fmt"
+	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -73,6 +76,9 @@ func RenderDashboard(s *store.Store, version string, width int) string {
 		ruleValStyle.Render(fmt.Sprintf("%d 个用户", stats.UserCount)),
 	)
 
+	// Service status bar.
+	svcLine := fmt.Sprintf("     %s  %s", labelStyle.Render("服务:"), renderServiceStatus())
+
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		centeredTitle,
 		centeredSubtitle,
@@ -82,6 +88,7 @@ func RenderDashboard(s *store.Store, version string, width int) string {
 		protoLine,
 		portLine,
 		userLine,
+		svcLine,
 	)
 
 	style := lipgloss.NewStyle().
@@ -90,6 +97,60 @@ func RenderDashboard(s *store.Store, version string, width int) string {
 		Width(inner)
 
 	return style.Render(content)
+}
+
+// serviceStatusEntry holds the display info for one service.
+type serviceStatusEntry struct {
+	name    string
+	running bool
+	exists  bool
+}
+
+func checkService(name string) serviceStatusEntry {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	entry := serviceStatusEntry{name: name}
+
+	// Check if the binary/unit exists.
+	out, err := exec.CommandContext(ctx, "systemctl", "cat", name).CombinedOutput()
+	if err != nil {
+		// If systemctl cat fails, service is not installed.
+		if strings.Contains(string(out), "No files found") || strings.Contains(string(out), "not found") {
+			return entry
+		}
+		// On non-Linux or no systemctl, treat as not installed.
+		return entry
+	}
+	entry.exists = true
+
+	// Check if active.
+	out, err = exec.CommandContext(ctx, "systemctl", "is-active", name).CombinedOutput()
+	entry.running = err == nil && strings.TrimSpace(string(out)) == "active"
+	return entry
+}
+
+func renderServiceStatus() string {
+	services := []string{"sing-box", "snell-v5", "shadow-tls", "caddy-sub"}
+
+	greenDot := lipgloss.NewStyle().Foreground(ColorSuccess).Render("●")
+	redDot := lipgloss.NewStyle().Foreground(ColorError).Render("●")
+	grayDot := lipgloss.NewStyle().Foreground(ColorMuted).Render("●")
+
+	var parts []string
+	for _, svc := range services {
+		entry := checkService(svc)
+		var dot string
+		if !entry.exists {
+			dot = grayDot
+		} else if entry.running {
+			dot = greenDot
+		} else {
+			dot = redDot
+		}
+		parts = append(parts, fmt.Sprintf("%s %s", dot, svc))
+	}
+	return strings.Join(parts, "  ")
 }
 
 func displayArch() string {

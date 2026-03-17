@@ -49,12 +49,12 @@ type RoutingView struct {
 
 func NewRoutingView(model *tui.Model) *RoutingView {
 	v := &RoutingView{model: model}
-	v.menu = components.NewMenu("分流管理", []components.MenuItem{
-		{Key: '1', Label: "链式代理", ID: "chain"},
-		{Key: '2', Label: "配置分流", ID: "config"},
-		{Key: '3', Label: "直连出口", ID: "direct"},
-		{Key: '4', Label: "测试分流", ID: "test"},
-		{Key: '0', Label: "返回", ID: "back"},
+	v.menu = components.NewMenu("󰛳  分流管理", []components.MenuItem{
+		{Key: '1', Label: "  链式代理", ID: "chain"},
+		{Key: '2', Label: "  配置分流", ID: "config"},
+		{Key: '3', Label: "  直连出口", ID: "direct"},
+		{Key: '4', Label: "  测试分流", ID: "test"},
+		{Key: '0', Label: "  返回", ID: "back"},
 	})
 	return v
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -32,11 +33,11 @@ type CoreView struct {
 
 func NewCoreView(model *tui.Model) *CoreView {
 	v := &CoreView{model: model}
-	v.menu = components.NewMenu("内核管理", []components.MenuItem{
-		{Key: '1', Label: "查看版本", ID: "versions"},
-		{Key: '2', Label: "检查更新", ID: "check"},
-		{Key: '3', Label: "执行更新", ID: "update"},
-		{Key: '0', Label: "返回", ID: "back"},
+	v.menu = components.NewMenu("  内核管理", []components.MenuItem{
+		{Key: '1', Label: "  查看版本", ID: "versions"},
+		{Key: '2', Label: "  检查更新", ID: "check"},
+		{Key: '3', Label: "  执行更新", ID: "update"},
+		{Key: '0', Label: "  返回", ID: "back"},
 	})
 	return v
 }
@@ -166,7 +167,12 @@ func (v *CoreView) doVersions() tea.Msg {
 	var sb strings.Builder
 	sb.WriteString("组件版本\n\n")
 	for _, comp := range core.AllComponents() {
-		info := core.DetectVersion(binPath(comp), comp)
+		bp := binPath(comp)
+		if bp == "" {
+			sb.WriteString(fmt.Sprintf("  %s: 未配置\n", comp))
+			continue
+		}
+		info := core.DetectVersion(bp, comp)
 		if info.Installed {
 			sb.WriteString(fmt.Sprintf("  %s: %s\n", comp, info.Version))
 		} else {
@@ -177,25 +183,51 @@ func (v *CoreView) doVersions() tea.Msg {
 }
 
 func (v *CoreView) doCheckUpdates(forUpdate bool) tea.Msg {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	var sb strings.Builder
 	var avail []core.UpdateCheck
 	sb.WriteString("更新检查\n\n")
 
-	for _, comp := range core.AllComponents() {
+	for _, comp := range core.UpdatableComponents() {
 		bp := binPath(comp)
+		if bp == "" {
+			continue
+		}
 		check, err := core.CheckUpdate(ctx, comp, bp)
 		if err != nil {
 			sb.WriteString(fmt.Sprintf("  %s: 检查失败 (%s)\n", comp, err))
 			continue
 		}
-		if check.UpdateAvail {
-			sb.WriteString(fmt.Sprintf("  %s: %s → %s (可更新)\n",
-				comp, check.CurrentVersion, check.LatestVersion))
-			avail = append(avail, *check)
-		} else {
+		if check.CurrentVersion == "" {
+			// Not installed - skip for update purposes.
+			sb.WriteString(fmt.Sprintf("  %s: 未安装 (最新 %s)\n", comp, check.LatestVersion))
+			continue
+		}
+		if !check.UpdateAvail {
 			sb.WriteString(fmt.Sprintf("  %s: %s (最新)\n",
 				comp, check.CurrentVersion))
+			continue
+		}
+		sb.WriteString(fmt.Sprintf("  %s: %s → %s (可更新)\n",
+			comp, check.CurrentVersion, check.LatestVersion))
+		avail = append(avail, *check)
+	}
+
+	// Show non-updatable components.
+	for _, comp := range core.AllComponents() {
+		if core.HasRepo(comp) {
+			continue
+		}
+		bp := binPath(comp)
+		if bp == "" {
+			continue
+		}
+		info := core.DetectVersion(bp, comp)
+		if info.Installed {
+			sb.WriteString(fmt.Sprintf("  %s: %s (手动管理)\n", comp, info.Version))
+		} else {
+			sb.WriteString(fmt.Sprintf("  %s: 未安装 (手动管理)\n", comp))
 		}
 	}
 

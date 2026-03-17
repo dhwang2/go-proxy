@@ -18,14 +18,15 @@ type View interface {
 
 // Model is the root Bubble Tea model.
 type Model struct {
-	nav     NavState
-	store   *store.Store
-	version string
-	width   int
-	height  int
-	views   map[string]View
-	overlay OverlayModel
-	current string // name of the active view
+	nav         NavState
+	store       *store.Store
+	version     string
+	width       int
+	height      int
+	views       map[string]View
+	overlay     OverlayModel
+	current     string // name of the active view
+	exitMessage string // printed to stdout after TUI exits
 }
 
 // NewModel creates the root model.
@@ -55,6 +56,12 @@ func (m *Model) Width() int { return m.width }
 
 // Height returns the terminal height.
 func (m *Model) Height() int { return m.height }
+
+// SetExitMessage sets a message to be printed to stdout after the TUI exits.
+func (m *Model) SetExitMessage(msg string) { m.exitMessage = msg }
+
+// ExitMessage returns the post-exit message (empty if none).
+func (m Model) ExitMessage() string { return m.exitMessage }
 
 // Init satisfies tea.Model.
 func (m Model) Init() tea.Cmd {

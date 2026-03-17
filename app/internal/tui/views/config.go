@@ -32,11 +32,11 @@ type ConfigView struct {
 
 func NewConfigView(model *tui.Model) *ConfigView {
 	v := &ConfigView{model: model}
-	v.menu = components.NewMenu("配置详情", []components.MenuItem{
-		{Key: '1', Label: "sing-box", ID: "singbox"},
-		{Key: '2', Label: "snell-v5", ID: "snell"},
-		{Key: '3', Label: "shadow-tls", ID: "shadowtls"},
-		{Key: '0', Label: "返回", ID: "back"},
+	v.menu = components.NewMenu("  配置详情", []components.MenuItem{
+		{Key: '1', Label: "  sing-box", ID: "singbox"},
+		{Key: '2', Label: "  snell-v5", ID: "snell"},
+		{Key: '3', Label: "  shadow-tls", ID: "shadowtls"},
+		{Key: '0', Label: "  返回", ID: "back"},
 	})
 	return v
 }

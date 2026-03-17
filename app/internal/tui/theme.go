@@ -2,17 +2,17 @@ package tui
 
 import "github.com/charmbracelet/lipgloss"
 
-// Colors matching shell-proxy palette.
+// Colors — soft, modern palette (Catppuccin Mocha inspired).
 var (
-	ColorPrimary = lipgloss.Color("#00d7d7") // Cyan (title, borders)
-	ColorLabel   = lipgloss.Color("#ffffff") // White bold (dashboard labels)
-	ColorValSys  = lipgloss.Color("#d7d700") // Yellow (system/arch values)
-	ColorValPort = lipgloss.Color("#d787ff") // Magenta (port values)
-	ColorSuccess = lipgloss.Color("#00d700") // Green (status, rules)
-	ColorError   = lipgloss.Color("#ff5f5f") // Red (errors, stopped)
-	ColorWarning = lipgloss.Color("#ffd700") // Yellow (warnings)
-	ColorMuted   = lipgloss.Color("#808080") // Gray (hints, inactive)
-	ColorAccent  = lipgloss.Color("#7C4DFF") // Purple (accent)
+	ColorPrimary = lipgloss.Color("#89b4fa") // Blue (title, borders)
+	ColorLabel   = lipgloss.Color("#cdd6f4") // Lavender-white (dashboard labels)
+	ColorValSys  = lipgloss.Color("#f9e2af") // Peach-yellow (system/arch values)
+	ColorValPort = lipgloss.Color("#cba6f7") // Mauve (port values)
+	ColorSuccess = lipgloss.Color("#a6e3a1") // Green (status, rules)
+	ColorError   = lipgloss.Color("#f38ba8") // Rosewater-red (errors, stopped)
+	ColorWarning = lipgloss.Color("#fab387") // Peach (warnings)
+	ColorMuted   = lipgloss.Color("#6c7086") // Overlay0 gray (hints, inactive)
+	ColorAccent  = lipgloss.Color("#b4befe") // Lavender (accent)
 )
 
 // Reusable styles.
