@@ -71,6 +71,7 @@ func SyncRouteRules(s *store.Store) {
 	}
 
 	s.SingBox.Route.Rules = kept
+	s.SingBox.EnsureDefaultDomainResolver()
 	s.MarkDirty(store.FileSingBox)
 }
 

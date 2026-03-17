@@ -44,6 +44,7 @@ func Load() (*Store, error) {
 		return nil, fmt.Errorf("load %s: %w", FileSingBox, err)
 	}
 	s.SingBox = sb
+	s.SingBox.EnsureDefaultDomainResolver()
 
 	// user-management.json
 	um, err := loadJSON[UserManagement](config.UserMetaFile)

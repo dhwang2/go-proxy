@@ -12,6 +12,29 @@ type SingBoxConfig struct {
 	Experimental json.RawMessage   `json:"experimental,omitempty"`
 }
 
+// EnsureDefaultDomainResolver sets route.default_domain_resolver if missing.
+// Uses dns.final if available, otherwise the first DNS server tag.
+func (c *SingBoxConfig) EnsureDefaultDomainResolver() {
+	if c.Route == nil {
+		return
+	}
+	if c.Route.DefaultDomainResolver != "" {
+		return
+	}
+	// Prefer dns.final (matches shell-proxy behavior).
+	if c.DNS != nil && c.DNS.Final != "" {
+		c.Route.DefaultDomainResolver = c.DNS.Final
+		return
+	}
+	// Fall back to the first DNS server tag.
+	if c.DNS != nil {
+		if tag := c.DNS.FirstServerTag(); tag != "" {
+			c.Route.DefaultDomainResolver = tag
+			return
+		}
+	}
+}
+
 // LogConfig configures sing-box logging.
 type LogConfig struct {
 	Level     string `json:"level,omitempty"`
@@ -22,6 +45,21 @@ type LogConfig struct {
 type DNSConfig struct {
 	Servers []json.RawMessage `json:"servers,omitempty"`
 	Rules   []DNSRule         `json:"rules,omitempty"`
+	Final   string            `json:"final,omitempty"`
+}
+
+// FirstServerTag returns the tag of the first DNS server, or empty string.
+func (d *DNSConfig) FirstServerTag() string {
+	if d == nil || len(d.Servers) == 0 {
+		return ""
+	}
+	var srv struct {
+		Tag string `json:"tag"`
+	}
+	if err := json.Unmarshal(d.Servers[0], &srv); err != nil {
+		return ""
+	}
+	return srv.Tag
 }
 
 // DNSRule is a sing-box DNS routing rule.
@@ -135,8 +173,9 @@ func ParseOutboundHeader(raw json.RawMessage) (OutboundHeader, error) {
 
 // RouteConfig holds sing-box route configuration.
 type RouteConfig struct {
-	Rules   []RouteRule       `json:"rules,omitempty"`
-	RuleSet []json.RawMessage `json:"rule_set,omitempty"`
+	DefaultDomainResolver string            `json:"default_domain_resolver,omitempty"`
+	Rules                 []RouteRule       `json:"rules,omitempty"`
+	RuleSet               []json.RawMessage `json:"rule_set,omitempty"`
 }
 
 // RouteRule is a sing-box route rule.
