@@ -155,11 +155,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Delegate to overlay if active (non-key messages like spinner ticks).
+	// When overlay is active, route messages to both the view and the overlay.
+	// The view needs to receive async completion messages (e.g., coreVersionsDoneMsg)
+	// even while a spinner overlay is showing. The overlay needs tick messages.
 	if m.overlay != nil {
-		var cmd tea.Cmd
-		m.overlay, cmd = m.overlay.Update(msg)
-		return m, cmd
+		var cmds []tea.Cmd
+
+		// Route to the current view first so it can handle completion messages.
+		if v, ok := m.views[m.current]; ok {
+			newView, cmd := v.Update(msg)
+			m.views[m.current] = newView
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+
+		// Also route to the overlay for tick/animation messages.
+		var overlayCmd tea.Cmd
+		m.overlay, overlayCmd = m.overlay.Update(msg)
+		if overlayCmd != nil {
+			cmds = append(cmds, overlayCmd)
+		}
+
+		return m, tea.Batch(cmds...)
 	}
 
 	// Delegate to current view.
