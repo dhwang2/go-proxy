@@ -1,9 +1,12 @@
 package core
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // Component represents a managed binary component.
@@ -29,17 +32,27 @@ type VersionInfo struct {
 }
 
 // DetectVersion returns the installed version of a component binary.
-func DetectVersion(binPath string, component Component) VersionInfo {
+// It uses the provided context for timeout control on the exec call.
+func DetectVersion(ctx context.Context, binPath string, component Component) VersionInfo {
 	info := VersionInfo{Component: component}
+
+	// Check binary exists first to avoid exec on missing files.
+	if _, err := os.Stat(binPath); err != nil {
+		return info
+	}
+
+	// Use a per-binary timeout of 10 seconds to prevent hangs.
+	execCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 
 	var cmd *exec.Cmd
 	switch component {
 	case CompSingBox:
-		cmd = exec.Command(binPath, "version")
+		cmd = exec.CommandContext(execCtx, binPath, "version")
 	case CompCaddy:
-		cmd = exec.Command(binPath, "version")
+		cmd = exec.CommandContext(execCtx, binPath, "version")
 	default:
-		cmd = exec.Command(binPath, "--version")
+		cmd = exec.CommandContext(execCtx, binPath, "--version")
 	}
 
 	out, err := cmd.Output()

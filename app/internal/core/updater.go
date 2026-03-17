@@ -36,7 +36,7 @@ func UpdatableComponents() []Component {
 
 // CheckUpdate checks GitHub for a newer release of a component.
 func CheckUpdate(ctx context.Context, component Component, binPath string) (*UpdateCheck, error) {
-	info := DetectVersion(binPath, component)
+	info := DetectVersion(ctx, binPath, component)
 	repo := componentRepo(component)
 	if repo == "" {
 		return nil, fmt.Errorf("no repository configured for %s", component)

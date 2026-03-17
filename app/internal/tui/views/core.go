@@ -164,6 +164,8 @@ func binPath(comp core.Component) string {
 }
 
 func (v *CoreView) doVersions() tea.Msg {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	var sb strings.Builder
 	sb.WriteString("组件版本\n\n")
 	for _, comp := range core.AllComponents() {
@@ -172,7 +174,7 @@ func (v *CoreView) doVersions() tea.Msg {
 			sb.WriteString(fmt.Sprintf("  %s: 未配置\n", comp))
 			continue
 		}
-		info := core.DetectVersion(bp, comp)
+		info := core.DetectVersion(ctx, bp, comp)
 		if info.Installed {
 			sb.WriteString(fmt.Sprintf("  %s: %s\n", comp, info.Version))
 		} else {
@@ -223,7 +225,7 @@ func (v *CoreView) doCheckUpdates(forUpdate bool) tea.Msg {
 		if bp == "" {
 			continue
 		}
-		info := core.DetectVersion(bp, comp)
+		info := core.DetectVersion(ctx, bp, comp)
 		if info.Installed {
 			sb.WriteString(fmt.Sprintf("  %s: %s (手动管理)\n", comp, info.Version))
 		} else {
