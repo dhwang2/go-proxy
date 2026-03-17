@@ -15,7 +15,6 @@ import (
 	"go-proxy/internal/service"
 	"go-proxy/internal/store"
 	"go-proxy/internal/tui"
-	"go-proxy/internal/tui/components"
 )
 
 type configStep int
@@ -27,7 +26,7 @@ const (
 
 type ConfigView struct {
 	model    *tui.Model
-	menu     components.MenuModel
+	menu     tui.MenuModel
 	viewport viewport.Model
 	step     configStep
 	ready    bool
@@ -36,7 +35,7 @@ type ConfigView struct {
 
 func NewConfigView(model *tui.Model) *ConfigView {
 	v := &ConfigView{model: model}
-	v.menu = components.NewMenu("󰈔 配置详情", []components.MenuItem{
+	v.menu = tui.NewMenu("󰈔 配置详情", []tui.MenuItem{
 		{Key: '1', Label: "󰈔 sing-box", ID: "singbox"},
 		{Key: '2', Label: "󰈔 snell-v5", ID: "snell"},
 		{Key: '3', Label: "󰈔 shadow-tls", ID: "shadowtls"},
@@ -69,7 +68,7 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		return v, nil
 
-	case components.MenuSelectMsg:
+	case tui.MenuSelectMsg:
 		switch msg.ID {
 		case "back":
 			if v.step == configViewport {
@@ -137,7 +136,7 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 func (v *ConfigView) View() string {
 	if v.step == configMenu {
-		return tui.RenderSubMenuFrame(v.menu.View(), tui.DefaultSubMenuHint, tui.SeparatorWidth)
+		return tui.RenderSubMenuFrame(v.menu.View(), tui.DefaultSubMenuHint, v.model.ContentWidth())
 	}
 
 	titleStyle := lipgloss.NewStyle().

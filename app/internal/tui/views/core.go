@@ -26,14 +26,14 @@ const (
 
 type CoreView struct {
 	model   *tui.Model
-	menu    components.MenuModel
+	menu    tui.MenuModel
 	step    coreStep
 	pending []core.UpdateCheck
 }
 
 func NewCoreView(model *tui.Model) *CoreView {
 	v := &CoreView{model: model}
-	v.menu = components.NewMenu("󰚗 内核管理", []components.MenuItem{
+	v.menu = tui.NewMenu("󰚗 内核管理", []tui.MenuItem{
 		{Key: '1', Label: "󰋼 查看版本", ID: "versions"},
 		{Key: '2', Label: "󰁪 检查更新", ID: "check"},
 		{Key: '3', Label: "󰏗 执行更新", ID: "update"},
@@ -52,7 +52,7 @@ func (v *CoreView) Init() tea.Cmd {
 
 func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
-	case components.MenuSelectMsg:
+	case tui.MenuSelectMsg:
 		switch msg.ID {
 		case "back":
 			return v, tui.BackCmd
@@ -139,7 +139,7 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *CoreView) View() string {
-	return tui.RenderSubMenuFrame(v.menu.View(), tui.DefaultSubMenuHint, tui.SeparatorWidth)
+	return tui.RenderSubMenuFrame(v.menu.View(), tui.DefaultSubMenuHint, v.model.ContentWidth())
 }
 
 type coreVersionsDoneMsg struct{ result string }

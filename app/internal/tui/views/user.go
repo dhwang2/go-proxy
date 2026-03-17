@@ -14,7 +14,7 @@ import (
 
 type UserView struct {
 	model   *tui.Model
-	menu    components.MenuModel
+	menu    tui.MenuModel
 	step    userStep
 	oldName string // for rename: stores the old username
 }
@@ -33,7 +33,7 @@ const (
 
 func NewUserView(model *tui.Model) *UserView {
 	v := &UserView{model: model}
-	v.menu = components.NewMenu("󰁥 用户管理", []components.MenuItem{
+	v.menu = tui.NewMenu("󰁥 用户管理", []tui.MenuItem{
 		{Key: '1', Label: "󰋼 用户列表", ID: "list"},
 		{Key: '2', Label: "󰐕 添加用户", ID: "add"},
 		{Key: '3', Label: "󰑕 重置用户", ID: "rename"},
@@ -52,7 +52,7 @@ func (v *UserView) Init() tea.Cmd {
 
 func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
-	case components.MenuSelectMsg:
+	case tui.MenuSelectMsg:
 		switch msg.ID {
 		case "back":
 			return v, tui.BackCmd
@@ -149,7 +149,7 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *UserView) View() string {
-	return tui.RenderSubMenuFrame(v.menu.View(), tui.DefaultSubMenuHint, tui.SeparatorWidth)
+	return tui.RenderSubMenuFrame(v.menu.View(), tui.DefaultSubMenuHint, v.model.ContentWidth())
 }
 
 type userActionDoneMsg struct{ result string }

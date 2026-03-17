@@ -115,9 +115,13 @@ func checkService(name string) serviceStatusEntry {
 }
 
 // Cached service status to avoid shelling out on every View() call.
+// Separate caches for full and compact formats to prevent layout corruption
+// when both are rendered on the same frame in split-panel mode.
 var (
-	cachedServiceStatus string
-	serviceStatusExpiry time.Time
+	cachedServiceStatus        string
+	serviceStatusExpiry        time.Time
+	cachedCompactServiceStatus string
+	compactServiceStatusExpiry time.Time
 )
 
 const serviceStatusTTL = 5 * time.Second
@@ -150,6 +154,86 @@ func renderServiceStatus() string {
 	result := strings.Join(parts, "  ")
 	cachedServiceStatus = result
 	serviceStatusExpiry = now.Add(serviceStatusTTL)
+	return result
+}
+
+// RenderCompactDashboard returns a compact dashboard for the narrow left panel.
+func RenderCompactDashboard(s *store.Store, version string, width int) string {
+	stats := derived.Dashboard(s)
+
+	title := HeaderTitleStyle.Width(width).Render("go-proxy")
+	sub := HeaderSubStyle.Width(width).Render("v" + version)
+
+	sysInfo := fmt.Sprintf("%s %s | %s",
+		LabelStyle.Render("🖥"),
+		ValSysStyle.Render(runtime.GOOS),
+		ValSysStyle.Render(displayArch()),
+	)
+	protoInfo := fmt.Sprintf("%s %s",
+		LabelStyle.Render("🔒"),
+		ValProtoStyle.Render(stats.Protocols),
+	)
+	userInfo := fmt.Sprintf("%s %s",
+		LabelStyle.Render("👤"),
+		FormatUserCount(stats.UserCount),
+	)
+	svcInfo := fmt.Sprintf("%s %s",
+		LabelStyle.Render("●"),
+		renderCompactServiceStatus(),
+	)
+
+	sep := SeparatorDouble(width)
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		title,
+		sub,
+		sep,
+		sysInfo,
+		protoInfo,
+		userInfo,
+		svcInfo,
+		sep,
+	)
+}
+
+// renderCompactServiceStatus renders a brief service status for the narrow left panel.
+func renderCompactServiceStatus() string {
+	now := time.Now()
+	if cachedCompactServiceStatus != "" && now.Before(compactServiceStatusExpiry) {
+		return cachedCompactServiceStatus
+	}
+
+	services := []string{"sing-box", "snell-v5", "shadow-tls", "caddy-sub"}
+	greenDot := lipgloss.NewStyle().Foreground(ColorSuccess).Render("●")
+	redDot := lipgloss.NewStyle().Foreground(ColorError).Render("●")
+	grayDot := lipgloss.NewStyle().Foreground(ColorMuted).Render("●")
+
+	var parts []string
+	for _, svc := range services {
+		entry := checkService(svc)
+		var dot string
+		if !entry.exists {
+			dot = grayDot
+		} else if entry.running {
+			dot = greenDot
+		} else {
+			dot = redDot
+		}
+		// Abbreviate service names for compact display.
+		short := svc
+		switch svc {
+		case "shadow-tls":
+			short = "stls"
+		case "caddy-sub":
+			short = "caddy"
+		case "snell-v5":
+			short = "snell"
+		}
+		parts = append(parts, dot+short)
+	}
+	result := strings.Join(parts, " ")
+	cachedCompactServiceStatus = result
+	compactServiceStatusExpiry = now.Add(serviceStatusTTL)
 	return result
 }
 

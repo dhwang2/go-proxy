@@ -9,16 +9,20 @@ import (
 
 // Colors — One Dark inspired palette for terminal TUI.
 var (
-	ColorPrimary   = lipgloss.Color("#61AFEF") // Blue (titles)
-	ColorTitle     = lipgloss.Color("#FF9500") // Orange (main title accent)
-	ColorLabel     = lipgloss.Color("#ABB2BF") // Light gray (menu items, labels)
-	ColorValSys    = lipgloss.Color("#E5C07B") // Yellow (system values)
-	ColorSuccess   = lipgloss.Color("#98C379") // Green (running)
-	ColorError     = lipgloss.Color("#E06C75") // Red (stopped/error)
-	ColorMuted     = lipgloss.Color("#5C6370") // Dark gray (hints, separators)
-	ColorAccent    = lipgloss.Color("#61AFEF") // Blue (selected item bg)
-	ColorAccentFg  = lipgloss.Color("#282C34") // Dark (selected item fg)
-	ColorFooterKey = lipgloss.Color("#C678DD") // Purple (footer shortcut keys)
+	ColorPrimary     = lipgloss.Color("#61AFEF") // Blue (titles)
+	ColorTitle       = lipgloss.Color("#FF9500") // Orange (main title accent)
+	ColorLabel       = lipgloss.Color("#ABB2BF") // Light gray (menu items, labels)
+	ColorLabelDim    = lipgloss.Color("#5C6370") // Dimmed label (unfocused panel)
+	ColorValSys      = lipgloss.Color("#E5C07B") // Yellow (system values)
+	ColorSuccess     = lipgloss.Color("#98C379") // Green (running)
+	ColorError       = lipgloss.Color("#E06C75") // Red (stopped/error)
+	ColorMuted       = lipgloss.Color("#5C6370") // Dark gray (hints, separators)
+	ColorAccent      = lipgloss.Color("#61AFEF") // Blue (selected item bg)
+	ColorAccentFg    = lipgloss.Color("#282C34") // Dark (selected item fg)
+	ColorFooterKey   = lipgloss.Color("#C678DD") // Purple (footer shortcut keys)
+	ColorPanelBorder = lipgloss.Color("#3E4452") // Subtle dark gray (left panel border)
+	ColorPanelFocus  = lipgloss.Color("#4B5263") // Slightly lighter (focused panel border)
+	ColorActiveBg    = lipgloss.Color("#3E4452") // Dark highlight (active menu item bg)
 )
 
 // SeparatorWidth is the default width for double-line separators.
@@ -52,7 +56,7 @@ var (
 	ValProtoStyle = lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
 	ValRuleStyle  = lipgloss.NewStyle().Foreground(ColorSuccess).Bold(true)
 
-	// Outer frame style for the main menu.
+	// Outer frame style for the main menu (single-panel fallback).
 	OuterFrameStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(ColorPrimary).
@@ -63,6 +67,44 @@ var (
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(ColorMuted).
 				Padding(0, 2)
+
+	// Split-panel styles.
+	LeftPanelStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(ColorPanelBorder).
+			Padding(0, 1)
+
+	LeftPanelFocusedStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(ColorPanelFocus).
+				Padding(0, 1)
+
+	RightPanelStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(ColorPanelBorder).
+			Padding(0, 1)
+
+	RightPanelFocusedStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(ColorPanelFocus).
+				Padding(0, 1)
+
+	// Sub-menu title bar (solid colored bar).
+	SubMenuTitleStyle = lipgloss.NewStyle().
+				Background(ColorAccent).
+				Foreground(ColorAccentFg).
+				Bold(true).
+				Padding(0, 1)
+
+	// Breadcrumb styles.
+	BreadcrumbDimStyle    = lipgloss.NewStyle().Foreground(ColorMuted)
+	BreadcrumbActiveStyle = lipgloss.NewStyle().Foreground(ColorLabel)
+
+	// Active menu item (sub-menu is open for this item).
+	MenuActiveStyle = lipgloss.NewStyle().
+			Background(ColorActiveBg).
+			Foreground(ColorPrimary).
+			Bold(true)
 )
 
 // Pre-computed separator at default width to avoid repeated allocation.

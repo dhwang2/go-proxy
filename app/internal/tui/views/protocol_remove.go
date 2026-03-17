@@ -14,7 +14,7 @@ import (
 
 type ProtocolRemoveView struct {
 	model       *tui.Model
-	menu        components.MenuModel
+	menu        tui.MenuModel
 	step        protoRemoveStep
 	pendingTag  string
 	tableHeader string
@@ -67,7 +67,7 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 	v.tableHeader = fmt.Sprintf("  %-4s %-16s %-8s %-8s %s",
 		"#", "协议", "端口", "用户", "详情")
 
-	items := make([]components.MenuItem, 0, len(inv)+1)
+	items := make([]tui.MenuItem, 0, len(inv)+1)
 	for i, info := range inv {
 		k := rune('1' + i)
 		if i >= 9 {
@@ -88,20 +88,20 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 		label := fmt.Sprintf("%-14s %-8d %-8d %s",
 			info.Type, info.Port, userCount, detail)
 
-		items = append(items, components.MenuItem{
+		items = append(items, tui.MenuItem{
 			Key:   k,
 			Label: label,
 			ID:    info.Tag,
 		})
 	}
-	items = append(items, components.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
+	items = append(items, tui.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
 	v.menu = v.menu.SetItems(items)
 	return nil
 }
 
 func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
-	case components.MenuSelectMsg:
+	case tui.MenuSelectMsg:
 		if msg.ID == "back" {
 			return v, tui.BackCmd
 		}
@@ -168,9 +168,9 @@ func (v *ProtocolRemoveView) View() string {
 	hint := tui.DefaultSubMenuHint
 	if v.step == protoRemoveMenu && v.tableHeader != "" {
 		content := v.tableHeader + "\n" + v.menu.View()
-		return tui.RenderSubMenuFrame(content, hint, tui.SeparatorWidth)
+		return tui.RenderSubMenuFrame(content, hint, v.model.ContentWidth())
 	}
-	return tui.RenderSubMenuFrame(v.menu.View(), hint, tui.SeparatorWidth)
+	return tui.RenderSubMenuFrame(v.menu.View(), hint, v.model.ContentWidth())
 }
 
 type protoRemoveDoneMsg struct {
