@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"go-proxy/internal/derived"
 	"go-proxy/internal/subscription"
@@ -13,19 +14,8 @@ import (
 )
 
 type SubscriptionView struct {
-	model       *tui.Model
-	menu        components.MenuModel
-	step        subStep
-	pendingUser string
+	model *tui.Model
 }
-
-type subStep int
-
-const (
-	subMenu subStep = iota
-	subFormat
-	subResult
-)
 
 func NewSubscriptionView(model *tui.Model) *SubscriptionView {
 	return &SubscriptionView{model: model}
@@ -34,112 +24,79 @@ func NewSubscriptionView(model *tui.Model) *SubscriptionView {
 func (v *SubscriptionView) Name() string { return "subscription" }
 
 func (v *SubscriptionView) Init() tea.Cmd {
-	v.step = subMenu
-	names := derived.UserNames(v.model.Store())
-	if len(names) == 0 {
-		return func() tea.Msg {
-			return tui.ShowOverlayMsg{
-				Overlay: components.NewResult("暂无用户"),
-			}
+	result := v.renderAllLinks()
+	return func() tea.Msg {
+		return tui.ShowOverlayMsg{
+			Overlay: components.NewResult(result),
 		}
 	}
-	items := make([]components.MenuItem, 0, len(names)+1)
-	for i, name := range names {
-		k := rune('1' + i)
-		if i >= 9 {
-			k = rune('a' + i - 9)
-		}
-		items = append(items, components.MenuItem{Key: k, Label: name, ID: name})
-	}
-	items = append(items, components.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
-	v.menu = v.menu.SetItems(items)
-	return nil
 }
 
 func (v *SubscriptionView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
-	switch msg := msg.(type) {
-	case components.MenuSelectMsg:
-		if msg.ID == "back" {
-			return v, tui.BackCmd
-		}
-		if v.step == subMenu {
-			v.pendingUser = msg.ID
-			v.step = subFormat
-			formatMenu := components.NewMenu("选择格式", []components.MenuItem{
-				{Key: '1', Label: "Surge", ID: "surge"},
-				{Key: '2', Label: "sing-box", ID: "singbox"},
-				{Key: '0', Label: "󰌍 返回", ID: "back"},
-			})
-			return v, func() tea.Msg {
-				return tui.ShowOverlayMsg{Overlay: overlayMenu{menu: formatMenu}}
-			}
-		}
-		return v, nil
-
-	case tui.OverlaySelectMsg:
-		if msg.ID == "back" {
-			v.step = subMenu
-			return v, nil
-		}
-		var format subscription.Format
-		if msg.ID == "singbox" {
-			format = subscription.FormatSingBox
-		} else {
-			format = subscription.FormatSurge
-		}
-		user := v.pendingUser
-		links := subscription.Render(v.model.Store(), user, format, "")
-		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("订阅: %s (%s)\n\n", user, format))
-		for _, l := range links {
-			sb.WriteString(l.Tag + "\n")
-			sb.WriteString(l.Content + "\n\n")
-		}
-		if len(links) == 0 {
-			sb.WriteString("暂无可用订阅")
-		}
-		v.step = subResult
-		result := sb.String()
-		return v, func() tea.Msg {
-			return tui.ShowOverlayMsg{
-				Overlay: components.NewResult(result),
-			}
-		}
-
+	switch msg.(type) {
 	case tui.ResultDismissedMsg:
 		return v, tui.BackCmd
-
-	default:
-		if v.step == subMenu {
-			var cmd tea.Cmd
-			v.menu, cmd = v.menu.Update(msg)
-			return v, cmd
-		}
 	}
 	return v, nil
 }
 
-func (v *SubscriptionView) View() string { return v.menu.View() }
+func (v *SubscriptionView) View() string { return "" }
 
-// overlayMenu wraps a MenuModel as an OverlayModel.
-type overlayMenu struct {
-	menu components.MenuModel
-}
-
-func (o overlayMenu) Init() tea.Cmd { return nil }
-
-func (o overlayMenu) Update(msg tea.Msg) (tui.OverlayModel, tea.Cmd) {
-	switch msg := msg.(type) {
-	case components.MenuSelectMsg:
-		id := msg.ID
-		return o, func() tea.Msg { return tui.OverlaySelectMsg{ID: id} }
-	default:
-		var cmd tea.Cmd
-		o.menu, cmd = o.menu.Update(msg)
-		return o, cmd
+// renderAllLinks generates all subscription links for all users at once,
+// organized by section like shell-proxy.
+func (v *SubscriptionView) renderAllLinks() string {
+	s := v.model.Store()
+	names := derived.UserNames(s)
+	if len(names) == 0 {
+		return "暂无用户"
 	}
-}
 
-func (o overlayMenu) View() string {
-	return tui.DialogStyle.Render(o.menu.View())
+	headerStyle := lipgloss.NewStyle().Foreground(tui.ColorPrimary).Bold(true)
+	userStyle := lipgloss.NewStyle().Foreground(tui.ColorAccent).Bold(true)
+
+	var sb strings.Builder
+
+	// Section: Protocol links (Surge format).
+	sb.WriteString(headerStyle.Render("[ 协议链接 ]"))
+	sb.WriteString("\n\n")
+
+	hasLinks := false
+	for _, name := range names {
+		links := subscription.Render(s, name, subscription.FormatSurge, "")
+		if len(links) == 0 {
+			continue
+		}
+		hasLinks = true
+		sb.WriteString(userStyle.Render(fmt.Sprintf("  %s:", name)))
+		sb.WriteString("\n")
+		for _, l := range links {
+			sb.WriteString(fmt.Sprintf("    %s\n", l.Content))
+		}
+		sb.WriteString("\n")
+	}
+	if !hasLinks {
+		sb.WriteString("  暂无可用链接\n\n")
+	}
+
+	// Section: Snell info (if snell is configured).
+	if s.SnellConf != nil {
+		sb.WriteString(headerStyle.Render("[ Snell ]"))
+		sb.WriteString("\n\n")
+		port := snellPort(s.SnellConf.Listen)
+		host := subscription.DetectTarget()
+		sb.WriteString(fmt.Sprintf("  服务器: %s\n", subscription.FormatHost(host)))
+		sb.WriteString(fmt.Sprintf("  端口: %d\n", port))
+		sb.WriteString(fmt.Sprintf("  PSK: %s\n", s.SnellConf.PSK))
+		sb.WriteString("\n")
+	}
+
+	// Section: Server info.
+	sb.WriteString(headerStyle.Render("[ 服务器信息 ]"))
+	sb.WriteString("\n\n")
+	host := subscription.DetectTarget()
+	sb.WriteString(fmt.Sprintf("  地址: %s\n", host))
+	sb.WriteString(fmt.Sprintf("  用户数: %d\n", len(names)))
+	sb.WriteString(fmt.Sprintf("  协议数: %d\n", len(s.SingBox.Inbounds)))
+
+	return sb.String()
 }

@@ -33,8 +33,8 @@ type LogsView struct {
 func NewLogsView(model *tui.Model) *LogsView {
 	v := &LogsView{model: model}
 	v.menu = components.NewMenu("󰌱 运行日志", []components.MenuItem{
-		{Key: '1', Label: "󰌱 查看脚本日志 (最近50行)", ID: "script"},
-		{Key: '2', Label: "󰌱 查看 Watchdog 日志 (最近50行)", ID: "watchdog"},
+		{Key: '1', Label: "󰌱 查看脚本日志 (最近30行)", ID: "script"},
+		{Key: '2', Label: "󰌱 查看 Watchdog 日志 (最近30行)", ID: "watchdog"},
 		{Key: '3', Label: "󰌱 查看服务日志 (按服务选择)", ID: "service"},
 		{Key: '0', Label: "󰌍 返回", ID: "back"},
 	})
@@ -58,7 +58,12 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 			svc := msg.ID
 			v.step = logsResult
-			return v, func() tea.Msg { return v.readServiceLog(svc) }
+			return v, tea.Sequence(
+				func() tea.Msg {
+					return tui.ShowOverlayMsg{Overlay: components.NewSpinner("加载日志...")}
+				},
+				func() tea.Msg { return v.readServiceLog(svc) },
+			)
 		}
 
 		switch msg.ID {
@@ -66,10 +71,20 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, tui.BackCmd
 		case "script":
 			v.step = logsResult
-			return v, func() tea.Msg { return v.readScriptLog() }
+			return v, tea.Sequence(
+				func() tea.Msg {
+					return tui.ShowOverlayMsg{Overlay: components.NewSpinner("加载日志...")}
+				},
+				func() tea.Msg { return v.readScriptLog() },
+			)
 		case "watchdog":
 			v.step = logsResult
-			return v, func() tea.Msg { return v.readWatchdogLog() }
+			return v, tea.Sequence(
+				func() tea.Msg {
+					return tui.ShowOverlayMsg{Overlay: components.NewSpinner("加载日志...")}
+				},
+				func() tea.Msg { return v.readWatchdogLog() },
+			)
 		case "service":
 			v.step = logsServiceSelect
 			v.serviceMenu = v.buildServiceMenu()
@@ -170,7 +185,7 @@ func (v *LogsView) buildServiceMenu() components.MenuModel {
 
 // readScriptLog reads the script log file directly.
 func (v *LogsView) readScriptLog() tea.Msg {
-	content, source := readLogFileOrJournalctl(config.ScriptLog, "proxy-script", 50)
+	content, source := readLogFileOrJournalctl(config.ScriptLog, "proxy-script", 30)
 	title := "脚本日志"
 	if source != "" {
 		title += " (" + source + ")"
@@ -180,7 +195,7 @@ func (v *LogsView) readScriptLog() tea.Msg {
 
 // readWatchdogLog reads watchdog log from file or journalctl.
 func (v *LogsView) readWatchdogLog() tea.Msg {
-	content, source := readLogFileOrJournalctl(config.WatchdogLog, "proxy-watchdog", 50)
+	content, source := readLogFileOrJournalctl(config.WatchdogLog, "proxy-watchdog", 30)
 	title := "Watchdog 日志"
 	if source != "" {
 		title += " (" + source + ")"
@@ -191,7 +206,7 @@ func (v *LogsView) readWatchdogLog() tea.Msg {
 // readServiceLog reads a service log with file/journalctl fallback.
 func (v *LogsView) readServiceLog(svc string) tea.Msg {
 	logFile, unit := serviceLogSource(svc)
-	content, source := readLogFileOrJournalctl(logFile, unit, 50)
+	content, source := readLogFileOrJournalctl(logFile, unit, 30)
 	title := svc + " 日志"
 	if source != "" {
 		title += " (" + source + ")"

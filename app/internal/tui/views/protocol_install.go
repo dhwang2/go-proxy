@@ -3,6 +3,7 @@ package views
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -238,14 +239,24 @@ func (v *ProtocolInstallView) doShadowTLSForSnell(snellPort int) tea.Msg {
 
 	ctx := context.Background()
 	depSteps := protocol.ProvisionDeps(ctx, protocol.ShadowTLS, params)
-	depReport := protocol.FormatDepSteps(depSteps)
+
+	// Filter out sing-box steps to avoid duplicate display (already shown during snell install).
+	var stSteps []protocol.DepStep
+	for _, s := range depSteps {
+		if !strings.Contains(s.Description, "sing-box") {
+			stSteps = append(stSteps, s)
+		}
+	}
+	depReport := protocol.FormatDepSteps(stSteps)
 
 	if protocol.HasDepError(depSteps) {
-		return protoInstallDoneMsg{result: "shadow-tls 依赖安装失败\n\n" + depReport}
+		return protoInstallDoneMsg{result: "shadow-tls 依赖安装失败\n\n" + protocol.FormatDepSteps(depSteps)}
 	}
 
-	return protoInstallDoneMsg{
-		result: fmt.Sprintf("snell+shadow-tls 配置完成\nShadowTLS 监听: %d -> Snell 后端: %d\n%s",
-			stPort, snellPort, depReport),
+	msg := fmt.Sprintf("snell+shadow-tls 配置完成\nShadowTLS 监听: %d -> Snell 后端: %d",
+		stPort, snellPort)
+	if depReport != "" {
+		msg += "\n" + depReport
 	}
+	return protoInstallDoneMsg{result: msg}
 }

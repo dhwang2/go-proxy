@@ -7,7 +7,6 @@ var (
 	ColorPrimary = lipgloss.Color("#1e40af") // Deep blue (titles)
 	ColorLabel   = lipgloss.Color("#ffffff") // White (labels/text)
 	ColorValSys  = lipgloss.Color("#eab308") // Yellow (system values, warnings)
-	ColorValPort = lipgloss.Color("#a855f7") // Purple (port values)
 	ColorSuccess = lipgloss.Color("#22c55e") // Green (success/running)
 	ColorError   = lipgloss.Color("#f97316") // Orange (errors, stopped)
 	ColorWarning = lipgloss.Color("#eab308") // Yellow (warnings)
