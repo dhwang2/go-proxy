@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -12,10 +13,11 @@ import (
 )
 
 type ProtocolRemoveView struct {
-	model      *tui.Model
-	menu       components.MenuModel
-	step       protoRemoveStep
-	pendingTag string
+	model       *tui.Model
+	menu        components.MenuModel
+	step        protoRemoveStep
+	pendingTag  string
+	tableHeader string
 }
 
 type protoRemoveStep int
@@ -36,15 +38,44 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 	v.step = protoRemoveMenu
 	v.pendingTag = ""
 	inv := derived.Inventory(v.model.Store())
+	membership := derived.Membership(v.model.Store())
+
+	// Build a reverse map: tag -> list of user names.
+	tagUsers := make(map[string][]string)
+	for name, entries := range membership {
+		for _, e := range entries {
+			tagUsers[e.Tag] = append(tagUsers[e.Tag], name)
+		}
+	}
+
+	// Table header.
+	v.tableHeader = fmt.Sprintf("  %-4s %-16s %-8s %-8s %s",
+		"#", "协议", "端口", "用户", "详情")
+
 	items := make([]components.MenuItem, 0, len(inv)+1)
 	for i, info := range inv {
 		k := rune('1' + i)
 		if i >= 9 {
 			k = rune('a' + i - 9)
 		}
+
+		userCount := info.UserCount
+		userDetail := strings.Join(tagUsers[info.Tag], "  ")
+		if userDetail == "" {
+			userDetail = "无"
+		}
+
+		detail := userDetail
+		if info.HasReality {
+			detail = "reality  " + detail
+		}
+
+		label := fmt.Sprintf("%-14s %-8d %-8d %s",
+			info.Type, info.Port, userCount, detail)
+
 		items = append(items, components.MenuItem{
 			Key:   k,
-			Label: fmt.Sprintf("%s (端口 %d, %d 用户)", info.Tag, info.Port, info.UserCount),
+			Label: label,
 			ID:    info.Tag,
 		})
 	}
@@ -107,6 +138,9 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *ProtocolRemoveView) View() string {
+	if v.step == protoRemoveMenu && v.tableHeader != "" {
+		return v.tableHeader + "\n" + v.menu.View()
+	}
 	return v.menu.View()
 }
 

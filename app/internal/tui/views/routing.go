@@ -1,7 +1,6 @@
 package views
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -130,7 +129,7 @@ func (v *RoutingView) handleMenuSelect(msg components.MenuSelectMsg) (tui.View, 
 			v.step = routingChainAddInput
 			return v, func() tea.Msg {
 				return tui.ShowOverlayMsg{
-					Overlay: components.NewTextInput("链式代理地址 (host:port):", ""),
+					Overlay: components.NewTextInput("链式代理 (地址:端口:用户:密码):", ""),
 				}
 			}
 		case "delete":
@@ -217,17 +216,12 @@ func (v *RoutingView) handleInput(msg tui.InputResultMsg) (tui.View, tea.Cmd) {
 
 	switch v.step {
 	case routingChainAddInput:
-		parts := strings.SplitN(msg.Value, ":", 2)
-		if len(parts) != 2 {
-			return v, v.showError("格式错误，请使用 host:port")
-		}
-		server := parts[0]
-		port, err := strconv.Atoi(parts[1])
-		if err != nil || port <= 0 || port > 65535 {
-			return v, v.showError("端口号无效")
+		server, port, username, password, err := parseChainInput(msg.Value)
+		if err != nil {
+			return v, v.showError(err.Error())
 		}
 		display := msg.Value
-		return v, func() tea.Msg { return v.doChainAdd(server, port, display) }
+		return v, func() tea.Msg { return v.doChainAdd(server, port, username, password, display) }
 
 	case routingTestDomain:
 		domain := msg.Value
@@ -354,18 +348,7 @@ func (v *RoutingView) showError(msg string) tea.Cmd {
 type routingActionDoneMsg struct{ result string }
 
 func (v *RoutingView) listChains() []routing.ChainOutbound {
-	var chains []routing.ChainOutbound
-	for _, raw := range v.model.Store().SingBox.Outbounds {
-		h, err := store.ParseOutboundHeader(raw)
-		if err != nil || h.Type != "socks" {
-			continue
-		}
-		var co routing.ChainOutbound
-		if err := json.Unmarshal(raw, &co); err == nil {
-			chains = append(chains, co)
-		}
-	}
-	return chains
+	return routing.ListChains(v.model.Store())
 }
 
 func (v *RoutingView) doChainView() tea.Msg {
@@ -381,16 +364,16 @@ func (v *RoutingView) doChainView() tea.Msg {
 	return routingActionDoneMsg{result: sb.String()}
 }
 
-func (v *RoutingView) doChainAdd(server string, port int, display string) tea.Msg {
-	tag := "res-socks"
-	if err := routing.SetChain(v.model.Store(), tag, server, port); err != nil {
+func (v *RoutingView) doChainAdd(server string, port int, username, password, display string) tea.Msg {
+	tag, err := routing.AddChain(v.model.Store(), server, port, username, password)
+	if err != nil {
 		return routingActionDoneMsg{result: "添加失败: " + err.Error()}
 	}
 	routing.SyncDNS(v.model.Store(), nil, "ipv4_only")
 	if err := v.model.Store().Apply(); err != nil {
 		return routingActionDoneMsg{result: "保存失败: " + err.Error()}
 	}
-	return routingActionDoneMsg{result: fmt.Sprintf("链式代理已添加: %s", display)}
+	return routingActionDoneMsg{result: fmt.Sprintf("链式代理已添加: %s (%s)", tag, display)}
 }
 
 func (v *RoutingView) doChainRemove(tag string) tea.Msg {
@@ -448,4 +431,33 @@ func (v *RoutingView) doTestDomain(userName, domain string) tea.Msg {
 		sb.WriteString(fmt.Sprintf("  → %s  [%s: %s]\n", r.Outbound, r.MatchBy, r.Value))
 	}
 	return routingActionDoneMsg{result: sb.String()}
+}
+
+// parseChainInput parses the chain proxy input in format: address:port:username:password
+// Username and password are optional. Minimum format: address:port.
+func parseChainInput(input string) (server string, port int, username, password string, err error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return "", 0, "", "", fmt.Errorf("输入不能为空")
+	}
+
+	parts := strings.SplitN(input, ":", 4)
+	if len(parts) < 2 {
+		return "", 0, "", "", fmt.Errorf("格式错误，请使用 地址:端口[:用户:密码]")
+	}
+
+	server = parts[0]
+	port, convErr := strconv.Atoi(parts[1])
+	if convErr != nil || port <= 0 || port > 65535 {
+		return "", 0, "", "", fmt.Errorf("端口号无效")
+	}
+
+	if len(parts) >= 3 {
+		username = parts[2]
+	}
+	if len(parts) >= 4 {
+		password = parts[3]
+	}
+
+	return server, port, username, password, nil
 }

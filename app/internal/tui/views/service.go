@@ -248,6 +248,11 @@ func (v *ServiceView) doBulkAction(action string) tea.Msg {
 	}
 
 	for _, svc := range svcs {
+		// Skip services that are not installed.
+		if !service.IsInstalled(ctx, svc) {
+			sb.WriteString(fmt.Sprintf("  %s %s: 未安装\n", actionName, svc))
+			continue
+		}
 		var err error
 		switch action {
 		case "restart":
@@ -268,6 +273,12 @@ func (v *ServiceView) doBulkAction(action string) tea.Msg {
 
 func (v *ServiceView) doSingleAction(svcName service.Name, action string) tea.Msg {
 	ctx := context.Background()
+
+	// Check if service is installed before attempting action.
+	if !service.IsInstalled(ctx, svcName) {
+		return svcActionDoneMsg{result: fmt.Sprintf("%s 未安装，无法操作", svcName)}
+	}
+
 	var err error
 	var actionLabel string
 	switch action {
@@ -288,13 +299,18 @@ func (v *ServiceView) doSingleAction(svcName service.Name, action string) tea.Ms
 }
 
 func (v *ServiceView) buildServiceSelectMenu() components.MenuModel {
+	ctx := context.Background()
 	svcs := service.AllServices()
 	items := make([]components.MenuItem, 0, len(svcs)+1)
 	for i, svc := range svcs {
 		key := rune('1' + i)
+		label := string(svc)
+		if !service.IsInstalled(ctx, svc) {
+			label += " (未安装)"
+		}
 		items = append(items, components.MenuItem{
 			Key:   key,
-			Label: string(svc),
+			Label: label,
 			ID:    "svc:" + string(svc),
 		})
 	}

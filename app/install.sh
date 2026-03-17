@@ -7,6 +7,12 @@ INSTALL_PATH="${INSTALL_PATH:-/usr/bin/proxy}"
 TMP_DIR=""
 RELEASE_PREFIX="${RELEASE_PREFIX:-v}"
 
+# Runtime paths (must match app/internal/config/paths.go).
+WORK_DIR="/etc/go-proxy"
+BIN_DIR="${WORK_DIR}/bin"
+CONF_DIR="${WORK_DIR}/conf"
+LOG_DIR="${WORK_DIR}/logs"
+
 usage() {
   cat <<'EOF'
 go-proxy installer
@@ -193,6 +199,126 @@ install_binary() {
   cleanup_stale_binaries "${target}"
 }
 
+download_file() {
+  local url="$1"
+  local output="$2"
+  curl -fsSL --retry 3 --retry-delay 1 --connect-timeout 10 -o "${output}" "${url}"
+}
+
+resolve_github_latest_tag() {
+  local repo="$1"
+  local api_url="https://api.github.com/repos/${repo}/releases/latest"
+  local payload
+  payload="$(curl -fsSL "${api_url}" 2>/dev/null)" || return 1
+  printf '%s' "${payload}" | grep -o '"tag_name":[[:space:]]*"[^"]*"' | head -1 | cut -d'"' -f4
+}
+
+install_singbox_core() {
+  local arch="$1"
+  local version
+  version="$(resolve_github_latest_tag "SagerNet/sing-box")"
+  version="${version#v}"
+  version="${version:-1.10.0}"
+  echo "installing sing-box v${version}..."
+
+  mkdir -p "${BIN_DIR}" "${CONF_DIR}" "${LOG_DIR}"
+  local filename="sing-box-${version}-linux-${arch}.tar.gz"
+  local url="https://github.com/SagerNet/sing-box/releases/download/v${version}/${filename}"
+
+  download_file "${url}" "${TMP_DIR}/${filename}"
+  tar -zxf "${TMP_DIR}/${filename}" -C "${TMP_DIR}"
+  local extracted_bin
+  extracted_bin="$(find "${TMP_DIR}" -name sing-box -type f | head -n 1)"
+  if [[ -z "${extracted_bin}" || ! -f "${extracted_bin}" ]]; then
+    echo "warn: sing-box binary not found in archive, skipping" >&2
+    return 1
+  fi
+  install -m 755 "${extracted_bin}" "${BIN_DIR}/sing-box"
+  echo "installed: ${BIN_DIR}/sing-box"
+}
+
+install_snell() {
+  local arch="$1"
+  local version="5.0.1"
+  echo "installing snell-v5 v${version}..."
+
+  mkdir -p "${BIN_DIR}"
+  local snell_arch="${arch}"
+  [[ "${arch}" == "arm64" ]] && snell_arch="aarch64"
+
+  local filename="snell-server-v${version}-linux-${snell_arch}.zip"
+  local url="https://dl.nssurge.com/snell/${filename}"
+
+  download_file "${url}" "${TMP_DIR}/${filename}"
+  unzip -o "${TMP_DIR}/${filename}" -d "${TMP_DIR}" >/dev/null 2>&1
+  if [[ ! -f "${TMP_DIR}/snell-server" ]]; then
+    echo "warn: snell-server binary not found, skipping" >&2
+    return 1
+  fi
+  install -m 755 "${TMP_DIR}/snell-server" "${BIN_DIR}/snell-server"
+  echo "installed: ${BIN_DIR}/snell-server"
+}
+
+install_shadowtls() {
+  local arch="$1"
+  echo "installing shadow-tls..."
+
+  local st_version
+  st_version="$(resolve_github_latest_tag "ihciah/shadow-tls")"
+  st_version="${st_version#v}"
+  st_version="${st_version:-0.2.25}"
+
+  local st_arch="x86_64-unknown-linux-musl"
+  [[ "${arch}" == "arm64" ]] && st_arch="aarch64-unknown-linux-musl"
+
+  local filename="shadow-tls-${st_arch}"
+  local url="https://github.com/ihciah/shadow-tls/releases/download/v${st_version}/${filename}"
+
+  mkdir -p "${BIN_DIR}"
+  download_file "${url}" "${TMP_DIR}/${filename}"
+  if [[ ! -f "${TMP_DIR}/${filename}" ]]; then
+    echo "warn: shadow-tls download failed, skipping" >&2
+    return 1
+  fi
+  install -m 755 "${TMP_DIR}/${filename}" "${BIN_DIR}/shadow-tls"
+  echo "installed: ${BIN_DIR}/shadow-tls"
+}
+
+install_caddy() {
+  local arch="$1"
+  echo "installing caddy..."
+
+  local version
+  version="$(resolve_github_latest_tag "caddyserver/caddy")"
+  version="${version#v}"
+  version="${version:-2.9.1}"
+
+  local filename="caddy_${version}_linux_${arch}.tar.gz"
+  local url="https://github.com/caddyserver/caddy/releases/download/v${version}/${filename}"
+
+  mkdir -p "${BIN_DIR}"
+  download_file "${url}" "${TMP_DIR}/${filename}"
+  tar -zxf "${TMP_DIR}/${filename}" -C "${TMP_DIR}" caddy 2>/dev/null || tar -zxf "${TMP_DIR}/${filename}" -C "${TMP_DIR}"
+  if [[ ! -f "${TMP_DIR}/caddy" ]]; then
+    echo "warn: caddy binary not found in archive, skipping" >&2
+    return 1
+  fi
+  install -m 755 "${TMP_DIR}/caddy" "${BIN_DIR}/caddy"
+  echo "installed: ${BIN_DIR}/caddy"
+}
+
+install_cores() {
+  local arch="$1"
+  # Each core install is best-effort; failures are non-fatal.
+  install_singbox_core "${arch}" || echo "warn: sing-box installation failed" >&2
+  rm -rf "${TMP_DIR:?}"/* 2>/dev/null || true
+  install_snell "${arch}" || echo "warn: snell installation failed" >&2
+  rm -rf "${TMP_DIR:?}"/* 2>/dev/null || true
+  install_shadowtls "${arch}" || echo "warn: shadow-tls installation failed" >&2
+  rm -rf "${TMP_DIR:?}"/* 2>/dev/null || true
+  install_caddy "${arch}" || echo "warn: caddy installation failed" >&2
+}
+
 main() {
   if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
     usage
@@ -204,6 +330,8 @@ main() {
   arch="$(detect_arch)"
 
   TMP_DIR="$(mktemp -d)"
+
+  # --- Install proxy binary ---
   local -a candidates=()
   mapfile -t candidates < <(resolve_download_urls "${arch}")
   local downloaded="${TMP_DIR}/downloaded.bin"
@@ -227,6 +355,16 @@ main() {
 
   echo "installed: ${INSTALL_PATH}"
   "${INSTALL_PATH}" version || true
+
+  # --- Install all service cores ---
+  rm -rf "${TMP_DIR:?}"/* 2>/dev/null || true
+  install_cores "${arch}"
+
+  # --- Initialize config, services, and watchdog ---
+  echo "initializing services..."
+  "${INSTALL_PATH}" init || echo "warn: proxy init failed" >&2
+
+  echo "installation complete"
 }
 
 main "$@"
