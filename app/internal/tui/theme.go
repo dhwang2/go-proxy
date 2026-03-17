@@ -22,6 +22,7 @@ var (
 	ColorFooterKey   = lipgloss.Color("#C678DD") // Purple (footer shortcut keys)
 	ColorPanelBorder = lipgloss.Color("#3E4452") // Subtle dark gray (left panel border)
 	ColorPanelFocus  = lipgloss.Color("#4B5263") // Slightly lighter (focused panel border)
+	ColorDragBorder  = lipgloss.Color("#E5C07B") // Yellow (drag resize indicator)
 	ColorActiveBg    = lipgloss.Color("#3E4452") // Dark highlight (active menu item bg)
 )
 

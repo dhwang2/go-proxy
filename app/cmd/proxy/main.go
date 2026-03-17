@@ -100,7 +100,7 @@ func runTUI() {
 	m.RegisterView(views.NewUninstallView(&m))
 	m.RegisterView(views.NewSelfUpdateView(&m))
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	finalModel, err := p.Run()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tui error: %v\n", err)

@@ -164,21 +164,21 @@ func RenderCompactDashboard(s *store.Store, version string, width int) string {
 	title := HeaderTitleStyle.Width(width).Render("go-proxy")
 	sub := HeaderSubStyle.Width(width).Render("v" + version)
 
-	sysInfo := fmt.Sprintf("%s %s | %s",
-		LabelStyle.Render("🖥"),
+	sysInfo := fmt.Sprintf(" %s %s | %s",
+		LabelStyle.Render("系统:"),
 		ValSysStyle.Render(runtime.GOOS),
 		ValSysStyle.Render(displayArch()),
 	)
-	protoInfo := fmt.Sprintf("%s %s",
-		LabelStyle.Render("🔒"),
+	protoInfo := fmt.Sprintf(" %s %s",
+		LabelStyle.Render("协议:"),
 		ValProtoStyle.Render(stats.Protocols),
 	)
-	userInfo := fmt.Sprintf("%s %s",
-		LabelStyle.Render("👤"),
+	userInfo := fmt.Sprintf(" %s %s",
+		LabelStyle.Render("用户:"),
 		FormatUserCount(stats.UserCount),
 	)
-	svcInfo := fmt.Sprintf("%s %s",
-		LabelStyle.Render("●"),
+	svcInfo := fmt.Sprintf(" %s %s",
+		LabelStyle.Render("服务:"),
 		renderCompactServiceStatus(),
 	)
 
