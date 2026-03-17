@@ -2,11 +2,13 @@ package views
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"go-proxy/internal/config"
 	"go-proxy/internal/derived"
 	"go-proxy/internal/store"
 	"go-proxy/internal/tui"
@@ -31,9 +33,9 @@ type LogsView struct {
 func NewLogsView(model *tui.Model) *LogsView {
 	v := &LogsView{model: model}
 	v.menu = components.NewMenu("󰌱 运行日志", []components.MenuItem{
-		{Key: '1', Label: "󰌱 查看脚本日志", ID: "script"},
-		{Key: '2', Label: "󰌱 查看 Watchdog 日志", ID: "watchdog"},
-		{Key: '3', Label: "󰌱 查看服务日志", ID: "service"},
+		{Key: '1', Label: "󰌱 查看脚本日志 (最近50行)", ID: "script"},
+		{Key: '2', Label: "󰌱 查看 Watchdog 日志 (最近50行)", ID: "watchdog"},
+		{Key: '3', Label: "󰌱 查看服务日志 (按服务选择)", ID: "service"},
 		{Key: '0', Label: "󰌍 返回", ID: "back"},
 	})
 	return v
@@ -56,7 +58,7 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 			svc := msg.ID
 			v.step = logsResult
-			return v, func() tea.Msg { return v.readJournalctl(svc) }
+			return v, func() tea.Msg { return v.readServiceLog(svc) }
 		}
 
 		switch msg.ID {
@@ -64,10 +66,10 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, tui.BackCmd
 		case "script":
 			v.step = logsResult
-			return v, func() tea.Msg { return v.readJournalctl("proxy-script") }
+			return v, func() tea.Msg { return v.readScriptLog() }
 		case "watchdog":
 			v.step = logsResult
-			return v, func() tea.Msg { return v.readJournalctl("proxy-watchdog") }
+			return v, func() tea.Msg { return v.readWatchdogLog() }
 		case "service":
 			v.step = logsServiceSelect
 			v.serviceMenu = v.buildServiceMenu()
@@ -166,14 +168,117 @@ func (v *LogsView) buildServiceMenu() components.MenuModel {
 	return components.NewMenu("查看服务日志", items)
 }
 
-func (v *LogsView) readJournalctl(unit string) tea.Msg {
-	out, err := exec.Command("journalctl", "-u", unit, "-n", "50", "--no-pager").CombinedOutput()
+// readScriptLog reads the script log file directly.
+func (v *LogsView) readScriptLog() tea.Msg {
+	content, source := readLogFileOrJournalctl(config.ScriptLog, "proxy-script", 50)
+	title := "脚本日志"
+	if source != "" {
+		title += " (" + source + ")"
+	}
+	return logsActionDoneMsg{result: title + "\n\n" + colorizeLogOutput(content)}
+}
+
+// readWatchdogLog reads watchdog log from file or journalctl.
+func (v *LogsView) readWatchdogLog() tea.Msg {
+	content, source := readLogFileOrJournalctl(config.WatchdogLog, "proxy-watchdog", 50)
+	title := "Watchdog 日志"
+	if source != "" {
+		title += " (" + source + ")"
+	}
+	return logsActionDoneMsg{result: title + "\n\n" + colorizeLogOutput(content)}
+}
+
+// readServiceLog reads a service log with file/journalctl fallback.
+func (v *LogsView) readServiceLog(svc string) tea.Msg {
+	logFile, unit := serviceLogSource(svc)
+	content, source := readLogFileOrJournalctl(logFile, unit, 50)
+	title := svc + " 日志"
+	if source != "" {
+		title += " (" + source + ")"
+	}
+	return logsActionDoneMsg{result: title + "\n\n" + colorizeLogOutput(content)}
+}
+
+// serviceLogSource returns the log file path and systemd unit for a service.
+func serviceLogSource(svc string) (logFile, unit string) {
+	switch svc {
+	case "sing-box":
+		return config.SingBoxLog, "sing-box"
+	case "snell-v5":
+		return config.SnellLog, "snell-v5"
+	case "shadow-tls":
+		return config.ShadowTLSLog, "shadow-tls"
+	case "caddy-sub":
+		return config.CaddySubLog, "caddy-sub"
+	default:
+		return "", svc
+	}
+}
+
+// readLogFileOrJournalctl tries to read a log file, falls back to journalctl.
+// Returns (content, source_note).
+func readLogFileOrJournalctl(logFile, unit string, lines int) (string, string) {
+	// Try log file first.
+	if logFile != "" {
+		if info, err := os.Stat(logFile); err == nil && info.Size() > 0 {
+			content := tailFile(logFile, lines)
+			if content != "" {
+				return content, logFile
+			}
+		}
+	}
+
+	// Fall back to journalctl.
+	if unit != "" {
+		out, err := exec.Command("journalctl", "-u", unit, "-n", fmt.Sprintf("%d", lines), "--no-pager").CombinedOutput()
+		if err == nil {
+			result := strings.TrimSpace(string(out))
+			if result != "" {
+				return result, "journalctl -u " + unit
+			}
+		}
+	}
+
+	return "暂无日志", ""
+}
+
+// tailFile reads the last N lines of a file.
+func tailFile(path string, n int) string {
+	out, err := exec.Command("tail", "-n", fmt.Sprintf("%d", n), path).Output()
 	if err != nil {
-		return logsActionDoneMsg{result: fmt.Sprintf("%s 日志\n\n读取失败: %s\n%s", unit, err, string(out))}
+		return ""
 	}
-	result := strings.TrimSpace(string(out))
-	if result == "" {
-		result = "暂无日志"
+	return strings.TrimSpace(string(out))
+}
+
+// colorizeLogOutput adds ANSI color codes to log output for display.
+// ERROR/FATAL -> red, WARN -> yellow, INFO -> cyan.
+func colorizeLogOutput(content string) string {
+	if content == "" || content == "暂无日志" {
+		return content
 	}
-	return logsActionDoneMsg{result: fmt.Sprintf("%s 日志\n\n%s", unit, result)}
+
+	lines := strings.Split(content, "\n")
+	var result strings.Builder
+	for i, line := range lines {
+		if i > 0 {
+			result.WriteString("\n")
+		}
+		result.WriteString(colorizeLine(line))
+	}
+	return result.String()
+}
+
+func colorizeLine(line string) string {
+	upper := strings.ToUpper(line)
+	switch {
+	case strings.Contains(upper, "FATAL") || strings.Contains(upper, "ERROR") || strings.Contains(upper, "FAILED"):
+		return "\033[31;1m" + line + "\033[0m"
+	case strings.Contains(upper, "WARN") || strings.Contains(upper, "WARNING"):
+		return "\033[33;1m" + line + "\033[0m"
+	case strings.Contains(upper, "INFO"):
+		return "\033[36;1m" + line + "\033[0m"
+	default:
+		return line
+	}
 }

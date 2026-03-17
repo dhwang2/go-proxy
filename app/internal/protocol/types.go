@@ -1,6 +1,14 @@
 package protocol
 
-import "fmt"
+import (
+	"fmt"
+	"math/rand"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"go-proxy/internal/config"
+)
 
 // Type represents a supported proxy protocol.
 type Type string
@@ -98,4 +106,108 @@ func InboundTag(protoType Type, port int) string {
 		name += "_reality"
 	}
 	return fmt.Sprintf("%s_%d", name, port)
+}
+
+// CommonPorts returns the preferred port candidates for a protocol type.
+func CommonPorts(pt Type) []int {
+	switch pt {
+	case Trojan, VLESS, AnyTLS:
+		return []int{443, 2053, 2083, 2087, 2096, 8443, 9443}
+	case Snell:
+		return []int{443, 1443, 8443, 10443}
+	case Shadowsocks:
+		return []int{443, 8388, 8443, 9443}
+	case TUIC:
+		return nil // uses random high port
+	default:
+		return nil
+	}
+}
+
+// DefaultPort picks an available default port for a protocol.
+// It tries common ports first, then falls back to a random port in 20000-29999.
+func DefaultPort(pt Type, usedPorts map[int]bool) int {
+	candidates := CommonPorts(pt)
+	for _, p := range candidates {
+		if !usedPorts[p] {
+			return p
+		}
+	}
+	// Random high port in 20000-29999.
+	for i := 0; i < 100; i++ {
+		p := 20000 + rand.Intn(10000)
+		if !usedPorts[p] {
+			return p
+		}
+	}
+	return 20000 + rand.Intn(10000)
+}
+
+// CollectUsedPorts collects all ports currently in use from inbound port list.
+func CollectUsedPorts(ports []int) map[int]bool {
+	used := make(map[int]bool)
+	for _, p := range ports {
+		if p > 0 {
+			used[p] = true
+		}
+	}
+	return used
+}
+
+// DetectTLSDomain reads the domain from /etc/go-proxy/.domain or detects it from
+// caddy certificate directory.
+func DetectTLSDomain() string {
+	domainFile := filepath.Join(config.WorkDir, ".domain")
+	if data, err := os.ReadFile(domainFile); err == nil {
+		d := strings.TrimSpace(string(data))
+		if d != "" {
+			return d
+		}
+	}
+
+	// Try to detect from caddy certificates directory.
+	caddyCertDir := filepath.Join(config.ConfDir, "caddy", "certificates")
+	entries, err := os.ReadDir(caddyCertDir)
+	if err != nil {
+		return ""
+	}
+	for _, issuerDir := range entries {
+		if !issuerDir.IsDir() {
+			continue
+		}
+		domainEntries, err := os.ReadDir(filepath.Join(caddyCertDir, issuerDir.Name()))
+		if err != nil {
+			continue
+		}
+		for _, de := range domainEntries {
+			if de.IsDir() && strings.Contains(de.Name(), ".") {
+				return de.Name()
+			}
+		}
+	}
+	return ""
+}
+
+// ResolveTLSCertPaths returns certificate and key file paths for a domain.
+func ResolveTLSCertPaths(domain string) (certPath, keyPath string) {
+	if domain == "" {
+		return "", ""
+	}
+	caddyCertDir := filepath.Join(config.ConfDir, "caddy", "certificates")
+	entries, err := os.ReadDir(caddyCertDir)
+	if err != nil {
+		return "", ""
+	}
+	for _, issuerDir := range entries {
+		if !issuerDir.IsDir() {
+			continue
+		}
+		domainDir := filepath.Join(caddyCertDir, issuerDir.Name(), domain)
+		cert := filepath.Join(domainDir, domain+".crt")
+		key := filepath.Join(domainDir, domain+".key")
+		if _, err := os.Stat(cert); err == nil {
+			return cert, key
+		}
+	}
+	return "", ""
 }

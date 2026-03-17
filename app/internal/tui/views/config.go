@@ -1,14 +1,19 @@
 package views
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"go-proxy/internal/config"
+	"go-proxy/internal/derived"
 	"go-proxy/internal/store"
 	"go-proxy/internal/tui"
 	"go-proxy/internal/tui/components"
@@ -146,7 +151,7 @@ func (v *ConfigView) View() string {
 	footerStyle := lipgloss.NewStyle().
 		Foreground(tui.ColorMuted).
 		PaddingLeft(1)
-	footer := footerStyle.Render("滚动  返回")
+	footer := footerStyle.Render("↑↓ 滚动 | esc 返回")
 
 	if !v.ready {
 		return lipgloss.JoinVertical(lipgloss.Left, header, "加载中...", footer)
@@ -162,53 +167,239 @@ func (v *ConfigView) View() string {
 type configContentMsg struct{ content string }
 
 func (v *ConfigView) renderSingBox() string {
-	data, err := json.MarshalIndent(v.model.Store().SingBox, "", "  ")
-	if err != nil {
-		return "渲染配置失败: " + err.Error()
+	s := v.model.Store()
+	var sb strings.Builder
+
+	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
+	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
+	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
+
+	// Summary stats
+	sb.WriteString(labelStyle.Render("  概览"))
+	sb.WriteString("\n")
+	sb.WriteString(sepStyle.Render("  " + strings.Repeat("─", 40)))
+	sb.WriteString("\n")
+
+	// Inbound count
+	sb.WriteString(fmt.Sprintf("  %-16s %s\n",
+		labelStyle.Render("Inbound 数量:"),
+		valStyle.Render(fmt.Sprintf("%d", len(s.SingBox.Inbounds)))))
+
+	// Protocol types
+	inv := derived.Inventory(s)
+	if len(inv) > 0 {
+		var types []string
+		for _, info := range inv {
+			label := info.Type
+			if info.HasReality {
+				label += "+reality"
+			}
+			types = append(types, fmt.Sprintf("%s/%d", label, info.Port))
+		}
+		sb.WriteString(fmt.Sprintf("  %-16s %s\n",
+			labelStyle.Render("协议/端口:"),
+			valStyle.Render(strings.Join(types, ", "))))
 	}
-	return string(data)
+
+	// Outbound count
+	sb.WriteString(fmt.Sprintf("  %-16s %s\n",
+		labelStyle.Render("Outbound 数量:"),
+		valStyle.Render(fmt.Sprintf("%d", len(s.SingBox.Outbounds)))))
+
+	// Global outbound types
+	if len(s.SingBox.Outbounds) > 0 {
+		var obTypes []string
+		for _, raw := range s.SingBox.Outbounds {
+			h, err := store.ParseOutboundHeader(raw)
+			if err == nil {
+				obTypes = append(obTypes, h.Type)
+			}
+		}
+		if len(obTypes) > 0 {
+			sb.WriteString(fmt.Sprintf("  %-16s %s\n",
+				labelStyle.Render("Outbound 类型:"),
+				valStyle.Render(strings.Join(obTypes, ", "))))
+		}
+	}
+
+	// DNS info
+	if s.SingBox.DNS != nil {
+		sb.WriteString(fmt.Sprintf("  %-16s %s\n",
+			labelStyle.Render("DNS 服务器:"),
+			valStyle.Render(fmt.Sprintf("%d", len(s.SingBox.DNS.Servers)))))
+		sb.WriteString(fmt.Sprintf("  %-16s %s\n",
+			labelStyle.Render("DNS 规则:"),
+			valStyle.Render(fmt.Sprintf("%d", len(s.SingBox.DNS.Rules)))))
+	}
+
+	// Route rules
+	if s.SingBox.Route != nil {
+		sb.WriteString(fmt.Sprintf("  %-16s %s\n",
+			labelStyle.Render("路由规则:"),
+			valStyle.Render(fmt.Sprintf("%d", len(s.SingBox.Route.Rules)))))
+		sb.WriteString(fmt.Sprintf("  %-16s %s\n",
+			labelStyle.Render("规则集:"),
+			valStyle.Render(fmt.Sprintf("%d", len(s.SingBox.Route.RuleSet)))))
+	}
+
+	// User count
+	names := derived.UserNames(s)
+	sb.WriteString(fmt.Sprintf("  %-16s %s\n",
+		labelStyle.Render("用户数量:"),
+		valStyle.Render(fmt.Sprintf("%d", len(names)))))
+
+	// Full JSON
+	sb.WriteString("\n")
+	sb.WriteString(labelStyle.Render("  完整配置"))
+	sb.WriteString("\n")
+	sb.WriteString(sepStyle.Render("  " + strings.Repeat("─", 40)))
+	sb.WriteString("\n")
+
+	data, err := json.MarshalIndent(s.SingBox, "", "  ")
+	if err != nil {
+		sb.WriteString("  渲染配置失败: " + err.Error())
+	} else {
+		sb.WriteString(string(data))
+	}
+
+	return sb.String()
 }
 
 func (v *ConfigView) renderSnell() string {
 	conf := v.model.Store().SnellConf
 	if conf == nil {
-		return "无 snell-v5 配置"
+		return "  snell-v5 未安装\n\n  配置文件: " + config.SnellConfigFile
 	}
-	return string(conf.MarshalSnellConfig())
+
+	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
+	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
+	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
+
+	var sb strings.Builder
+	sb.WriteString(labelStyle.Render("  概览"))
+	sb.WriteString("\n")
+	sb.WriteString(sepStyle.Render("  " + strings.Repeat("─", 40)))
+	sb.WriteString("\n")
+	sb.WriteString(fmt.Sprintf("  %-12s %s\n",
+		labelStyle.Render("监听地址:"),
+		valStyle.Render(conf.Listen)))
+	sb.WriteString(fmt.Sprintf("  %-12s %s\n",
+		labelStyle.Render("PSK:"),
+		valStyle.Render(conf.PSK)))
+	sb.WriteString(fmt.Sprintf("  %-12s %s\n",
+		labelStyle.Render("配置路径:"),
+		valStyle.Render(config.SnellConfigFile)))
+
+	// Service status
+	status := checkServiceActive("snell-v5")
+	sb.WriteString(fmt.Sprintf("  %-12s %s\n",
+		labelStyle.Render("服务状态:"),
+		status))
+
+	sb.WriteString("\n")
+	sb.WriteString(labelStyle.Render("  原始配置"))
+	sb.WriteString("\n")
+	sb.WriteString(sepStyle.Render("  " + strings.Repeat("─", 40)))
+	sb.WriteString("\n")
+	sb.WriteString(string(conf.MarshalSnellConfig()))
+
+	return sb.String()
 }
 
 func (v *ConfigView) renderShadowTLS() string {
+	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
+	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
+	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
+
 	var sb strings.Builder
 	found := false
+
 	for _, raw := range v.model.Store().SingBox.Outbounds {
 		h, err := store.ParseOutboundHeader(raw)
 		if err != nil || h.Type != "shadowtls" {
 			continue
 		}
 		found = true
-		// Parse full outbound for details.
+
 		var ob struct {
 			Type       string `json:"type"`
 			Tag        string `json:"tag"`
 			Server     string `json:"server"`
 			ServerPort int    `json:"server_port"`
+			Version    int    `json:"version"`
+			Password   string `json:"password"`
 			TLS        *struct {
+				Enabled    bool   `json:"enabled"`
 				ServerName string `json:"server_name"`
 			} `json:"tls,omitempty"`
 		}
 		if err := json.Unmarshal(raw, &ob); err != nil {
-			sb.WriteString(fmt.Sprintf("  %s: 解析失败\n", h.Tag))
+			sb.WriteString(fmt.Sprintf("  %s: 解析失败\n\n", h.Tag))
 			continue
 		}
-		sb.WriteString(fmt.Sprintf("  标签: %s\n", ob.Tag))
-		sb.WriteString(fmt.Sprintf("  地址: %s:%d\n", ob.Server, ob.ServerPort))
-		if ob.TLS != nil && ob.TLS.ServerName != "" {
-			sb.WriteString(fmt.Sprintf("  SNI:  %s\n", ob.TLS.ServerName))
+
+		sb.WriteString(labelStyle.Render(fmt.Sprintf("  实例: %s", ob.Tag)))
+		sb.WriteString("\n")
+		sb.WriteString(sepStyle.Render("  " + strings.Repeat("─", 40)))
+		sb.WriteString("\n")
+
+		sb.WriteString(fmt.Sprintf("  %-12s %s\n",
+			labelStyle.Render("地址:"),
+			valStyle.Render(fmt.Sprintf("%s:%d", ob.Server, ob.ServerPort))))
+
+		if ob.Version > 0 {
+			sb.WriteString(fmt.Sprintf("  %-12s %s\n",
+				labelStyle.Render("版本:"),
+				valStyle.Render(fmt.Sprintf("v%d", ob.Version))))
 		}
+
+		if ob.TLS != nil && ob.TLS.ServerName != "" {
+			sb.WriteString(fmt.Sprintf("  %-12s %s\n",
+				labelStyle.Render("SNI:"),
+				valStyle.Render(ob.TLS.ServerName)))
+		}
+
 		sb.WriteString("\n")
 	}
+
+	// Service status
+	status := checkServiceActive("shadow-tls")
+	sb.WriteString(labelStyle.Render("  服务状态"))
+	sb.WriteString("\n")
+	sb.WriteString(sepStyle.Render("  " + strings.Repeat("─", 40)))
+	sb.WriteString("\n")
+	sb.WriteString(fmt.Sprintf("  %-12s %s\n",
+		labelStyle.Render("shadow-tls:"),
+		status))
+	sb.WriteString(fmt.Sprintf("  %-12s %s\n",
+		labelStyle.Render("二进制:"),
+		valStyle.Render(config.ShadowTLSBin)))
+
 	if !found {
-		return "无 shadow-tls 配置"
+		return "  无 shadow-tls outbound 配置\n\n" + sb.String()
 	}
+
 	return sb.String()
+}
+
+func checkServiceActive(name string) string {
+	greenStyle := lipgloss.NewStyle().Foreground(tui.ColorSuccess).Bold(true)
+	redStyle := lipgloss.NewStyle().Foreground(tui.ColorError).Bold(true)
+	grayStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, "systemctl", "is-active", name).CombinedOutput()
+	status := strings.TrimSpace(string(out))
+	if err != nil {
+		if status == "inactive" {
+			return redStyle.Render("● 已停止")
+		}
+		return grayStyle.Render("● 未安装")
+	}
+	if status == "active" {
+		return greenStyle.Render("● 运行中")
+	}
+	return redStyle.Render("● " + status)
 }

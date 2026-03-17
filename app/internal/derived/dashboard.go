@@ -19,7 +19,6 @@ type DashboardStats struct {
 
 // Dashboard computes dashboard statistics from the store.
 func Dashboard(s *store.Store) DashboardStats {
-	users := make(map[string]bool)
 	var protocols []string
 	var ports []string
 
@@ -29,9 +28,6 @@ func Dashboard(s *store.Store) DashboardStats {
 		}
 		if ib.ListenPort > 0 {
 			ports = append(ports, fmt.Sprintf("%d", ib.ListenPort))
-		}
-		for _, u := range ib.Users {
-			users[u.Name] = true
 		}
 	}
 
@@ -47,7 +43,7 @@ func Dashboard(s *store.Store) DashboardStats {
 
 	return DashboardStats{
 		ProtocolCount: len(s.SingBox.Inbounds),
-		UserCount:     len(users),
+		UserCount:     len(UserNames(s)),
 		RouteCount:    len(s.UserRoutes),
 		TemplateCount: len(s.UserTemplate.Templates),
 		Protocols:     protoStr,

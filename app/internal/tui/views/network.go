@@ -2,9 +2,13 @@ package views
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
+	"go-proxy/internal/derived"
 	"go-proxy/internal/network"
 	"go-proxy/internal/tui"
 	"go-proxy/internal/tui/components"
@@ -118,13 +122,92 @@ func (v *NetworkView) doEnableBBR() tea.Msg {
 	return networkActionDoneMsg{result: "BBR 已成功启用"}
 }
 
+// portEntry tracks which services use a port.
+type portEntry struct {
+	port     int
+	proto    string
+	services []string
+}
+
 func (v *NetworkView) doFirewall() tea.Msg {
-	output, err := network.ListOpenPorts()
-	if err != nil {
-		return networkActionDoneMsg{result: "读取防火墙规则失败: " + err.Error()}
+	s := v.model.Store()
+
+	// Collect ports from all sources, grouped by port/proto.
+	portMap := make(map[string]*portEntry) // key: "proto/port"
+
+	addPort := func(port int, proto string, service string) {
+		key := fmt.Sprintf("%s/%d", proto, port)
+		if pe, ok := portMap[key]; ok {
+			pe.services = append(pe.services, service)
+		} else {
+			portMap[key] = &portEntry{port: port, proto: proto, services: []string{service}}
+		}
 	}
-	if output == "" {
-		output = "暂无防火墙规则"
+
+	// sing-box inbound ports
+	inv := derived.Inventory(s)
+	for _, info := range inv {
+		if info.Port > 0 {
+			proto := "tcp"
+			if info.Type == "tuic" {
+				proto = "udp"
+			}
+			addPort(info.Port, proto, info.Type)
+		}
 	}
-	return networkActionDoneMsg{result: "防火墙规则\n\n" + output}
+
+	// snell port
+	if s.SnellConf != nil {
+		port := s.SnellConf.Port()
+		if port > 0 {
+			addPort(port, "tcp", "snell")
+		}
+	}
+
+	// System ports: SSH (22), HTTP (80), HTTPS (443)
+	addPort(22, "tcp", "ssh")
+	addPort(80, "tcp", "caddy")
+	addPort(443, "tcp", "caddy")
+
+	// Detect firewall backend
+	backend := "iptables"
+	if network.HasNftables() {
+		backend = "nftables"
+	}
+
+	// Render
+	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
+	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
+	mutedStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
+
+	var sb strings.Builder
+	sb.WriteString("防火墙规则\n\n")
+	sb.WriteString(fmt.Sprintf("  %s %s\n\n",
+		labelStyle.Render("后端:"),
+		valStyle.Render(backend)))
+
+	// Sort by port number
+	var entries []*portEntry
+	for _, pe := range portMap {
+		entries = append(entries, pe)
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].port != entries[j].port {
+			return entries[i].port < entries[j].port
+		}
+		return entries[i].proto < entries[j].proto
+	})
+
+	sb.WriteString(labelStyle.Render("  所需端口:"))
+	sb.WriteString("\n")
+	sb.WriteString(mutedStyle.Render("  " + strings.Repeat("─", 36)))
+	sb.WriteString("\n")
+
+	for _, pe := range entries {
+		portLabel := valStyle.Render(fmt.Sprintf("%s/%d", pe.proto, pe.port))
+		svcLabel := mutedStyle.Render("[" + strings.Join(pe.services, ",") + "]")
+		sb.WriteString(fmt.Sprintf("  • %s  %s\n", portLabel, svcLabel))
+	}
+
+	return networkActionDoneMsg{result: sb.String()}
 }

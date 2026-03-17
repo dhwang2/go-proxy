@@ -139,6 +139,7 @@ func buildVLESSInbound(tag string, p InstallParams) (*store.Inbound, string, err
 	if err != nil {
 		return nil, "", err
 	}
+	tls := buildStandardTLS(p)
 	ib := &store.Inbound{
 		Type:       "vless",
 		Tag:        tag,
@@ -147,12 +148,27 @@ func buildVLESSInbound(tag string, p InstallParams) (*store.Inbound, string, err
 		Users: []store.User{
 			{Name: p.UserName, UUID: uuid, Flow: "xtls-rprx-vision"},
 		},
-		TLS: &store.TLSConfig{
-			Enabled:    true,
-			ServerName: p.Domain,
-		},
+		TLS: tls,
 	}
 	return ib, uuid, nil
+}
+
+// buildStandardTLS creates a TLS config with certificate paths for non-Reality protocols.
+func buildStandardTLS(p InstallParams) *store.TLSConfig {
+	domain := p.Domain
+	if domain == "" {
+		domain = DetectTLSDomain()
+	}
+	tls := &store.TLSConfig{
+		Enabled:    true,
+		ServerName: domain,
+	}
+	certPath, keyPath := ResolveTLSCertPaths(domain)
+	if certPath != "" {
+		tls.CertificatePath = certPath
+		tls.KeyPath = keyPath
+	}
+	return tls
 }
 
 // buildRealityTLS generates a Reality-enabled TLS config with fresh keypair and short ID.
@@ -215,6 +231,8 @@ func buildTUICInbound(tag string, p InstallParams) (*store.Inbound, string, erro
 	if err != nil {
 		return nil, "", err
 	}
+	tls := buildStandardTLS(p)
+	tls.ALPN = []string{"h3"}
 	ib := &store.Inbound{
 		Type:              "tuic",
 		Tag:               tag,
@@ -224,11 +242,7 @@ func buildTUICInbound(tag string, p InstallParams) (*store.Inbound, string, erro
 		Users: []store.User{
 			{Name: p.UserName, UUID: uuid, Password: password},
 		},
-		TLS: &store.TLSConfig{
-			Enabled:    true,
-			ServerName: p.Domain,
-			ALPN:       []string{"h3"},
-		},
+		TLS: tls,
 	}
 	return ib, uuid, nil
 }
@@ -238,6 +252,8 @@ func buildTrojanInbound(tag string, p InstallParams, _ bool) (*store.Inbound, st
 	if err != nil {
 		return nil, "", err
 	}
+	tls := buildStandardTLS(p)
+	tls.ALPN = []string{"h2", "http/1.1"}
 	ib := &store.Inbound{
 		Type:       "trojan",
 		Tag:        tag,
@@ -246,11 +262,7 @@ func buildTrojanInbound(tag string, p InstallParams, _ bool) (*store.Inbound, st
 		Users: []store.User{
 			{Name: p.UserName, Password: password},
 		},
-		TLS: &store.TLSConfig{
-			Enabled:    true,
-			ServerName: p.Domain,
-			ALPN:       []string{"h2", "http/1.1"},
-		},
+		TLS: tls,
 	}
 	return ib, password, nil
 }
@@ -282,6 +294,7 @@ func buildAnyTLSInbound(tag string, p InstallParams) (*store.Inbound, string, er
 	if err != nil {
 		return nil, "", err
 	}
+	tls := buildStandardTLS(p)
 	ib := &store.Inbound{
 		Type:       "anytls",
 		Tag:        tag,
@@ -290,10 +303,7 @@ func buildAnyTLSInbound(tag string, p InstallParams) (*store.Inbound, string, er
 		Users: []store.User{
 			{Name: p.UserName, Password: password},
 		},
-		TLS: &store.TLSConfig{
-			Enabled:    true,
-			ServerName: p.Domain,
-		},
+		TLS: tls,
 	}
 	return ib, password, nil
 }

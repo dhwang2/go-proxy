@@ -45,9 +45,14 @@ func ListOpenPorts() (string, error) {
 	return string(out), err
 }
 
-func hasNftables() bool {
+// HasNftables returns whether nftables is available on the system.
+func HasNftables() bool {
 	_, err := exec.LookPath("nft")
 	return err == nil
+}
+
+func hasNftables() bool {
+	return HasNftables()
 }
 
 func nftOpenPort(port, proto string) error {

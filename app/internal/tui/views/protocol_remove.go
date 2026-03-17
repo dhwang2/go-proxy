@@ -37,6 +37,8 @@ func (v *ProtocolRemoveView) Name() string { return "protocol-remove" }
 func (v *ProtocolRemoveView) Init() tea.Cmd {
 	v.step = protoRemoveMenu
 	v.pendingTag = ""
+	// Reload store from disk to pick up changes from protocol install.
+	v.model.Store().Reload()
 	inv := derived.Inventory(v.model.Store())
 
 	if len(inv) == 0 {
