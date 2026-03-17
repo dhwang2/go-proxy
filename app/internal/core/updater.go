@@ -89,7 +89,12 @@ func componentAssetPattern(c Component) string {
 	case CompSingBox:
 		return fmt.Sprintf("sing-box-*-linux-%s", arch)
 	case CompShadowTLS:
-		return fmt.Sprintf("shadow-tls-*-linux-%s", arch)
+		// Asset names: shadow-tls-x86_64-unknown-linux-musl, shadow-tls-aarch64-unknown-linux-musl
+		shadowArch := "x86_64"
+		if arch == "arm64" {
+			shadowArch = "aarch64"
+		}
+		return fmt.Sprintf("shadow-tls-%s-unknown-linux-musl", shadowArch)
 	case CompCaddy:
 		return fmt.Sprintf("caddy_*_linux_%s", arch)
 	default:

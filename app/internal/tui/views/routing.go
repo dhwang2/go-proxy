@@ -285,7 +285,7 @@ func (v *RoutingView) showPresetMenu() tea.Cmd {
 		if i >= 9 {
 			key = rune('a' + i - 9)
 		}
-		items = append(items, components.MenuItem{Key: key, Label: p.Name, ID: strconv.Itoa(i)})
+		items = append(items, components.MenuItem{Key: key, Label: p.Label, ID: strconv.Itoa(i)})
 	}
 	items = append(items, components.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
 	v.step = routingConfigPreset

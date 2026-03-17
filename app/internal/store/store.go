@@ -83,6 +83,16 @@ func Load() (*Store, error) {
 	return s, nil
 }
 
+// Reload re-reads all configuration files from disk into this store.
+func (s *Store) Reload() error {
+	fresh, err := Load()
+	if err != nil {
+		return err
+	}
+	*s = *fresh
+	return nil
+}
+
 // MarkDirty flags a config file for saving on the next Apply() call.
 func (s *Store) MarkDirty(file string) {
 	s.dirty[file] = true

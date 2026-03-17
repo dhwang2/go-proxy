@@ -16,6 +16,7 @@ type ProtocolInstallView struct {
 	menu        components.MenuModel
 	step        protoInstallStep
 	pendingType protocol.Type
+	lastResult  *protocol.InstallResult
 }
 
 type protoInstallStep int
@@ -24,6 +25,7 @@ const (
 	protoInstallMenu protoInstallStep = iota
 	protoInstallPort
 	protoInstallResult
+	protoInstallShadowTLSPrompt
 )
 
 func NewProtocolInstallView(model *tui.Model) *ProtocolInstallView {
@@ -57,10 +59,12 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, tui.BackCmd
 		}
 		v.pendingType = protocol.Type(msg.ID)
+		// Compute default port and show it as placeholder.
+		defaultPort := v.computeDefaultPort(v.pendingType)
 		v.step = protoInstallPort
 		return v, func() tea.Msg {
 			return tui.ShowOverlayMsg{
-				Overlay: components.NewTextInput("端口号:", "8443"),
+				Overlay: components.NewTextInput("端口号:", fmt.Sprintf("%d", defaultPort)),
 			}
 		}
 
@@ -82,9 +86,43 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case protoInstallDoneMsg:
 		v.step = protoInstallResult
+		v.lastResult = msg.installResult
+		// If snell was just installed, prompt for shadow-tls.
+		if msg.installResult != nil && v.pendingType == protocol.Snell {
+			v.step = protoInstallShadowTLSPrompt
+			resultText := msg.result + "\n\n是否配置 shadow-tls 保护此端口?"
+			return v, func() tea.Msg {
+				return tui.ShowOverlayMsg{
+					Overlay: components.NewConfirm(resultText),
+				}
+			}
+		}
 		return v, func() tea.Msg {
 			return tui.ShowOverlayMsg{
 				Overlay: components.NewResult(msg.result),
+			}
+		}
+
+	case tui.ConfirmResultMsg:
+		if v.step == protoInstallShadowTLSPrompt {
+			if msg.Confirmed && v.lastResult != nil {
+				snellPort := v.lastResult.Port
+				return v, tea.Sequence(
+					func() tea.Msg {
+						return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在配置 shadow-tls...")}
+					},
+					func() tea.Msg {
+						return v.doShadowTLSForSnell(snellPort)
+					},
+				)
+			}
+			// User declined; show the original result.
+			v.step = protoInstallResult
+			return v, func() tea.Msg {
+				return tui.ShowOverlayMsg{
+					Overlay: components.NewResult(fmt.Sprintf("安装 snell 端口 %d 成功\nPSK: %s",
+						v.lastResult.Port, v.lastResult.Credential)),
+				}
 			}
 		}
 
@@ -106,7 +144,24 @@ func (v *ProtocolInstallView) View() string {
 	return v.menu.View()
 }
 
-type protoInstallDoneMsg struct{ result string }
+type protoInstallDoneMsg struct {
+	result        string
+	installResult *protocol.InstallResult
+}
+
+func (v *ProtocolInstallView) computeDefaultPort(pt protocol.Type) int {
+	var ports []int
+	for _, ib := range v.model.Store().SingBox.Inbounds {
+		ports = append(ports, ib.ListenPort)
+	}
+	if v.model.Store().SnellConf != nil {
+		if p := v.model.Store().SnellConf.Port(); p > 0 {
+			ports = append(ports, p)
+		}
+	}
+	used := protocol.CollectUsedPorts(ports)
+	return protocol.DefaultPort(pt, used)
+}
 
 func (v *ProtocolInstallView) doInstall(pt protocol.Type, portStr string) tea.Msg {
 	var port int
@@ -152,5 +207,46 @@ func (v *ProtocolInstallView) doInstall(pt protocol.Type, portStr string) tea.Ms
 	if depReport != "" {
 		msg = "依赖安装\n" + depReport + "\n" + msg
 	}
-	return protoInstallDoneMsg{result: msg}
+	return protoInstallDoneMsg{result: msg, installResult: result}
+}
+
+func (v *ProtocolInstallView) doShadowTLSForSnell(snellPort int) tea.Msg {
+	// ShadowTLS listens on its own port, routes to snell backend.
+	var ports []int
+	for _, ib := range v.model.Store().SingBox.Inbounds {
+		ports = append(ports, ib.ListenPort)
+	}
+	ports = append(ports, snellPort)
+	used := protocol.CollectUsedPorts(ports)
+
+	// Pick a shadow-tls listen port from snell common ports, excluding the snell port itself.
+	stPort := 0
+	for _, p := range []int{443, 1443, 8443, 10443} {
+		if !used[p] {
+			stPort = p
+			break
+		}
+	}
+	if stPort == 0 {
+		stPort = protocol.DefaultPort(protocol.ShadowTLS, used)
+	}
+
+	params := protocol.InstallParams{
+		ProtoType: protocol.ShadowTLS,
+		Port:      stPort,
+		UserName:  "user",
+	}
+
+	ctx := context.Background()
+	depSteps := protocol.ProvisionDeps(ctx, protocol.ShadowTLS, params)
+	depReport := protocol.FormatDepSteps(depSteps)
+
+	if protocol.HasDepError(depSteps) {
+		return protoInstallDoneMsg{result: "shadow-tls 依赖安装失败\n\n" + depReport}
+	}
+
+	return protoInstallDoneMsg{
+		result: fmt.Sprintf("snell+shadow-tls 配置完成\nShadowTLS 监听: %d -> Snell 后端: %d\n%s",
+			stPort, snellPort, depReport),
+	}
 }

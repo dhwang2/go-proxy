@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"go-proxy/internal/derived"
 	"go-proxy/internal/tui"
 	"go-proxy/internal/tui/components"
 	"go-proxy/internal/user"
@@ -66,17 +67,35 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				}
 			}
 		case "rename":
+			names := derived.UserNames(v.model.Store())
+			if len(names) == 0 {
+				v.step = userResult
+				return v, func() tea.Msg {
+					return tui.ShowOverlayMsg{
+						Overlay: components.NewResult("暂无用户"),
+					}
+				}
+			}
 			v.step = userRenameOld
 			return v, func() tea.Msg {
 				return tui.ShowOverlayMsg{
-					Overlay: components.NewTextInput("当前用户名:", ""),
+					Overlay: components.NewSelectList("选择要重置的用户:", names),
 				}
 			}
 		case "delete":
+			names := derived.UserNames(v.model.Store())
+			if len(names) == 0 {
+				v.step = userResult
+				return v, func() tea.Msg {
+					return tui.ShowOverlayMsg{
+						Overlay: components.NewResult("暂无用户"),
+					}
+				}
+			}
 			v.step = userDelete
 			return v, func() tea.Msg {
 				return tui.ShowOverlayMsg{
-					Overlay: components.NewTextInput("要删除的用户名:", ""),
+					Overlay: components.NewSelectList("选择要删除的用户:", names),
 				}
 			}
 		}

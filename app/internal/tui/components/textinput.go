@@ -88,14 +88,18 @@ func (m TextInputModel) View() string {
 		cancelStyle.Render("[ 取消 ]"),
 	)
 
-	content := lipgloss.JoinVertical(lipgloss.Left,
+	hintStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
+	hint := hintStyle.Render("esc 取消 | enter 确认")
+
+	content := lipgloss.JoinVertical(lipgloss.Center,
 		"",
 		m.prompt,
 		"",
 		m.input.View(),
 		"",
-		"",
 		buttons,
+		"",
+		hint,
 		"",
 	)
 
