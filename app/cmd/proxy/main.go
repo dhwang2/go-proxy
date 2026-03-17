@@ -87,7 +87,6 @@ func runTUI() {
 	m := tui.NewModel(s, version)
 
 	// Register all views.
-	m.RegisterView(views.NewMainMenuView(&m))
 	m.RegisterView(views.NewProtocolInstallView(&m))
 	m.RegisterView(views.NewProtocolRemoveView(&m))
 	m.RegisterView(views.NewUserView(&m))

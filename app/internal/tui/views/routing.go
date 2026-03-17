@@ -37,8 +37,8 @@ const (
 
 type RoutingView struct {
 	model   *tui.Model
-	menu    components.MenuModel
-	subMenu components.MenuModel
+	menu    tui.MenuModel
+	subMenu tui.MenuModel
 	step    routingStep
 	// State for multi-step flows
 	selectedUser    string
@@ -48,7 +48,7 @@ type RoutingView struct {
 
 func NewRoutingView(model *tui.Model) *RoutingView {
 	v := &RoutingView{model: model}
-	v.menu = components.NewMenu("󰛳 分流管理", []components.MenuItem{
+	v.menu = tui.NewMenu("󰛳 分流管理", []tui.MenuItem{
 		{Key: '1', Label: "󰌘 链式代理", ID: "chain"},
 		{Key: '2', Label: "󰒓 配置分流", ID: "config"},
 		{Key: '3', Label: "󰩟 直连出口", ID: "direct"},
@@ -67,7 +67,7 @@ func (v *RoutingView) Init() tea.Cmd {
 
 func (v *RoutingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
-	case components.MenuSelectMsg:
+	case tui.MenuSelectMsg:
 		return v.handleMenuSelect(msg)
 
 	case tui.InputResultMsg:
@@ -88,7 +88,7 @@ func (v *RoutingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	}
 }
 
-func (v *RoutingView) handleMenuSelect(msg components.MenuSelectMsg) (tui.View, tea.Cmd) {
+func (v *RoutingView) handleMenuSelect(msg tui.MenuSelectMsg) (tui.View, tea.Cmd) {
 	switch v.step {
 	case routingMenu:
 		switch msg.ID {
@@ -96,7 +96,7 @@ func (v *RoutingView) handleMenuSelect(msg components.MenuSelectMsg) (tui.View, 
 			return v, tui.BackCmd
 		case "chain":
 			v.step = routingChainMenu
-			v.subMenu = components.NewMenu("󰌘 链式代理", []components.MenuItem{
+			v.subMenu = tui.NewMenu("󰌘 链式代理", []tui.MenuItem{
 				{Key: '1', Label: "󰐕 添加节点", ID: "add"},
 				{Key: '2', Label: "󰍷 删除节点", ID: "delete"},
 				{Key: '3', Label: "󰋼 查看节点", ID: "view"},
@@ -107,7 +107,7 @@ func (v *RoutingView) handleMenuSelect(msg components.MenuSelectMsg) (tui.View, 
 			return v, v.showUserMenu(routingConfigUser)
 		case "direct":
 			v.step = routingDirect
-			v.subMenu = components.NewMenu("󰩟 直连出口", []components.MenuItem{
+			v.subMenu = tui.NewMenu("󰩟 直连出口", []tui.MenuItem{
 				{Key: '1', Label: "󰩟 仅 IPv4", ID: "ipv4_only"},
 				{Key: '2', Label: "󰩟 仅 IPv6", ID: "ipv6_only"},
 				{Key: '3', Label: "󰩟 优先 IPv4", ID: "prefer_ipv4"},
@@ -249,9 +249,9 @@ func (v *RoutingView) View() string {
 	switch v.step {
 	case routingChainMenu, routingChainDeleteSelect, routingConfigUser,
 		routingConfigPreset, routingConfigOutbound, routingDirect, routingTestUser:
-		return tui.RenderSubMenuFrame(v.subMenu.View(), hint, tui.SeparatorWidth)
+		return tui.RenderSubMenuFrame(v.subMenu.View(), hint, v.model.ContentWidth())
 	default:
-		return tui.RenderSubMenuFrame(v.menu.View(), hint, tui.SeparatorWidth)
+		return tui.RenderSubMenuFrame(v.menu.View(), hint, v.model.ContentWidth())
 	}
 }
 
@@ -264,54 +264,54 @@ func (v *RoutingView) showUserMenu(nextStep routingStep) tea.Cmd {
 			return routingActionDoneMsg{result: "暂无用户"}
 		}
 	}
-	items := make([]components.MenuItem, 0, len(users)+1)
+	items := make([]tui.MenuItem, 0, len(users)+1)
 	for i, u := range users {
 		key := rune('1' + i)
 		if i >= 9 {
 			key = rune('a' + i - 9)
 		}
-		items = append(items, components.MenuItem{Key: key, Label: u, ID: u})
+		items = append(items, tui.MenuItem{Key: key, Label: u, ID: u})
 	}
-	items = append(items, components.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
+	items = append(items, tui.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
 	v.step = nextStep
-	v.subMenu = components.NewMenu("选择用户", items)
+	v.subMenu = tui.NewMenu("选择用户", items)
 	return nil
 }
 
 func (v *RoutingView) showPresetMenu() tea.Cmd {
 	presets := routing.BuiltinPresets()
-	items := make([]components.MenuItem, 0, len(presets)+1)
+	items := make([]tui.MenuItem, 0, len(presets)+1)
 	for i, p := range presets {
 		key := rune('1' + i)
 		if i >= 9 {
 			key = rune('a' + i - 9)
 		}
-		items = append(items, components.MenuItem{Key: key, Label: p.Label, ID: strconv.Itoa(i)})
+		items = append(items, tui.MenuItem{Key: key, Label: p.Label, ID: strconv.Itoa(i)})
 	}
-	items = append(items, components.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
+	items = append(items, tui.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
 	v.step = routingConfigPreset
-	v.subMenu = components.NewMenu("选择预设", items)
+	v.subMenu = tui.NewMenu("选择预设", items)
 	return nil
 }
 
 func (v *RoutingView) showOutboundMenu() tea.Cmd {
-	var items []components.MenuItem
+	var items []tui.MenuItem
 	key := '1'
 	for _, raw := range v.model.Store().SingBox.Outbounds {
 		h, err := store.ParseOutboundHeader(raw)
 		if err != nil {
 			continue
 		}
-		items = append(items, components.MenuItem{
+		items = append(items, tui.MenuItem{
 			Key:   rune(key),
 			Label: fmt.Sprintf("%s (%s)", h.Tag, h.Type),
 			ID:    h.Tag,
 		})
 		key++
 	}
-	items = append(items, components.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
+	items = append(items, tui.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
 	v.step = routingConfigOutbound
-	v.subMenu = components.NewMenu("选择出站", items)
+	v.subMenu = tui.NewMenu("选择出站", items)
 	return nil
 }
 
@@ -322,18 +322,18 @@ func (v *RoutingView) showChainDeleteMenu() tea.Cmd {
 			return routingActionDoneMsg{result: "暂无链式代理节点"}
 		}
 	}
-	items := make([]components.MenuItem, 0, len(chains)+1)
+	items := make([]tui.MenuItem, 0, len(chains)+1)
 	for i, c := range chains {
 		key := rune('1' + i)
-		items = append(items, components.MenuItem{
+		items = append(items, tui.MenuItem{
 			Key:   key,
 			Label: fmt.Sprintf("%s → %s:%d", c.Tag, c.Server, c.ServerPort),
 			ID:    c.Tag,
 		})
 	}
-	items = append(items, components.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
+	items = append(items, tui.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
 	v.step = routingChainDeleteSelect
-	v.subMenu = components.NewMenu("删除节点", items)
+	v.subMenu = tui.NewMenu("删除节点", items)
 	return nil
 }
 

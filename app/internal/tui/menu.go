@@ -1,4 +1,4 @@
-package components
+package tui
 
 import (
 	"fmt"
@@ -8,24 +8,22 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-
-	"go-proxy/internal/tui"
 )
 
 // Menu styles — package-level to avoid allocation on every View() call.
 var (
 	menuTitleStyle = lipgloss.NewStyle().
-			Foreground(tui.ColorTitle).
+			Foreground(ColorTitle).
 			Bold(true).
 			PaddingLeft(2)
 
 	menuSelectedStyle = lipgloss.NewStyle().
-				Background(tui.ColorAccent).
-				Foreground(tui.ColorAccentFg).
+				Background(ColorAccent).
+				Foreground(ColorAccentFg).
 				Bold(true)
 
 	menuNormalStyle = lipgloss.NewStyle().
-			Foreground(tui.ColorLabel)
+			Foreground(ColorLabel)
 )
 
 // MenuItem represents a single menu entry.
@@ -43,12 +41,11 @@ type MenuModel struct {
 	items    []MenuItem
 	cursor   int
 	width    int
-	columns  int  // number of columns (1 or 2)
-	selected bool // set when an item is chosen
+	columns  int    // number of columns (1 or 2)
+	activeID string // ID of the active item (shown with ◂ indicator)
+	dim      bool   // render in dimmed style (unfocused panel)
+	selected bool   // set when an item is chosen
 }
-
-// IconWidth is the fixed display width for the icon column.
-const IconWidth = 3
 
 // Icon returns the icon portion of the label (first whitespace-delimited token
 // if it starts with a non-ASCII rune), or an empty string.
@@ -119,6 +116,18 @@ func (m MenuModel) SetColumns(n int) MenuModel {
 	return m
 }
 
+// SetActiveID marks an item as "active" (its sub-menu is open), shown with ◂.
+func (m MenuModel) SetActiveID(id string) MenuModel {
+	m.activeID = id
+	return m
+}
+
+// SetDim sets whether the menu renders in dimmed style (unfocused panel).
+func (m MenuModel) SetDim(dim bool) MenuModel {
+	m.dim = dim
+	return m
+}
+
 // SetItems replaces the menu items and resets the cursor.
 func (m MenuModel) SetItems(items []MenuItem) MenuModel {
 	m.items = items
@@ -167,7 +176,7 @@ func (m MenuModel) Update(msg tea.Msg) (MenuModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch {
-		case key.Matches(msg, tui.Keys.Up):
+		case key.Matches(msg, Keys.Up):
 			if m.columns <= 1 {
 				if m.cursor > 0 {
 					m.cursor--
@@ -179,7 +188,7 @@ func (m MenuModel) Update(msg tea.Msg) (MenuModel, tea.Cmd) {
 					m.cursor = col*m.rows() + row - 1
 				}
 			}
-		case key.Matches(msg, tui.Keys.Down):
+		case key.Matches(msg, Keys.Down):
 			if m.columns <= 1 {
 				if m.cursor < len(m.items)-1 {
 					m.cursor++
@@ -195,7 +204,7 @@ func (m MenuModel) Update(msg tea.Msg) (MenuModel, tea.Cmd) {
 					}
 				}
 			}
-		case key.Matches(msg, tui.Keys.Left):
+		case key.Matches(msg, Keys.Left):
 			if m.columns > 1 {
 				col := m.cursorCol()
 				row := m.cursorRow()
@@ -206,7 +215,7 @@ func (m MenuModel) Update(msg tea.Msg) (MenuModel, tea.Cmd) {
 					}
 				}
 			}
-		case key.Matches(msg, tui.Keys.Right):
+		case key.Matches(msg, Keys.Right):
 			if m.columns > 1 {
 				col := m.cursorCol()
 				row := m.cursorRow()
@@ -218,7 +227,7 @@ func (m MenuModel) Update(msg tea.Msg) (MenuModel, tea.Cmd) {
 					}
 				}
 			}
-		case key.Matches(msg, tui.Keys.Enter):
+		case key.Matches(msg, Keys.Enter):
 			if len(m.items) > 0 {
 				return m, selectItem(m.items[m.cursor], m.cursor)
 			}
@@ -257,14 +266,23 @@ func (m MenuModel) viewSingleCol() string {
 		b.WriteString("\n\n")
 	}
 
+	normalStyle := menuNormalStyle
+	if m.dim {
+		normalStyle = lipgloss.NewStyle().Foreground(ColorLabelDim)
+	}
+
 	for i, item := range m.items {
 		icon := item.Icon()
 		label := item.Text()
 
-		if i == m.cursor {
+		switch {
+		case i == m.cursor && !m.dim:
 			b.WriteString(menuSelectedStyle.Render(fmt.Sprintf("  ▸ %c. %s %s", item.Key, icon, label)))
-		} else {
-			b.WriteString(menuNormalStyle.Render(fmt.Sprintf("    %c. %s %s", item.Key, icon, label)))
+		case item.ID == m.activeID && m.activeID != "":
+			suffix := " ◂"
+			b.WriteString(MenuActiveStyle.Render(fmt.Sprintf("  %c. %s %s%s", item.Key, icon, label, suffix)))
+		default:
+			b.WriteString(normalStyle.Render(fmt.Sprintf("    %c. %s %s", item.Key, icon, label)))
 		}
 		b.WriteString("\n")
 	}

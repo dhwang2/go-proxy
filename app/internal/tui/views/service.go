@@ -25,15 +25,15 @@ const (
 
 type ServiceView struct {
 	model   *tui.Model
-	menu    components.MenuModel
-	subMenu components.MenuModel
+	menu    tui.MenuModel
+	subMenu tui.MenuModel
 	step    svcStep
 	target  service.Name // selected individual service
 }
 
 func NewServiceView(model *tui.Model) *ServiceView {
 	v := &ServiceView{model: model}
-	v.menu = components.NewMenu("󰒓 协议管理", []components.MenuItem{
+	v.menu = tui.NewMenu("󰒓 协议管理", []tui.MenuItem{
 		{Key: '1', Label: "󰋼 查看服务状态", ID: "status"},
 		{Key: '2', Label: "󰑓 重启所有服务", ID: "restart-all"},
 		{Key: '3', Label: "󰓛 停止所有服务", ID: "stop-all"},
@@ -53,7 +53,7 @@ func (v *ServiceView) Init() tea.Cmd {
 
 func (v *ServiceView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
-	case components.MenuSelectMsg:
+	case tui.MenuSelectMsg:
 		return v.handleMenuSelect(msg)
 
 	case svcActionDoneMsg:
@@ -73,7 +73,7 @@ func (v *ServiceView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	}
 }
 
-func (v *ServiceView) handleMenuSelect(msg components.MenuSelectMsg) (tui.View, tea.Cmd) {
+func (v *ServiceView) handleMenuSelect(msg tui.MenuSelectMsg) (tui.View, tea.Cmd) {
 	switch v.step {
 	case svcMenuMain:
 		switch msg.ID {
@@ -127,9 +127,9 @@ func (v *ServiceView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 func (v *ServiceView) View() string {
 	hint := tui.DefaultSubMenuHint
 	if v.step == svcMenuIndividual {
-		return tui.RenderSubMenuFrame(v.subMenu.View(), hint, tui.SeparatorWidth)
+		return tui.RenderSubMenuFrame(v.subMenu.View(), hint, v.model.ContentWidth())
 	}
-	return tui.RenderSubMenuFrame(v.menu.View(), hint, tui.SeparatorWidth)
+	return tui.RenderSubMenuFrame(v.menu.View(), hint, v.model.ContentWidth())
 }
 
 type svcActionDoneMsg struct{ result string }
@@ -301,35 +301,35 @@ func (v *ServiceView) doSingleAction(svcName service.Name, action string) tea.Ms
 	return svcActionDoneMsg{result: fmt.Sprintf("%s %s: 成功", actionLabel, svcName)}
 }
 
-func (v *ServiceView) buildServiceSelectMenu() components.MenuModel {
+func (v *ServiceView) buildServiceSelectMenu() tui.MenuModel {
 	ctx := context.Background()
 	svcs := service.AllServices()
-	items := make([]components.MenuItem, 0, len(svcs)+1)
+	items := make([]tui.MenuItem, 0, len(svcs)+1)
 	for i, svc := range svcs {
 		key := rune('1' + i)
 		label := string(svc)
 		if !service.IsInstalled(ctx, svc) {
 			label += " (未安装)"
 		}
-		items = append(items, components.MenuItem{
+		items = append(items, tui.MenuItem{
 			Key:   key,
 			Label: label,
 			ID:    "svc:" + string(svc),
 		})
 	}
-	items = append(items, components.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
-	return components.NewMenu("选择服务", items)
+	items = append(items, tui.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
+	return tui.NewMenu("选择服务", items)
 }
 
-func (v *ServiceView) buildActionMenu(svcName service.Name) components.MenuModel {
+func (v *ServiceView) buildActionMenu(svcName service.Name) tui.MenuModel {
 	title := fmt.Sprintf("管理: %s", svcName)
-	items := []components.MenuItem{
+	items := []tui.MenuItem{
 		{Key: '1', Label: "󰑓 重启", ID: "restart"},
 		{Key: '2', Label: "󰓛 停止", ID: "stop"},
 		{Key: '3', Label: "󰐊 启动", ID: "start"},
 		{Key: '0', Label: "󰌍 返回", ID: "back"},
 	}
-	return components.NewMenu(title, items)
+	return tui.NewMenu(title, items)
 }
 
 // snellPort extracts the port number from a listen address like "0.0.0.0:8448".

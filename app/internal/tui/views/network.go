@@ -24,13 +24,13 @@ const (
 
 type NetworkView struct {
 	model *tui.Model
-	menu  components.MenuModel
+	menu  tui.MenuModel
 	step  networkStep
 }
 
 func NewNetworkView(model *tui.Model) *NetworkView {
 	v := &NetworkView{model: model}
-	v.menu = components.NewMenu("󰀂 网络管理", []components.MenuItem{
+	v.menu = tui.NewMenu("󰀂 网络管理", []tui.MenuItem{
 		{Key: '1', Label: "󰓅 BBR 网络优化", ID: "bbr"},
 		{Key: '2', Label: "󰒃 服务器防火墙收敛", ID: "firewall"},
 		{Key: '0', Label: "󰌍 返回", ID: "back"},
@@ -47,7 +47,7 @@ func (v *NetworkView) Init() tea.Cmd {
 
 func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
-	case components.MenuSelectMsg:
+	case tui.MenuSelectMsg:
 		switch msg.ID {
 		case "back":
 			return v, tui.BackCmd
@@ -95,7 +95,7 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *NetworkView) View() string {
-	return tui.RenderSubMenuFrame(v.menu.View(), tui.DefaultSubMenuHint, tui.SeparatorWidth)
+	return tui.RenderSubMenuFrame(v.menu.View(), tui.DefaultSubMenuHint, v.model.ContentWidth())
 }
 
 type networkActionDoneMsg struct {

@@ -14,7 +14,7 @@ import (
 
 type ProtocolInstallView struct {
 	model       *tui.Model
-	menu        components.MenuModel
+	menu        tui.MenuModel
 	step        protoInstallStep
 	pendingType protocol.Type
 	lastResult  *protocol.InstallResult
@@ -39,23 +39,23 @@ func (v *ProtocolInstallView) Init() tea.Cmd {
 	v.step = protoInstallMenu
 	types := protocol.InstallableTypes()
 	specs := protocol.Specs()
-	items := make([]components.MenuItem, 0, len(types)+1)
+	items := make([]tui.MenuItem, 0, len(types)+1)
 	for i, t := range types {
 		k := rune('1' + i)
-		items = append(items, components.MenuItem{
+		items = append(items, tui.MenuItem{
 			Key:   k,
 			Label: specs[t].DisplayName,
 			ID:    string(t),
 		})
 	}
-	items = append(items, components.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
+	items = append(items, tui.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
 	v.menu = v.menu.SetItems(items)
 	return nil
 }
 
 func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
-	case components.MenuSelectMsg:
+	case tui.MenuSelectMsg:
 		if msg.ID == "back" {
 			return v, tui.BackCmd
 		}
@@ -142,7 +142,7 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *ProtocolInstallView) View() string {
-	return tui.RenderSubMenuFrame(v.menu.View(), tui.DefaultSubMenuHint, tui.SeparatorWidth)
+	return tui.RenderSubMenuFrame(v.menu.View(), tui.DefaultSubMenuHint, v.model.ContentWidth())
 }
 
 type protoInstallDoneMsg struct {

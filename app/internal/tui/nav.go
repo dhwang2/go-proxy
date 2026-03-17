@@ -32,3 +32,15 @@ func (n *NavState) Current() string {
 func (n *NavState) Depth() int {
 	return len(n.stack)
 }
+
+// Breadcrumb returns all page names in order for breadcrumb rendering.
+func (n *NavState) Breadcrumb() []string {
+	result := make([]string, len(n.stack))
+	copy(result, n.stack)
+	return result
+}
+
+// Clear removes all entries from the stack.
+func (n *NavState) Clear() {
+	n.stack = n.stack[:0]
+}

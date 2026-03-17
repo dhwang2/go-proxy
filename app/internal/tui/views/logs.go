@@ -25,14 +25,14 @@ const (
 
 type LogsView struct {
 	model       *tui.Model
-	menu        components.MenuModel
-	serviceMenu components.MenuModel
+	menu        tui.MenuModel
+	serviceMenu tui.MenuModel
 	step        logsStep
 }
 
 func NewLogsView(model *tui.Model) *LogsView {
 	v := &LogsView{model: model}
-	v.menu = components.NewMenu("󰌱 运行日志", []components.MenuItem{
+	v.menu = tui.NewMenu("󰌱 运行日志", []tui.MenuItem{
 		{Key: '1', Label: "󰌱 查看脚本日志 (最近30行)", ID: "script"},
 		{Key: '2', Label: "󰌱 查看 Watchdog 日志 (最近30行)", ID: "watchdog"},
 		{Key: '3', Label: "󰌱 查看服务日志 (按服务选择)", ID: "service"},
@@ -50,7 +50,7 @@ func (v *LogsView) Init() tea.Cmd {
 
 func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
-	case components.MenuSelectMsg:
+	case tui.MenuSelectMsg:
 		if v.step == logsServiceSelect {
 			if msg.ID == "back" {
 				v.step = logsMenu
@@ -121,14 +121,14 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 func (v *LogsView) View() string {
 	hint := tui.DefaultSubMenuHint
 	if v.step == logsServiceSelect {
-		return tui.RenderSubMenuFrame(v.serviceMenu.View(), hint, tui.SeparatorWidth)
+		return tui.RenderSubMenuFrame(v.serviceMenu.View(), hint, v.model.ContentWidth())
 	}
-	return tui.RenderSubMenuFrame(v.menu.View(), hint, tui.SeparatorWidth)
+	return tui.RenderSubMenuFrame(v.menu.View(), hint, v.model.ContentWidth())
 }
 
 type logsActionDoneMsg struct{ result string }
 
-func (v *LogsView) buildServiceMenu() components.MenuModel {
+func (v *LogsView) buildServiceMenu() tui.MenuModel {
 	// Map protocol types to systemd service names.
 	serviceMap := map[string]string{
 		"vless":       "sing-box",
@@ -139,7 +139,7 @@ func (v *LogsView) buildServiceMenu() components.MenuModel {
 	}
 
 	seen := make(map[string]bool)
-	var items []components.MenuItem
+	var items []tui.MenuItem
 	key := '1'
 
 	// Always include sing-box if any inbound exists.
@@ -153,13 +153,13 @@ func (v *LogsView) buildServiceMenu() components.MenuModel {
 			continue
 		}
 		seen[svc] = true
-		items = append(items, components.MenuItem{Key: key, Label: svc, ID: svc})
+		items = append(items, tui.MenuItem{Key: key, Label: svc, ID: svc})
 		key++
 	}
 
 	// Add snell-v5 if config exists.
 	if v.model.Store().SnellConf != nil && !seen["snell-v5"] {
-		items = append(items, components.MenuItem{Key: key, Label: "snell-v5", ID: "snell-v5"})
+		items = append(items, tui.MenuItem{Key: key, Label: "snell-v5", ID: "snell-v5"})
 		key++
 	}
 
@@ -167,7 +167,7 @@ func (v *LogsView) buildServiceMenu() components.MenuModel {
 	for _, raw := range v.model.Store().SingBox.Outbounds {
 		h, err := store.ParseOutboundHeader(raw)
 		if err == nil && h.Type == "shadowtls" && !seen["shadow-tls"] {
-			items = append(items, components.MenuItem{Key: key, Label: "shadow-tls", ID: "shadow-tls"})
+			items = append(items, tui.MenuItem{Key: key, Label: "shadow-tls", ID: "shadow-tls"})
 			key++
 			seen["shadow-tls"] = true
 			break
@@ -176,12 +176,12 @@ func (v *LogsView) buildServiceMenu() components.MenuModel {
 
 	// Add caddy-sub if not seen.
 	if !seen["caddy-sub"] {
-		items = append(items, components.MenuItem{Key: key, Label: "caddy-sub", ID: "caddy-sub"})
+		items = append(items, tui.MenuItem{Key: key, Label: "caddy-sub", ID: "caddy-sub"})
 		key++
 	}
 
-	items = append(items, components.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
-	return components.NewMenu("查看服务日志", items)
+	items = append(items, tui.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
+	return tui.NewMenu("查看服务日志", items)
 }
 
 // readScriptLog reads the script log file directly.
