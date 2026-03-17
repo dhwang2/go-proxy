@@ -204,12 +204,14 @@ func (v *ServiceView) doStatusTable() tea.Msg {
 			"snell", dot, statusText, port, 1, "psk"))
 	}
 
-	// Additional services.
+	// All managed services.
 	sb.WriteString(sepStyle.Render("  "+strings.Repeat("─", 56)) + "\n")
 	for _, extra := range []struct {
 		name    string
 		svcName service.Name
 	}{
+		{"sing-box", service.SingBox},
+		{"snell-v5", service.Snell},
 		{"shadow-tls", service.ShadowTLS},
 		{"caddy-sub", service.CaddySub},
 		{"watchdog", service.Watchdog},
