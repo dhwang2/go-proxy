@@ -3,6 +3,7 @@ package components
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -12,6 +13,8 @@ import (
 )
 
 // MenuItem represents a single menu entry.
+// Label may contain an icon prefix (e.g., "  text") for backwards compatibility.
+// The Icon() and Text() methods split them for aligned rendering.
 type MenuItem struct {
 	Key   rune
 	Label string
@@ -25,6 +28,44 @@ type MenuModel struct {
 	cursor   int
 	width    int
 	selected bool // set when an item is chosen
+}
+
+// IconWidth is the fixed display width for the icon column.
+const IconWidth = 3
+
+// Icon returns the icon portion of the label (first whitespace-delimited token
+// if it starts with a non-ASCII rune), or an empty string.
+func (m MenuItem) Icon() string {
+	l := strings.TrimLeft(m.Label, " ")
+	if l == "" {
+		return ""
+	}
+	r, _ := utf8.DecodeRuneInString(l)
+	if r == utf8.RuneError || r < 128 {
+		return ""
+	}
+	idx := strings.IndexByte(l, ' ')
+	if idx < 0 {
+		return ""
+	}
+	return l[:idx]
+}
+
+// Text returns the label text after the icon, or the full label if no icon.
+func (m MenuItem) Text() string {
+	l := strings.TrimLeft(m.Label, " ")
+	if l == "" {
+		return ""
+	}
+	r, _ := utf8.DecodeRuneInString(l)
+	if r == utf8.RuneError || r < 128 {
+		return l
+	}
+	idx := strings.IndexByte(l, ' ')
+	if idx < 0 {
+		return l
+	}
+	return strings.TrimLeft(l[idx:], " ")
 }
 
 // MenuSelectMsg is sent when a menu item is selected.
@@ -113,12 +154,13 @@ func (m MenuModel) View() string {
 		Bold(true)
 
 	for i, item := range m.items {
-		label := fmt.Sprintf("      （%c）  %s", item.Key, item.Label)
+		icon := item.Icon()
+		label := item.Text()
 
 		if i == m.cursor {
-			b.WriteString(selectedStyle.Render(fmt.Sprintf("   ▸  （%c）  %s", item.Key, item.Label)))
+			b.WriteString(selectedStyle.Render(fmt.Sprintf("  ▸ %c. %s %s", item.Key, icon, label)))
 		} else {
-			b.WriteString(label)
+			b.WriteString(fmt.Sprintf("    %c. %s %s", item.Key, icon, label))
 		}
 		b.WriteString("\n")
 	}

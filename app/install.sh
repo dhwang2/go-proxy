@@ -166,6 +166,20 @@ extract_if_needed() {
   esac
 }
 
+cleanup_stale_binaries() {
+  local target="$1"
+  local known_paths=("/usr/bin/proxy" "/usr/local/bin/proxy")
+  local p
+  for p in "${known_paths[@]}"; do
+    if [[ "${p}" != "${target}" && -f "${p}" ]]; then
+      rm -f "${p}"
+      echo "removed stale: ${p}"
+    fi
+  done
+  # Clear bash hash so the current shell finds the new path.
+  hash -r 2>/dev/null || true
+}
+
 install_binary() {
   local source="$1"
   local target="$2"
@@ -176,6 +190,7 @@ install_binary() {
     echo "backup: ${backup}"
   fi
   install -m 0755 "${source}" "${target}"
+  cleanup_stale_binaries "${target}"
 }
 
 main() {

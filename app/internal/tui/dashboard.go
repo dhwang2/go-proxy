@@ -24,7 +24,6 @@ func RenderDashboard(s *store.Store, version string, width int) string {
 	if width > 80 {
 		width = 80
 	}
-	inner := width - 4 // padding for border
 
 	// Styles for colored values.
 	titleStyle := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
@@ -40,48 +39,36 @@ func RenderDashboard(s *store.Store, version string, width int) string {
 	subtitle := fmt.Sprintf("作者: dhwang2    命令: proxy    版本: %s", version)
 	subtitleRendered := mutedStyle.Render(subtitle)
 
-	// Center both lines.
-	titlePad := (inner - lipgloss.Width(title)) / 2
-	if titlePad < 0 {
-		titlePad = 0
-	}
-	subtitlePad := (inner - lipgloss.Width(subtitleRendered)) / 2
-	if subtitlePad < 0 {
-		subtitlePad = 0
-	}
-	centeredTitle := strings.Repeat(" ", titlePad) + title
-	centeredSubtitle := strings.Repeat(" ", subtitlePad) + subtitleRendered
-
-	sep := strings.Repeat(string(BorderH), inner)
+	sep := mutedStyle.Render(strings.Repeat("─", width))
 
 	// Dashboard info lines with colored labels and values.
 	sysInfo := fmt.Sprintf("%s | %s",
 		sysValStyle.Render(runtime.GOOS),
 		sysValStyle.Render(displayArch()),
 	)
-	sysLine := fmt.Sprintf("     %s  %s", labelStyle.Render("系统:"), sysInfo)
+	sysLine := fmt.Sprintf("  %s  %s", labelStyle.Render("系统:"), sysInfo)
 
-	protoLine := fmt.Sprintf("     %s  %s",
+	protoLine := fmt.Sprintf("  %s  %s",
 		labelStyle.Render("协议:"),
 		protoValStyle.Render(stats.Protocols),
 	)
 
-	portLine := fmt.Sprintf("     %s  %s",
+	portLine := fmt.Sprintf("  %s  %s",
 		labelStyle.Render("端口:"),
 		portValStyle.Render(stats.Ports),
 	)
 
-	userLine := fmt.Sprintf("     %s  %s",
+	userLine := fmt.Sprintf("  %s  %s",
 		labelStyle.Render("用户:"),
 		ruleValStyle.Render(fmt.Sprintf("%d 个用户", stats.UserCount)),
 	)
 
 	// Service status bar.
-	svcLine := fmt.Sprintf("     %s  %s", labelStyle.Render("服务:"), renderServiceStatus())
+	svcLine := fmt.Sprintf("  %s  %s", labelStyle.Render("服务:"), renderServiceStatus())
 
-	content := lipgloss.JoinVertical(lipgloss.Left,
-		centeredTitle,
-		centeredSubtitle,
+	content := lipgloss.JoinVertical(lipgloss.Center,
+		title,
+		subtitleRendered,
 		sep,
 		"",
 		sysLine,
@@ -91,10 +78,8 @@ func RenderDashboard(s *store.Store, version string, width int) string {
 		svcLine,
 	)
 
-	style := lipgloss.NewStyle().
-		Border(lipgloss.DoubleBorder()).
-		BorderForeground(ColorPrimary).
-		Width(inner)
+	// Center the entire dashboard block within terminal width.
+	style := lipgloss.NewStyle().Width(width).Align(lipgloss.Center)
 
 	return style.Render(content)
 }
@@ -130,7 +115,20 @@ func checkService(name string) serviceStatusEntry {
 	return entry
 }
 
+// Cached service status to avoid shelling out on every View() call.
+var (
+	cachedServiceStatus string
+	serviceStatusExpiry time.Time
+)
+
+const serviceStatusTTL = 5 * time.Second
+
 func renderServiceStatus() string {
+	now := time.Now()
+	if cachedServiceStatus != "" && now.Before(serviceStatusExpiry) {
+		return cachedServiceStatus
+	}
+
 	services := []string{"sing-box", "snell-v5", "shadow-tls", "caddy-sub"}
 
 	greenDot := lipgloss.NewStyle().Foreground(ColorSuccess).Render("●")
@@ -150,7 +148,10 @@ func renderServiceStatus() string {
 		}
 		parts = append(parts, fmt.Sprintf("%s %s", dot, svc))
 	}
-	return strings.Join(parts, "  ")
+	result := strings.Join(parts, "  ")
+	cachedServiceStatus = result
+	serviceStatusExpiry = now.Add(serviceStatusTTL)
+	return result
 }
 
 func displayArch() string {

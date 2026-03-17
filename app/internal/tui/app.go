@@ -159,25 +159,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// The view needs to receive async completion messages (e.g., coreVersionsDoneMsg)
 	// even while a spinner overlay is showing. The overlay needs tick messages.
 	if m.overlay != nil {
-		var cmds []tea.Cmd
-
-		// Route to the current view first so it can handle completion messages.
+		var viewCmd tea.Cmd
 		if v, ok := m.views[m.current]; ok {
 			newView, cmd := v.Update(msg)
 			m.views[m.current] = newView
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
+			viewCmd = cmd
 		}
 
-		// Also route to the overlay for tick/animation messages.
 		var overlayCmd tea.Cmd
 		m.overlay, overlayCmd = m.overlay.Update(msg)
-		if overlayCmd != nil {
-			cmds = append(cmds, overlayCmd)
-		}
 
-		return m, tea.Batch(cmds...)
+		// Avoid tea.Batch when only one (or zero) commands exist.
+		switch {
+		case viewCmd != nil && overlayCmd != nil:
+			return m, tea.Batch(viewCmd, overlayCmd)
+		case viewCmd != nil:
+			return m, viewCmd
+		default:
+			return m, overlayCmd
+		}
 	}
 
 	// Delegate to current view.

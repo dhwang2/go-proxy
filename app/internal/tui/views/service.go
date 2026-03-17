@@ -33,13 +33,13 @@ type ServiceView struct {
 
 func NewServiceView(model *tui.Model) *ServiceView {
 	v := &ServiceView{model: model}
-	v.menu = components.NewMenu("  协议管理", []components.MenuItem{
-		{Key: '1', Label: "  查看服务状态", ID: "status"},
-		{Key: '2', Label: "  重启所有服务", ID: "restart-all"},
-		{Key: '3', Label: "  停止所有服务", ID: "stop-all"},
-		{Key: '4', Label: "  启动所有服务", ID: "start-all"},
-		{Key: '5', Label: "  管理单个服务", ID: "individual"},
-		{Key: '0', Label: "  返回", ID: "back"},
+	v.menu = components.NewMenu("󰒓 协议管理", []components.MenuItem{
+		{Key: '1', Label: "󰋼 查看服务状态", ID: "status"},
+		{Key: '2', Label: "󰑓 重启所有服务", ID: "restart-all"},
+		{Key: '3', Label: "󰓛 停止所有服务", ID: "stop-all"},
+		{Key: '4', Label: "󰐊 启动所有服务", ID: "start-all"},
+		{Key: '5', Label: "󰒓 管理单个服务", ID: "individual"},
+		{Key: '0', Label: "󰌍 返回", ID: "back"},
 	})
 	return v
 }
@@ -298,17 +298,17 @@ func (v *ServiceView) buildServiceSelectMenu() components.MenuModel {
 			ID:    "svc:" + string(svc),
 		})
 	}
-	items = append(items, components.MenuItem{Key: '0', Label: "  返回", ID: "back"})
+	items = append(items, components.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
 	return components.NewMenu("选择服务", items)
 }
 
 func (v *ServiceView) buildActionMenu(svcName service.Name) components.MenuModel {
 	title := fmt.Sprintf("管理: %s", svcName)
 	items := []components.MenuItem{
-		{Key: '1', Label: "  重启", ID: "restart"},
-		{Key: '2', Label: "  停止", ID: "stop"},
-		{Key: '3', Label: "  启动", ID: "start"},
-		{Key: '0', Label: "  返回", ID: "back"},
+		{Key: '1', Label: "󰑓 重启", ID: "restart"},
+		{Key: '2', Label: "󰓛 停止", ID: "stop"},
+		{Key: '3', Label: "󰐊 启动", ID: "start"},
+		{Key: '0', Label: "󰌍 返回", ID: "back"},
 	}
 	return components.NewMenu(title, items)
 }

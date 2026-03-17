@@ -30,11 +30,11 @@ type LogsView struct {
 
 func NewLogsView(model *tui.Model) *LogsView {
 	v := &LogsView{model: model}
-	v.menu = components.NewMenu("  运行日志", []components.MenuItem{
-		{Key: '1', Label: "  查看脚本日志", ID: "script"},
-		{Key: '2', Label: "  查看 Watchdog 日志", ID: "watchdog"},
-		{Key: '3', Label: "  查看服务日志", ID: "service"},
-		{Key: '0', Label: "  返回", ID: "back"},
+	v.menu = components.NewMenu("󰌱 运行日志", []components.MenuItem{
+		{Key: '1', Label: "󰌱 查看脚本日志", ID: "script"},
+		{Key: '2', Label: "󰌱 查看 Watchdog 日志", ID: "watchdog"},
+		{Key: '3', Label: "󰌱 查看服务日志", ID: "service"},
+		{Key: '0', Label: "󰌍 返回", ID: "back"},
 	})
 	return v
 }
@@ -162,7 +162,7 @@ func (v *LogsView) buildServiceMenu() components.MenuModel {
 		key++
 	}
 
-	items = append(items, components.MenuItem{Key: '0', Label: "返回", ID: "back"})
+	items = append(items, components.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
 	return components.NewMenu("查看服务日志", items)
 }
 

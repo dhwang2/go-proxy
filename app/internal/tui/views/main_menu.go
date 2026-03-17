@@ -16,19 +16,19 @@ type MainMenuView struct {
 func NewMainMenuView(model *tui.Model) *MainMenuView {
 	v := &MainMenuView{model: model}
 	v.menu = components.NewMenu("", []components.MenuItem{
-		{Key: '1', Label: "󰒍  安装协议", ID: "protocol-install"},
-		{Key: '2', Label: "󰆴  卸载协议", ID: "protocol-remove"},
-		{Key: '3', Label: "󰁥  用户管理", ID: "user"},
-		{Key: '4', Label: "󰛳  分流管理", ID: "routing"},
-		{Key: '5', Label: "  协议管理", ID: "service"},
-		{Key: '6', Label: "󰑫  订阅管理", ID: "subscription"},
-		{Key: '7', Label: "  查看配置", ID: "config"},
-		{Key: '8', Label: "  运行日志", ID: "logs"},
-		{Key: '9', Label: "  内核管理", ID: "core"},
-		{Key: 'a', Label: "󰀂  网络管理", ID: "network"},
-		{Key: 'b', Label: "  脚本更新", ID: "self-update"},
-		{Key: 'c', Label: "󰩺  卸载服务", ID: "uninstall"},
-		{Key: '0', Label: "  完全退出", ID: "quit"},
+		{Key: '1', Label: "󰒍 安装协议", ID: "protocol-install"},
+		{Key: '2', Label: "󰆴 卸载协议", ID: "protocol-remove"},
+		{Key: '3', Label: "󰁥 用户管理", ID: "user"},
+		{Key: '4', Label: "󰛳 分流管理", ID: "routing"},
+		{Key: '5', Label: "󰒓 协议管理", ID: "service"},
+		{Key: '6', Label: "󰑫 订阅管理", ID: "subscription"},
+		{Key: '7', Label: "󰈔 查看配置", ID: "config"},
+		{Key: '8', Label: "󰌱 运行日志", ID: "logs"},
+		{Key: '9', Label: "󰚗 内核管理", ID: "core"},
+		{Key: 'a', Label: "󰀂 网络管理", ID: "network"},
+		{Key: 'b', Label: "󰁪 脚本更新", ID: "self-update"},
+		{Key: 'c', Label: "󰩺 卸载服务", ID: "uninstall"},
+		{Key: '0', Label: "󰗼 完全退出", ID: "quit"},
 	})
 	return v
 }
@@ -55,19 +55,21 @@ func (v *MainMenuView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *MainMenuView) View() string {
-	dashboard := tui.RenderDashboard(v.model.Store(), v.model.Version(), v.model.Width())
+	w := v.model.Width()
+	dashboard := tui.RenderDashboard(v.model.Store(), v.model.Version(), w)
 
 	hintStyle := lipgloss.NewStyle().
-		Foreground(tui.ColorMuted).
-		PaddingLeft(6)
+		Foreground(tui.ColorMuted)
 
-	hint := hintStyle.Render("ESC/q: 退出  |  ↑↓: 选择  |  Enter: 确认")
+	hint := hintStyle.Render("退出  |  选择  |  确认")
 
-	return lipgloss.JoinVertical(lipgloss.Left,
+	body := lipgloss.JoinVertical(lipgloss.Center,
 		"",
 		dashboard,
 		"",
 		v.menu.View(),
 		hint,
 	)
+
+	return lipgloss.NewStyle().Width(w).Align(lipgloss.Center).Render(body)
 }
