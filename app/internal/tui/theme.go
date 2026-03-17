@@ -1,6 +1,10 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 // Colors — high-contrast palette (orange/green/purple/black/white/yellow/deep blue).
 var (
@@ -14,10 +18,30 @@ var (
 	ColorAccent  = lipgloss.Color("#f97316") // Orange (accent, selected)
 )
 
+// SeparatorWidth is the default width for double-line separators.
+const SeparatorWidth = 68
+
 // Reusable styles.
 var (
 	TitleStyle = lipgloss.NewStyle().
 			Foreground(ColorPrimary).
+			Bold(true)
+
+	HeaderTitleStyle = lipgloss.NewStyle().
+				Foreground(ColorPrimary).
+				Bold(true).
+				Align(lipgloss.Center)
+
+	HeaderSubStyle = lipgloss.NewStyle().
+			Foreground(ColorMuted).
+			Align(lipgloss.Center)
+
+	FooterHintStyle = lipgloss.NewStyle().
+			Foreground(ColorMuted).
+			Align(lipgloss.Center)
+
+	InfoLabelStyle = lipgloss.NewStyle().
+			Foreground(ColorLabel).
 			Bold(true)
 
 	LabelStyle = lipgloss.NewStyle().
@@ -45,3 +69,23 @@ var (
 const (
 	Bullet = '●'
 )
+
+// SeparatorDouble renders a double-line separator (═) styled with ColorMuted.
+func SeparatorDouble(width int) string {
+	return lipgloss.NewStyle().Foreground(ColorMuted).Render(strings.Repeat("═", width))
+}
+
+// RenderSubMenuFrame wraps sub-menu content with separators, a title, and a hint line.
+// If title is empty, the title and its surrounding separator are omitted.
+func RenderSubMenuFrame(title, content, hint string, width int) string {
+	sep := SeparatorDouble(width)
+	hintRendered := FooterHintStyle.Width(width).Render(hint)
+
+	parts := []string{sep}
+	if title != "" {
+		parts = append(parts, HeaderTitleStyle.Width(width).Render(title), sep)
+	}
+	parts = append(parts, content, sep, hintRendered, sep)
+
+	return lipgloss.JoinVertical(lipgloss.Center, parts...)
+}

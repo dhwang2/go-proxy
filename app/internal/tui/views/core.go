@@ -138,7 +138,9 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	return v, nil
 }
 
-func (v *CoreView) View() string { return v.menu.View() }
+func (v *CoreView) View() string {
+	return tui.RenderSubMenuFrame("", v.menu.View(), "返回(esc) | 选择(↑↓) | 确认(enter)", tui.SeparatorWidth)
+}
 
 type coreVersionsDoneMsg struct{ result string }
 type coreCheckDoneMsg struct {

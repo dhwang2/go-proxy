@@ -245,12 +245,13 @@ func (v *RoutingView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *RoutingView) View() string {
+	hint := "返回(esc) | 选择(↑↓) | 确认(enter)"
 	switch v.step {
 	case routingChainMenu, routingChainDeleteSelect, routingConfigUser,
 		routingConfigPreset, routingConfigOutbound, routingDirect, routingTestUser:
-		return v.subMenu.View()
+		return tui.RenderSubMenuFrame("", v.subMenu.View(), hint, tui.SeparatorWidth)
 	default:
-		return v.menu.View()
+		return tui.RenderSubMenuFrame("", v.menu.View(), hint, tui.SeparatorWidth)
 	}
 }
 

@@ -25,50 +25,53 @@ func RenderDashboard(s *store.Store, version string, width int) string {
 		width = 80
 	}
 
+	sepWidth := SeparatorWidth
+	if sepWidth > width {
+		sepWidth = width
+	}
+
 	// Styles for colored values.
-	titleStyle := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
-	labelStyle := lipgloss.NewStyle().Foreground(ColorLabel).Bold(true)
 	sysValStyle := lipgloss.NewStyle().Foreground(ColorValSys).Bold(true)
 	protoValStyle := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
 	ruleValStyle := lipgloss.NewStyle().Foreground(ColorSuccess).Bold(true)
-	mutedStyle := lipgloss.NewStyle().Foreground(ColorMuted)
+
+	sep := SeparatorDouble(sepWidth)
 
 	// Title lines.
-	title := titleStyle.Render("go-proxy 一键部署 [服务端]")
+	title := HeaderTitleStyle.Width(sepWidth).Render("go-proxy 一键部署 [服务端]")
 	subtitle := fmt.Sprintf("作者: dhwang2    命令: proxy    版本: %s", version)
-	subtitleRendered := mutedStyle.Render(subtitle)
+	subtitleRendered := HeaderSubStyle.Width(sepWidth).Render(subtitle)
 
-	sep := mutedStyle.Render(strings.Repeat("─", width))
-
-	// Dashboard info lines with colored labels and values.
+	// Dashboard info lines with 4-space indent + bold label + colored value.
 	sysInfo := fmt.Sprintf("%s | %s",
 		sysValStyle.Render(runtime.GOOS),
 		sysValStyle.Render(displayArch()),
 	)
-	sysLine := fmt.Sprintf("  %s  %s", labelStyle.Render("系统:"), sysInfo)
+	sysLine := fmt.Sprintf("    %s  %s", InfoLabelStyle.Render("系统:"), sysInfo)
 
-	protoLine := fmt.Sprintf("  %s  %s",
-		labelStyle.Render("协议:"),
+	protoLine := fmt.Sprintf("    %s  %s",
+		InfoLabelStyle.Render("协议:"),
 		protoValStyle.Render(stats.Protocols),
 	)
 
-	userLine := fmt.Sprintf("  %s  %s",
-		labelStyle.Render("用户:"),
+	userLine := fmt.Sprintf("    %s  %s",
+		InfoLabelStyle.Render("用户:"),
 		ruleValStyle.Render(fmt.Sprintf("%d 个用户", stats.UserCount)),
 	)
 
 	// Service status bar.
-	svcLine := fmt.Sprintf("  %s  %s", labelStyle.Render("服务:"), renderServiceStatus())
+	svcLine := fmt.Sprintf("    %s  %s", InfoLabelStyle.Render("服务:"), renderServiceStatus())
 
 	content := lipgloss.JoinVertical(lipgloss.Center,
+		sep,
 		title,
 		subtitleRendered,
 		sep,
-		"",
 		sysLine,
 		protoLine,
 		userLine,
 		svcLine,
+		sep,
 	)
 
 	// Center the entire dashboard block within terminal width.

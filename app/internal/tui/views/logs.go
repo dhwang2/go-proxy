@@ -119,10 +119,11 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *LogsView) View() string {
+	hint := "返回(esc) | 选择(↑↓) | 确认(enter)"
 	if v.step == logsServiceSelect {
-		return v.serviceMenu.View()
+		return tui.RenderSubMenuFrame("", v.serviceMenu.View(), hint, tui.SeparatorWidth)
 	}
-	return v.menu.View()
+	return tui.RenderSubMenuFrame("", v.menu.View(), hint, tui.SeparatorWidth)
 }
 
 type logsActionDoneMsg struct{ result string }

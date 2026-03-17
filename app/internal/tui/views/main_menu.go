@@ -58,17 +58,19 @@ func (v *MainMenuView) View() string {
 	w := v.model.Width()
 	dashboard := tui.RenderDashboard(v.model.Store(), v.model.Version(), w)
 
-	hintStyle := lipgloss.NewStyle().
-		Foreground(tui.ColorMuted)
-
-	hint := hintStyle.Render("退出  |  选择  |  确认")
+	sepWidth := tui.SeparatorWidth
+	if sepWidth > w {
+		sepWidth = w
+	}
+	sep := tui.SeparatorDouble(sepWidth)
+	hint := tui.FooterHintStyle.Width(sepWidth).Render("退出(esc) | 选择(↑↓) | 确认(enter)")
 
 	body := lipgloss.JoinVertical(lipgloss.Center,
-		"",
 		dashboard,
-		"",
 		v.menu.View(),
+		sep,
 		hint,
+		sep,
 	)
 
 	return lipgloss.NewStyle().Width(w).Align(lipgloss.Center).Render(body)
