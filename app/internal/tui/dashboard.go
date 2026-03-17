@@ -29,7 +29,6 @@ func RenderDashboard(s *store.Store, version string, width int) string {
 	titleStyle := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
 	labelStyle := lipgloss.NewStyle().Foreground(ColorLabel).Bold(true)
 	sysValStyle := lipgloss.NewStyle().Foreground(ColorValSys).Bold(true)
-	portValStyle := lipgloss.NewStyle().Foreground(ColorValPort).Bold(true)
 	protoValStyle := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
 	ruleValStyle := lipgloss.NewStyle().Foreground(ColorSuccess).Bold(true)
 	mutedStyle := lipgloss.NewStyle().Foreground(ColorMuted)
@@ -53,11 +52,6 @@ func RenderDashboard(s *store.Store, version string, width int) string {
 		protoValStyle.Render(stats.Protocols),
 	)
 
-	portLine := fmt.Sprintf("  %s  %s",
-		labelStyle.Render("端口:"),
-		portValStyle.Render(stats.Ports),
-	)
-
 	userLine := fmt.Sprintf("  %s  %s",
 		labelStyle.Render("用户:"),
 		ruleValStyle.Render(fmt.Sprintf("%d 个用户", stats.UserCount)),
@@ -73,7 +67,6 @@ func RenderDashboard(s *store.Store, version string, width int) string {
 		"",
 		sysLine,
 		protoLine,
-		portLine,
 		userLine,
 		svcLine,
 	)

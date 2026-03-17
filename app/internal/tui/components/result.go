@@ -1,6 +1,8 @@
 package components
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -41,14 +43,46 @@ func (m ResultModel) View() string {
 		Bold(true).
 		Padding(0, 2)
 
-	content := lipgloss.JoinVertical(lipgloss.Center,
+	// Wrap message text to prevent dialog overflow.
+	maxWidth := 70
+	msg := wrapText(m.message, maxWidth)
+
+	// Left-align the message content but center the button.
+	button := lipgloss.NewStyle().Width(maxWidth).Align(lipgloss.Center).
+		Render(okStyle.Render("[ 确定 ]"))
+
+	content := lipgloss.JoinVertical(lipgloss.Left,
 		"",
-		m.message,
+		msg,
 		"",
-		"",
-		okStyle.Render("[ 确定 ]"),
+		button,
 		"",
 	)
 
 	return tui.DialogStyle.Render(content)
+}
+
+// wrapText wraps long lines to fit within maxWidth.
+func wrapText(text string, maxWidth int) string {
+	lines := strings.Split(text, "\n")
+	var result []string
+	for _, line := range lines {
+		if lipgloss.Width(line) <= maxWidth {
+			result = append(result, line)
+			continue
+		}
+		// Break long line at maxWidth boundary.
+		for lipgloss.Width(line) > maxWidth {
+			cut := maxWidth
+			if cut > len(line) {
+				cut = len(line)
+			}
+			result = append(result, line[:cut])
+			line = line[cut:]
+		}
+		if line != "" {
+			result = append(result, line)
+		}
+	}
+	return strings.Join(result, "\n")
 }

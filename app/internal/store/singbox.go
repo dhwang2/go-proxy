@@ -43,9 +43,40 @@ type LogConfig struct {
 
 // DNSConfig holds sing-box DNS configuration.
 type DNSConfig struct {
-	Servers []json.RawMessage `json:"servers,omitempty"`
-	Rules   []DNSRule         `json:"rules,omitempty"`
-	Final   string            `json:"final,omitempty"`
+	Servers  []json.RawMessage `json:"servers,omitempty"`
+	Rules    []DNSRule         `json:"rules,omitempty"`
+	Final    string            `json:"final,omitempty"`
+	Strategy string            `json:"strategy,omitempty"`
+}
+
+// dnsServerFieldsToStrip lists fields that sing-box 1.13.x rejects inside
+// individual dns.servers entries (they belong at .dns level or in dns rules).
+var dnsServerFieldsToStrip = []string{"strategy", "client_subnet"}
+
+// CleanDNSServers removes fields from individual DNS server entries that are
+// invalid in sing-box 1.13.x (e.g. strategy, client_subnet).
+func (c *SingBoxConfig) CleanDNSServers() {
+	if c.DNS == nil || len(c.DNS.Servers) == 0 {
+		return
+	}
+	for i, raw := range c.DNS.Servers {
+		var m map[string]interface{}
+		if err := json.Unmarshal(raw, &m); err != nil {
+			continue
+		}
+		changed := false
+		for _, field := range dnsServerFieldsToStrip {
+			if _, ok := m[field]; ok {
+				delete(m, field)
+				changed = true
+			}
+		}
+		if changed {
+			if cleaned, err := json.Marshal(m); err == nil {
+				c.DNS.Servers[i] = cleaned
+			}
+		}
+	}
 }
 
 // FirstServerTag returns the tag of the first DNS server, or empty string.

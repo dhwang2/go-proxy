@@ -54,6 +54,9 @@ func (m TextInputModel) Update(msg tea.Msg) (tui.OverlayModel, tea.Cmd) {
 		case key.Matches(msg, tui.Keys.Enter):
 			if m.focused == 1 || m.focused == 0 {
 				val := m.input.Value()
+				if val == "" {
+					val = m.input.Placeholder
+				}
 				return m, func() tea.Msg {
 					return tui.InputResultMsg{Value: val}
 				}
