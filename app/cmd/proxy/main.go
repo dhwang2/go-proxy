@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"go-proxy/internal/config"
 	"go-proxy/internal/derived"
 	"go-proxy/internal/routing"
 	"go-proxy/internal/service"
@@ -55,6 +56,8 @@ func main() {
 		fmt.Println("self-update not yet implemented in CLI mode")
 	case "log":
 		cmdLog()
+	case "init", "setup":
+		cmdInit()
 	case "core":
 		fmt.Println("core management not yet implemented in CLI mode")
 	case "network":
@@ -69,6 +72,12 @@ func main() {
 }
 
 func runTUI() {
+	// Bootstrap config directories and default sing-box.json on first use.
+	if err := config.Bootstrap(); err != nil {
+		fmt.Fprintf(os.Stderr, "bootstrap error: %v\n", err)
+		os.Exit(1)
+	}
+
 	s, err := store.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error loading config: %v\n", err)
@@ -127,9 +136,14 @@ func cmdServiceAction(action string) {
 			fmt.Fprintf(os.Stderr, "error: %v\n", e)
 			os.Exit(1)
 		}
-		status := "inactive"
-		if st.Running {
+		var status string
+		switch {
+		case st == nil:
+			status = "not installed"
+		case st.Running:
 			status = "active (running)"
+		default:
+			status = "inactive"
 		}
 		fmt.Printf("%s: %s\n", svc, status)
 		return
@@ -447,11 +461,48 @@ func argOrEmpty(i int) string {
 	return ""
 }
 
+func cmdInit() {
+	if err := config.Bootstrap(); err != nil {
+		fmt.Fprintf(os.Stderr, "bootstrap error: %v\n", err)
+		os.Exit(1)
+	}
+
+	ctx := context.Background()
+
+	// Provision all systemd service files.
+	if err := service.ProvisionSingBox(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "warn: sing-box service: %v\n", err)
+	}
+	if err := service.ProvisionSnell(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "warn: snell service: %v\n", err)
+	}
+	if err := service.ProvisionCaddySub(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "warn: caddy-sub service: %v\n", err)
+	}
+
+	// Provision watchdog with current binary path.
+	proxyBin, _ := os.Executable()
+	if proxyBin == "" {
+		proxyBin = "/usr/bin/proxy"
+	}
+	if err := service.ProvisionWatchdog(ctx, proxyBin); err != nil {
+		fmt.Fprintf(os.Stderr, "warn: watchdog service: %v\n", err)
+	}
+
+	// Enable watchdog service.
+	if err := service.Enable(ctx, service.Watchdog); err != nil {
+		fmt.Fprintf(os.Stderr, "warn: enable watchdog: %v\n", err)
+	}
+
+	fmt.Println("initialization complete")
+}
+
 func printUsage() {
 	fmt.Println("Usage: proxy <command> [args]")
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  menu        Launch interactive TUI")
+	fmt.Println("  init        Initialize config, services, and watchdog")
 	fmt.Println("  version     Show version")
 	fmt.Println("  status      Show service status")
 	fmt.Println("  start       Start services")

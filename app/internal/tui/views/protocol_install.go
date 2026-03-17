@@ -34,14 +34,11 @@ func (v *ProtocolInstallView) Name() string { return "protocol-install" }
 
 func (v *ProtocolInstallView) Init() tea.Cmd {
 	v.step = protoInstallMenu
-	types := protocol.AllTypes()
+	types := protocol.InstallableTypes()
 	specs := protocol.Specs()
 	items := make([]components.MenuItem, 0, len(types)+1)
 	for i, t := range types {
 		k := rune('1' + i)
-		if i >= 9 {
-			k = rune('a' + i - 9)
-		}
 		items = append(items, components.MenuItem{
 			Key:   k,
 			Label: specs[t].DisplayName,

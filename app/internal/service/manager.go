@@ -59,8 +59,19 @@ func Disable(ctx context.Context, name Name) error {
 	return systemctl(ctx, "disable", string(name))
 }
 
+// IsInstalled checks whether a systemd unit file exists for the service.
+func IsInstalled(ctx context.Context, name Name) bool {
+	_, err := systemctlOutput(ctx, "cat", string(name))
+	return err == nil
+}
+
 // GetStatus returns the status of a systemd service.
+// Returns nil if the service is not installed.
 func GetStatus(ctx context.Context, name Name) (*Status, error) {
+	if !IsInstalled(ctx, name) {
+		return nil, nil
+	}
+
 	unit := string(name)
 	st := &Status{Name: name}
 

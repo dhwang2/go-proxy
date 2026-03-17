@@ -25,6 +25,12 @@ func AllTypes() []Type {
 	}
 }
 
+// InstallableTypes returns the 6 user-facing protocols in shell-proxy menu order.
+// Reality/ShadowTLS variants are sub-options during the install flow, not top-level choices.
+func InstallableTypes() []Type {
+	return []Type{Shadowsocks, VLESS, TUIC, Trojan, AnyTLS, Snell}
+}
+
 // Spec describes protocol characteristics.
 type Spec struct {
 	Type          Type
@@ -39,35 +45,35 @@ type Spec struct {
 // specs is the package-level protocol specification map (read-only after init).
 var specs = map[Type]Spec{
 	VLESS: {
-		Type: VLESS, DisplayName: "VLESS", SingBoxType: "vless",
+		Type: VLESS, DisplayName: "vless", SingBoxType: "vless",
 		DedicatedPort: false, NeedsTLS: true,
 	},
 	VLESSReality: {
-		Type: VLESSReality, DisplayName: "VLESS + Reality", SingBoxType: "vless",
+		Type: VLESSReality, DisplayName: "vless + reality", SingBoxType: "vless",
 		DedicatedPort: true, NeedsTLS: true, UsesReality: true,
 	},
 	TUIC: {
-		Type: TUIC, DisplayName: "TUIC v5", SingBoxType: "tuic",
+		Type: TUIC, DisplayName: "tuic", SingBoxType: "tuic",
 		DedicatedPort: true, NeedsTLS: true,
 	},
 	Trojan: {
-		Type: Trojan, DisplayName: "Trojan", SingBoxType: "trojan",
+		Type: Trojan, DisplayName: "trojan", SingBoxType: "trojan",
 		DedicatedPort: false, NeedsTLS: true,
 	},
 	TrojanReality: {
-		Type: TrojanReality, DisplayName: "Trojan + Reality", SingBoxType: "trojan",
+		Type: TrojanReality, DisplayName: "trojan + reality", SingBoxType: "trojan",
 		DedicatedPort: true, NeedsTLS: true, UsesReality: true,
 	},
 	AnyTLS: {
-		Type: AnyTLS, DisplayName: "AnyTLS", SingBoxType: "anytls",
+		Type: AnyTLS, DisplayName: "anytls", SingBoxType: "anytls",
 		DedicatedPort: false, NeedsTLS: true,
 	},
 	Shadowsocks: {
-		Type: Shadowsocks, DisplayName: "Shadowsocks 2022", SingBoxType: "shadowsocks",
+		Type: Shadowsocks, DisplayName: "ss", SingBoxType: "shadowsocks",
 		DedicatedPort: true, NeedsTLS: false,
 	},
 	Snell: {
-		Type: Snell, DisplayName: "Snell v5", SingBoxType: "",
+		Type: Snell, DisplayName: "snell-v5", SingBoxType: "",
 		DedicatedPort: true, NeedsTLS: false, ExternalBin: "snell-server",
 	},
 	ShadowTLS: {
