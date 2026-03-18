@@ -32,7 +32,7 @@ func RenderDashboard(s *store.Store, version string, width int) string {
 
 	// Title lines.
 	title := HeaderTitleStyle.Width(sepWidth).Render("go-proxy 一键部署 [服务端]")
-	subtitle := fmt.Sprintf("作者: dhwang2 · 命令: proxy · 版本: %s", version)
+	subtitle := fmt.Sprintf("作者: dhwang2 · 命令: gproxy · 版本: %s", version)
 	subtitleRendered := HeaderSubStyle.Width(sepWidth).Render(subtitle)
 
 	// Status panel content — compact layout.

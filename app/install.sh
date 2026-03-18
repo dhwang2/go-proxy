@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO="${REPO:-dhwang2/go-proxy}"
 VERSION="${VERSION:-latest}"
-INSTALL_PATH="${INSTALL_PATH:-/usr/bin/proxy}"
+INSTALL_PATH="${INSTALL_PATH:-/usr/bin/gproxy}"
 TMP_DIR=""
 RELEASE_PREFIX="${RELEASE_PREFIX:-v}"
 
@@ -20,11 +20,11 @@ go-proxy installer
 Environment variables:
   REPO         GitHub repository (default: dhwang2/go-proxy)
   VERSION      Release tag or "latest" (default: latest)
-  INSTALL_PATH Install target path (default: /usr/bin/proxy)
+  INSTALL_PATH Install target path (default: /usr/bin/gproxy)
 
 Example:
   curl -fsSL https://raw.githubusercontent.com/dhwang2/go-proxy/main/app/install.sh | sudo bash
-  REPO=owner/proxy VERSION=v1.0.0 bash install.sh
+  REPO=owner/go-proxy VERSION=v1.0.0 bash install.sh
 EOF
 }
 
@@ -117,10 +117,10 @@ resolve_download_urls() {
   payload="$(fetch_api_payload "${release_api}")"
 
   local candidates=(
-    "proxy-linux-${arch}"
-    "proxy-${arch}"
-    "proxy-linux-${arch}.tar.gz"
-    "proxy-${arch}.tar.gz"
+    "gproxy-linux-${arch}"
+    "gproxy-${arch}"
+    "gproxy-linux-${arch}.tar.gz"
+    "gproxy-${arch}.tar.gz"
   )
 
   local name
@@ -155,14 +155,14 @@ extract_if_needed() {
   case "${source_ref}" in
     *.tar.gz)
       tar -xzf "${source_path}" -C "${TMP_DIR}"
-      if [[ -f "${TMP_DIR}/proxy" ]]; then
-        cp "${TMP_DIR}/proxy" "${out}"
-      elif [[ -f "${TMP_DIR}/proxy-linux-${arch}" ]]; then
-        cp "${TMP_DIR}/proxy-linux-${arch}" "${out}"
-      elif [[ -f "${TMP_DIR}/proxy-${arch}" ]]; then
-        cp "${TMP_DIR}/proxy-${arch}" "${out}"
+      if [[ -f "${TMP_DIR}/gproxy" ]]; then
+        cp "${TMP_DIR}/gproxy" "${out}"
+      elif [[ -f "${TMP_DIR}/gproxy-linux-${arch}" ]]; then
+        cp "${TMP_DIR}/gproxy-linux-${arch}" "${out}"
+      elif [[ -f "${TMP_DIR}/gproxy-${arch}" ]]; then
+        cp "${TMP_DIR}/gproxy-${arch}" "${out}"
       else
-        echo "error: cannot find proxy binary inside archive" >&2
+        echo "error: cannot find gproxy binary inside archive" >&2
         exit 1
       fi
       ;;
@@ -174,7 +174,7 @@ extract_if_needed() {
 
 cleanup_stale_binaries() {
   local target="$1"
-  local known_paths=("/usr/bin/proxy" "/usr/local/bin/proxy")
+  local known_paths=("/usr/bin/gproxy" "/usr/local/bin/gproxy")
   local p
   for p in "${known_paths[@]}"; do
     if [[ "${p}" != "${target}" && -f "${p}" ]]; then
@@ -331,11 +331,11 @@ main() {
 
   TMP_DIR="$(mktemp -d)"
 
-  # --- Install proxy binary ---
+  # --- Install gproxy binary ---
   local -a candidates=()
   mapfile -t candidates < <(resolve_download_urls "${arch}")
   local downloaded="${TMP_DIR}/downloaded.bin"
-  local extracted="${TMP_DIR}/proxy"
+  local extracted="${TMP_DIR}/gproxy"
   local url=""
   if [[ "${#candidates[@]}" -eq 0 ]]; then
     echo "error: no go-proxy release tag found for ${REPO} (${VERSION})" >&2
@@ -345,7 +345,7 @@ main() {
   if ! url="$(download_first_available "${downloaded}" "${candidates[@]}")"; then
     echo "error: no release asset found for ${REPO} (${VERSION}) arch=${arch}" >&2
     echo "hint: publish a ${RELEASE_PREFIX}* release with matching binary assets" >&2
-    echo "hint: upload assets named proxy-linux-${arch} or proxy-${arch}" >&2
+    echo "hint: upload assets named gproxy-linux-${arch} or gproxy-${arch}" >&2
     exit 1
   fi
 
@@ -362,7 +362,7 @@ main() {
 
   # --- Initialize config, services, and watchdog ---
   echo "initializing services..."
-  "${INSTALL_PATH}" init || echo "warn: proxy init failed" >&2
+  "${INSTALL_PATH}" init || echo "warn: gproxy init failed" >&2
 
   echo "installation complete"
 }

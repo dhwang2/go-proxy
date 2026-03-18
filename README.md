@@ -18,14 +18,14 @@ cd app && make test
 ## CLI Commands
 
 ```
-proxy menu|status|start|stop|restart|log|update|version
-proxy config view|validate
-proxy user list|add|rename|delete
-proxy protocol list|install|remove
-proxy network status|bbr|firewall
-proxy core versions|check|update
-proxy routing list|set|clear|sync-dns|test
-proxy sub show|target
+gproxy menu|status|start|stop|restart|log|update|version
+gproxy config view|validate
+gproxy user list|add|rename|delete
+gproxy protocol list|install|remove
+gproxy network status|bbr|firewall
+gproxy core versions|check|update
+gproxy routing list|set|clear|sync-dns|test
+gproxy sub show|target
 ```
 
 ## Directory Structure
@@ -33,7 +33,7 @@ proxy sub show|target
 ```text
 go-proxy/
 ├── app/                        ← Application source code
-│   ├── cmd/proxy/main.go       ← CLI entry point
+│   ├── cmd/gproxy/main.go      ← CLI entry point
 │   ├── internal/               ← Private packages (by domain)
 │   │   ├── config/
 │   │   ├── core/

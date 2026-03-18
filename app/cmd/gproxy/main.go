@@ -163,14 +163,14 @@ func cmdLog() {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to read logs: %v\nhint: try 'sudo proxy log' or 'journalctl -u %s -f'\n", err, unit)
+		fmt.Fprintf(os.Stderr, "failed to read logs: %v\nhint: try 'sudo gproxy log' or 'journalctl -u %s -f'\n", err, unit)
 		os.Exit(1)
 	}
 }
 
 func cmdConfig() {
 	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "usage: proxy config view|validate")
+		fmt.Fprintln(os.Stderr, "usage: gproxy config view|validate")
 		os.Exit(1)
 	}
 	sub := os.Args[2]
@@ -201,7 +201,7 @@ func cmdConfig() {
 
 func cmdUser() {
 	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "usage: proxy user list|add|rename|delete")
+		fmt.Fprintln(os.Stderr, "usage: gproxy user list|add|rename|delete")
 		os.Exit(1)
 	}
 	s, err := store.Load()
@@ -218,7 +218,7 @@ func cmdUser() {
 	case "add":
 		name := argOrEmpty(3)
 		if name == "" {
-			fmt.Fprintln(os.Stderr, "usage: proxy user add <name>")
+			fmt.Fprintln(os.Stderr, "usage: gproxy user add <name>")
 			os.Exit(1)
 		}
 		if err := user.Add(s, name); err != nil {
@@ -231,7 +231,7 @@ func cmdUser() {
 		old := argOrEmpty(3)
 		new := argOrEmpty(4)
 		if old == "" || new == "" {
-			fmt.Fprintln(os.Stderr, "usage: proxy user rename <old> <new>")
+			fmt.Fprintln(os.Stderr, "usage: gproxy user rename <old> <new>")
 			os.Exit(1)
 		}
 		if err := user.Rename(s, old, new); err != nil {
@@ -243,7 +243,7 @@ func cmdUser() {
 	case "delete":
 		name := argOrEmpty(3)
 		if name == "" {
-			fmt.Fprintln(os.Stderr, "usage: proxy user delete <name>")
+			fmt.Fprintln(os.Stderr, "usage: gproxy user delete <name>")
 			os.Exit(1)
 		}
 		if err := user.Delete(s, name); err != nil {
@@ -260,7 +260,7 @@ func cmdUser() {
 
 func cmdProtocol() {
 	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "usage: proxy protocol list|install|remove")
+		fmt.Fprintln(os.Stderr, "usage: gproxy protocol list|install|remove")
 		os.Exit(1)
 	}
 	s, err := store.Load()
@@ -280,13 +280,13 @@ func cmdProtocol() {
 				p.Tag, p.Type, p.Port, p.UserCount, reality)
 		}
 	default:
-		fmt.Println("protocol install/remove: use TUI mode (proxy menu)")
+		fmt.Println("protocol install/remove: use TUI mode (gproxy menu)")
 	}
 }
 
 func cmdRouting() {
 	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "usage: proxy routing list|set|clear|sync-dns|test")
+		fmt.Fprintln(os.Stderr, "usage: gproxy routing list|set|clear|sync-dns|test")
 		os.Exit(1)
 	}
 	s, err := store.Load()
@@ -321,7 +321,7 @@ func cmdRouting() {
 		preset := argOrEmpty(4)
 		outbound := argOrEmpty(5)
 		if userName == "" || preset == "" || outbound == "" {
-			fmt.Fprintln(os.Stderr, "usage: proxy routing set <user> <preset> <outbound>")
+			fmt.Fprintln(os.Stderr, "usage: gproxy routing set <user> <preset> <outbound>")
 			fmt.Fprintln(os.Stderr, "\npresets:")
 			for _, p := range routing.BuiltinPresets() {
 				fmt.Fprintf(os.Stderr, "  %s\n", p.Name)
@@ -352,7 +352,7 @@ func cmdRouting() {
 		userName := argOrEmpty(3)
 		domain := argOrEmpty(4)
 		if userName == "" || domain == "" {
-			fmt.Fprintln(os.Stderr, "usage: proxy routing test <user> <domain>")
+			fmt.Fprintln(os.Stderr, "usage: gproxy routing test <user> <domain>")
 			os.Exit(1)
 		}
 		result := routing.TestDomain(s, userName, domain)
@@ -371,7 +371,7 @@ func cmdRouting() {
 
 func cmdSub() {
 	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "usage: proxy sub show|target")
+		fmt.Fprintln(os.Stderr, "usage: gproxy sub show|target")
 		os.Exit(1)
 	}
 	switch os.Args[2] {
@@ -482,7 +482,7 @@ func cmdInit() {
 	// Provision watchdog with current binary path.
 	proxyBin, _ := os.Executable()
 	if proxyBin == "" {
-		proxyBin = "/usr/bin/proxy"
+		proxyBin = "/usr/bin/gproxy"
 	}
 	if err := service.ProvisionWatchdog(ctx, proxyBin); err != nil {
 		fmt.Fprintf(os.Stderr, "warn: watchdog service: %v\n", err)
@@ -497,7 +497,7 @@ func cmdInit() {
 }
 
 func printUsage() {
-	fmt.Println("Usage: proxy <command> [args]")
+	fmt.Println("Usage: gproxy <command> [args]")
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  menu        Launch interactive TUI")
