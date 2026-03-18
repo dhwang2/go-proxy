@@ -195,7 +195,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Action {
 		case tea.MouseActionPress:
 			if msg.Button == tea.MouseButtonLeft {
-				if msg.X >= m.leftWidth-1 && msg.X <= m.leftWidth+1 {
+				if msg.X >= m.leftWidth-3 && msg.X <= m.leftWidth+3 {
 					m.dragging = true
 				}
 			}
@@ -446,7 +446,12 @@ func (m Model) viewSinglePanel() string {
 		framed := OuterFrameStyle.Width(sepWidth).Render(body)
 		content = lipgloss.NewStyle().Width(w).Align(lipgloss.Center).Render(framed)
 	} else if v, ok := m.views[m.current]; ok {
-		content = v.View()
+		// Views return body-only; add hint footer for single-panel mode.
+		viewContent := v.View()
+		w := m.contentWidth
+		hintSep := SeparatorDouble(w)
+		hintLine := RenderFooterHint(DefaultSubMenuHint, w)
+		content = lipgloss.JoinVertical(lipgloss.Center, viewContent, hintSep, hintLine, hintSep)
 	}
 
 	if m.overlay != nil {
@@ -486,6 +491,10 @@ func (m Model) renderLeftPanel() string {
 // renderRightPanel renders the dynamic right panel content.
 func (m Model) renderRightPanel() string {
 	innerW := m.rightWidth - 4
+	innerH := m.height - 4 // panel inner height (border = 2 rows)
+	if innerH < 0 {
+		innerH = 0
+	}
 
 	if m.current == "" {
 		return m.renderWelcome(innerW)
@@ -507,10 +516,25 @@ func (m Model) renderRightPanel() string {
 		viewContent = v.View()
 	}
 
+	// Footer hint pinned to bottom.
+	hintSep := SeparatorDouble(innerW)
+	hintLine := RenderFooterHint(DefaultSubMenuHint, innerW)
+	footer := lipgloss.JoinVertical(lipgloss.Center, hintSep, hintLine)
+
+	// Calculate padding to push footer to bottom.
+	topContent := lipgloss.JoinVertical(lipgloss.Left, titleBar, breadcrumb, viewContent)
+	topH := lipgloss.Height(topContent)
+	footerH := lipgloss.Height(footer)
+	padH := innerH - topH - footerH
+	if padH < 0 {
+		padH = 0
+	}
+	padding := strings.Repeat("\n", padH)
+
 	return lipgloss.JoinVertical(lipgloss.Left,
-		titleBar,
-		breadcrumb,
-		viewContent,
+		topContent,
+		padding,
+		footer,
 	)
 }
 

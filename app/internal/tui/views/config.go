@@ -136,7 +136,7 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 func (v *ConfigView) View() string {
 	if v.step == configMenu {
-		return tui.RenderSubMenuFrame(v.menu.View(), tui.DefaultSubMenuHint, v.model.ContentWidth())
+		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
 	}
 
 	titleStyle := lipgloss.NewStyle().

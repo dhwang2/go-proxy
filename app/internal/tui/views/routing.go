@@ -245,13 +245,12 @@ func (v *RoutingView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *RoutingView) View() string {
-	hint := tui.DefaultSubMenuHint
 	switch v.step {
 	case routingChainMenu, routingChainDeleteSelect, routingConfigUser,
 		routingConfigPreset, routingConfigOutbound, routingDirect, routingTestUser:
-		return tui.RenderSubMenuFrame(v.subMenu.View(), hint, v.model.ContentWidth())
+		return tui.RenderSubMenuBody(v.subMenu.View(), v.model.ContentWidth())
 	default:
-		return tui.RenderSubMenuFrame(v.menu.View(), hint, v.model.ContentWidth())
+		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
 	}
 }
 

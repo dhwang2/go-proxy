@@ -142,7 +142,7 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *ProtocolInstallView) View() string {
-	return tui.RenderSubMenuFrame(v.menu.View(), tui.DefaultSubMenuHint, v.model.ContentWidth())
+	return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
 }
 
 type protoInstallDoneMsg struct {
