@@ -38,7 +38,6 @@ func NewUserView(model *tui.Model) *UserView {
 		{Key: '2', Label: "󰐕 添加用户", ID: "add"},
 		{Key: '3', Label: "󰑕 重置用户", ID: "rename"},
 		{Key: '4', Label: "󰍷 删除用户", ID: "delete"},
-		{Key: '0', Label: "󰌍 返回", ID: "back"},
 	})
 	return v
 }
@@ -54,8 +53,6 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.MenuSelectMsg:
 		switch msg.ID {
-		case "back":
-			return v, tui.BackCmd
 		case "list":
 			v.step = userList
 			return v, v.listUsers
@@ -139,6 +136,9 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, nil
 
 	default:
+		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEsc {
+			return v, tui.BackCmd
+		}
 		if v.step == userMenu {
 			var cmd tea.Cmd
 			v.menu, cmd = v.menu.Update(msg)

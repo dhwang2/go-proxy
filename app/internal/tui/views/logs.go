@@ -36,7 +36,6 @@ func NewLogsView(model *tui.Model) *LogsView {
 		{Key: '1', Label: "󰌱 查看脚本日志 (最近30行)", ID: "script"},
 		{Key: '2', Label: "󰌱 查看 Watchdog 日志 (最近30行)", ID: "watchdog"},
 		{Key: '3', Label: "󰌱 查看服务日志 (按服务选择)", ID: "service"},
-		{Key: '0', Label: "󰌍 返回", ID: "back"},
 	})
 	return v
 }
@@ -52,10 +51,6 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.MenuSelectMsg:
 		if v.step == logsServiceSelect {
-			if msg.ID == "back" {
-				v.step = logsMenu
-				return v, nil
-			}
 			svc := msg.ID
 			v.step = logsResult
 			return v, tea.Sequence(
@@ -67,8 +62,6 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 
 		switch msg.ID {
-		case "back":
-			return v, tui.BackCmd
 		case "script":
 			v.step = logsResult
 			return v, tea.Sequence(
@@ -104,6 +97,15 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, nil
 
 	default:
+		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEsc {
+			switch v.step {
+			case logsServiceSelect:
+				v.step = logsMenu
+				return v, nil
+			default:
+				return v, tui.BackCmd
+			}
+		}
 		switch v.step {
 		case logsMenu:
 			var cmd tea.Cmd
@@ -179,7 +181,6 @@ func (v *LogsView) buildServiceMenu() tui.MenuModel {
 		key++
 	}
 
-	items = append(items, tui.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
 	return tui.NewMenu("查看服务日志", items)
 }
 

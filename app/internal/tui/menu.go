@@ -180,28 +180,41 @@ func (m MenuModel) Update(msg tea.Msg) (MenuModel, tea.Cmd) {
 			if m.columns <= 1 {
 				if m.cursor > 0 {
 					m.cursor--
+				} else {
+					m.cursor = len(m.items) - 1
 				}
 			} else {
 				row := m.cursorRow()
 				col := m.cursorCol()
+				rows := m.rows()
 				if row > 0 {
-					m.cursor = col*m.rows() + row - 1
+					m.cursor = col*rows + row - 1
+				} else {
+					// Wrap to last row in this column.
+					last := col*rows + rows - 1
+					if last >= len(m.items) {
+						last = len(m.items) - 1
+					}
+					m.cursor = last
 				}
 			}
 		case key.Matches(msg, Keys.Down):
 			if m.columns <= 1 {
 				if m.cursor < len(m.items)-1 {
 					m.cursor++
+				} else {
+					m.cursor = 0
 				}
 			} else {
 				row := m.cursorRow()
 				col := m.cursorCol()
 				rows := m.rows()
-				if row+1 < rows {
-					next := col*rows + row + 1
-					if next < len(m.items) {
-						m.cursor = next
-					}
+				next := col*rows + row + 1
+				if row+1 < rows && next < len(m.items) {
+					m.cursor = next
+				} else {
+					// Wrap to first row in this column.
+					m.cursor = col * rows
 				}
 			}
 		case key.Matches(msg, Keys.Left):
@@ -277,12 +290,12 @@ func (m MenuModel) viewSingleCol() string {
 
 		switch {
 		case i == m.cursor && !m.dim:
-			b.WriteString(menuSelectedStyle.Render(fmt.Sprintf("  ▸ %c. %s %s", item.Key, icon, label)))
+			b.WriteString(menuSelectedStyle.Render(fmt.Sprintf(" ▸ %c. %s %s", item.Key, icon, label)))
 		case item.ID == m.activeID && m.activeID != "":
 			suffix := " ◂"
-			b.WriteString(MenuActiveStyle.Render(fmt.Sprintf("  %c. %s %s%s", item.Key, icon, label, suffix)))
+			b.WriteString(MenuActiveStyle.Render(fmt.Sprintf("   %c. %s %s%s", item.Key, icon, label, suffix)))
 		default:
-			b.WriteString(normalStyle.Render(fmt.Sprintf("    %c. %s %s", item.Key, icon, label)))
+			b.WriteString(normalStyle.Render(fmt.Sprintf("   %c. %s %s", item.Key, icon, label)))
 		}
 		b.WriteString("\n")
 	}

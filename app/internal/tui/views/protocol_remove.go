@@ -94,7 +94,6 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 			ID:    info.Tag,
 		})
 	}
-	items = append(items, tui.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
 	v.menu = v.menu.SetItems(items)
 	return nil
 }
@@ -102,9 +101,6 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.MenuSelectMsg:
-		if msg.ID == "back" {
-			return v, tui.BackCmd
-		}
 		// Validate that the ID is a real protocol tag.
 		if derived.FindInbound(v.model.Store(), msg.ID) == nil {
 			return v, nil
@@ -155,6 +151,9 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, cmd
 
 	default:
+		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEsc {
+			return v, tui.BackCmd
+		}
 		if v.step == protoRemoveMenu {
 			var cmd tea.Cmd
 			v.menu, cmd = v.menu.Update(msg)

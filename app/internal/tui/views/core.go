@@ -37,7 +37,6 @@ func NewCoreView(model *tui.Model) *CoreView {
 		{Key: '1', Label: "󰋼 查看版本", ID: "versions"},
 		{Key: '2', Label: "󰁪 检查更新", ID: "check"},
 		{Key: '3', Label: "󰏗 执行更新", ID: "update"},
-		{Key: '0', Label: "󰌍 返回", ID: "back"},
 	})
 	return v
 }
@@ -54,8 +53,6 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.MenuSelectMsg:
 		switch msg.ID {
-		case "back":
-			return v, tui.BackCmd
 		case "versions":
 			v.step = coreWorking
 			return v, tea.Sequence(
@@ -129,6 +126,9 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, nil
 
 	default:
+		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEsc {
+			return v, tui.BackCmd
+		}
 		if v.step == coreMenu {
 			var cmd tea.Cmd
 			v.menu, cmd = v.menu.Update(msg)

@@ -93,6 +93,10 @@ func (v *SelfUpdateView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case tui.ResultDismissedMsg:
 		return v, tui.BackCmd
+	case tea.KeyMsg:
+		if msg.Type == tea.KeyEsc {
+			return v, tui.BackCmd
+		}
 	}
 	return v, nil
 }

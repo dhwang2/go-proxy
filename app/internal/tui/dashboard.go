@@ -162,7 +162,7 @@ func RenderCompactDashboard(s *store.Store, version string, width int) string {
 	stats := derived.Dashboard(s)
 
 	title := HeaderTitleStyle.Width(width).Render("go-proxy")
-	sub := HeaderSubStyle.Width(width).Render("v" + version)
+	sub := HeaderSubStyle.Width(width).Render("作者 dhwang2  v" + version)
 
 	sysInfo := fmt.Sprintf(" %s %s | %s",
 		LabelStyle.Render("系统:"),

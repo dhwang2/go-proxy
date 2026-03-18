@@ -48,7 +48,6 @@ func (v *ProtocolInstallView) Init() tea.Cmd {
 			ID:    string(t),
 		})
 	}
-	items = append(items, tui.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
 	v.menu = v.menu.SetItems(items)
 	return nil
 }
@@ -56,9 +55,6 @@ func (v *ProtocolInstallView) Init() tea.Cmd {
 func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.MenuSelectMsg:
-		if msg.ID == "back" {
-			return v, tui.BackCmd
-		}
 		v.pendingType = protocol.Type(msg.ID)
 		// Compute default port and show it as placeholder.
 		defaultPort := v.computeDefaultPort(v.pendingType)
@@ -132,6 +128,9 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, nil
 
 	default:
+		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEsc {
+			return v, tui.BackCmd
+		}
 		if v.step == protoInstallMenu {
 			var cmd tea.Cmd
 			v.menu, cmd = v.menu.Update(msg)

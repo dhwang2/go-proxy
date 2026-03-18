@@ -66,6 +66,10 @@ func (v *UninstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case tui.ResultDismissedMsg:
 		return v, tea.Quit
+	case tea.KeyMsg:
+		if msg.Type == tea.KeyEsc {
+			return v, tui.BackCmd
+		}
 	}
 	return v, nil
 }

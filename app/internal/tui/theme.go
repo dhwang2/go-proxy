@@ -11,17 +11,17 @@ import (
 var (
 	ColorPrimary     = lipgloss.Color("#61AFEF") // Blue (titles)
 	ColorTitle       = lipgloss.Color("#FF9500") // Orange (main title accent)
-	ColorLabel       = lipgloss.Color("#ABB2BF") // Light gray (menu items, labels)
-	ColorLabelDim    = lipgloss.Color("#5C6370") // Dimmed label (unfocused panel)
-	ColorValSys      = lipgloss.Color("#E5C07B") // Yellow (system values)
+	ColorLabel       = lipgloss.Color("#D1D5DB") // Light gray (menu items, labels)
+	ColorLabelDim    = lipgloss.Color("#9CA3AF") // Dimmed label (unfocused panel)
+	ColorValSys      = lipgloss.Color("#F59E0B") // Yellow (system values)
 	ColorSuccess     = lipgloss.Color("#98C379") // Green (running)
 	ColorError       = lipgloss.Color("#E06C75") // Red (stopped/error)
-	ColorMuted       = lipgloss.Color("#5C6370") // Dark gray (hints, separators)
+	ColorMuted       = lipgloss.Color("#6B7280") // Dark gray (hints, separators)
 	ColorAccent      = lipgloss.Color("#61AFEF") // Blue (selected item bg)
 	ColorAccentFg    = lipgloss.Color("#282C34") // Dark (selected item fg)
 	ColorFooterKey   = lipgloss.Color("#C678DD") // Purple (footer shortcut keys)
-	ColorPanelBorder = lipgloss.Color("#3E4452") // Subtle dark gray (left panel border)
-	ColorPanelFocus  = lipgloss.Color("#4B5263") // Slightly lighter (focused panel border)
+	ColorPanelBorder = lipgloss.Color("#6B7280") // Subtle dark gray (left panel border)
+	ColorPanelFocus  = lipgloss.Color("#9CA3AF") // Slightly lighter (focused panel border)
 	ColorDragBorder  = lipgloss.Color("#E5C07B") // Yellow (drag resize indicator)
 	ColorActiveBg    = lipgloss.Color("#3E4452") // Dark highlight (active menu item bg)
 )
@@ -30,7 +30,7 @@ var (
 const SeparatorWidth = 68
 
 // DefaultSubMenuHint is the standard hint shown at the bottom of sub-menus.
-const DefaultSubMenuHint = "返回(esc) | 选择(↑↓) | 确认(enter)"
+const DefaultSubMenuHint = "确认(enter)"
 
 // Reusable styles.
 var (
@@ -71,22 +71,22 @@ var (
 
 	// Split-panel styles.
 	LeftPanelStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.ThickBorder()).
 			BorderForeground(ColorPanelBorder).
 			Padding(0, 1)
 
 	LeftPanelFocusedStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
+				Border(lipgloss.ThickBorder()).
 				BorderForeground(ColorPanelFocus).
 				Padding(0, 1)
 
 	RightPanelStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.ThickBorder()).
 			BorderForeground(ColorPanelBorder).
 			Padding(0, 1)
 
 	RightPanelFocusedStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
+				Border(lipgloss.ThickBorder()).
 				BorderForeground(ColorPanelFocus).
 				Padding(0, 1)
 
@@ -109,7 +109,7 @@ var (
 )
 
 // Pre-computed separator at default width to avoid repeated allocation.
-var defaultSeparator = lipgloss.NewStyle().Foreground(ColorMuted).Render(strings.Repeat("─", SeparatorWidth))
+var defaultSeparator = lipgloss.NewStyle().Foreground(ColorMuted).Render(strings.Repeat("━", SeparatorWidth))
 
 // SeparatorDouble renders a thin horizontal rule (─) styled with ColorMuted.
 func SeparatorDouble(width int) string {
@@ -119,7 +119,7 @@ func SeparatorDouble(width int) string {
 	if width == SeparatorWidth {
 		return defaultSeparator
 	}
-	return lipgloss.NewStyle().Foreground(ColorMuted).Render(strings.Repeat("─", width))
+	return lipgloss.NewStyle().Foreground(ColorMuted).Render(strings.Repeat("━", width))
 }
 
 // RenderFooterHint renders a footer hint line with highlighted shortcut keys.
@@ -150,7 +150,7 @@ func RenderFooterHint(hint string, width int) string {
 		i = i + open + close + 1
 	}
 
-	return lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(result.String())
+	return lipgloss.NewStyle().Width(width).Align(lipgloss.Right).Render(result.String())
 }
 
 // RenderSubMenuFrame wraps sub-menu content with separators and a hint line.
@@ -164,8 +164,7 @@ func RenderSubMenuFrame(content, hint string, width int) string {
 // RenderSubMenuBody wraps sub-menu content with separators only (no hint line).
 // Used in split-panel mode where the hint is positioned at the panel bottom.
 func RenderSubMenuBody(content string, width int) string {
-	sep := SeparatorDouble(width)
-	return lipgloss.JoinVertical(lipgloss.Center, sep, content, sep)
+	return lipgloss.JoinVertical(lipgloss.Left, content)
 }
 
 // FormatUserCount renders the user count with red warning color if zero.

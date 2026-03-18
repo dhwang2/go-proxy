@@ -33,9 +33,13 @@ func (v *SubscriptionView) Init() tea.Cmd {
 }
 
 func (v *SubscriptionView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
-	switch msg.(type) {
+	switch msg := msg.(type) {
 	case tui.ResultDismissedMsg:
 		return v, tui.BackCmd
+	case tea.KeyMsg:
+		if msg.Type == tea.KeyEsc {
+			return v, tui.BackCmd
+		}
 	}
 	return v, nil
 }

@@ -333,6 +333,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 			if m.focus == FocusRight {
+				// Forward Esc to view for internal back navigation.
+				// Views send BackCmd when at their top-level step.
+				if v, ok := m.views[m.current]; ok {
+					newView, cmd := v.Update(msg)
+					m.views[m.current] = newView
+					return m, cmd
+				}
 				return m, BackCmd
 			}
 		}
@@ -510,6 +517,9 @@ func (m Model) renderRightPanel() string {
 	// Breadcrumb.
 	breadcrumb := m.renderBreadcrumb(innerW)
 
+	// Separator aligned with left panel.
+	sep1 := SeparatorDouble(innerW)
+
 	// Sub-view content.
 	var viewContent string
 	if v, ok := m.views[m.current]; ok {
@@ -517,14 +527,12 @@ func (m Model) renderRightPanel() string {
 	}
 
 	// Footer hint pinned to bottom.
-	hintSep := SeparatorDouble(innerW)
 	hintLine := RenderFooterHint(DefaultSubMenuHint, innerW)
-	footer := lipgloss.JoinVertical(lipgloss.Center, hintSep, hintLine)
 
 	// Calculate padding to push footer to bottom.
-	topContent := lipgloss.JoinVertical(lipgloss.Left, titleBar, breadcrumb, viewContent)
+	topContent := lipgloss.JoinVertical(lipgloss.Left, titleBar, breadcrumb, sep1, viewContent)
 	topH := lipgloss.Height(topContent)
-	footerH := lipgloss.Height(footer)
+	footerH := lipgloss.Height(hintLine)
 	padH := innerH - topH - footerH
 	if padH < 0 {
 		padH = 0
@@ -534,7 +542,7 @@ func (m Model) renderRightPanel() string {
 	return lipgloss.JoinVertical(lipgloss.Left,
 		topContent,
 		padding,
-		footer,
+		hintLine,
 	)
 }
 
@@ -571,29 +579,26 @@ func (m Model) renderWelcome(width int) string {
 		Bold(true).
 		Width(width).
 		Align(lipgloss.Center).
-		Render("go-proxy")
+		Render("go-proxy 一键部署[服务端]")
 
-	ver := lipgloss.NewStyle().
+	sub := lipgloss.NewStyle().
 		Foreground(ColorMuted).
 		Width(width).
 		Align(lipgloss.Center).
-		Render("v" + m.version + " · 一键部署服务端")
+		Render("仓库地址: https://github.com/dhwang2/go-proxy")
 
 	sep := SeparatorDouble(width)
 
 	tips := lipgloss.NewStyle().Foreground(ColorLabel).Render(strings.Join([]string{
-		"  快速开始:",
+		"  开始:",
 		"  1. 选择左侧菜单项打开功能面板",
 		"  2. Tab 键切换左右面板焦点",
-		"  3. Esc 返回上级 · Ctrl+C 退出",
-		"",
-		"  快捷键: 1-9, a-c 直接选择菜单项",
+		"  3. 快捷键: 1-9, a-c 直接选择菜单项",
 	}, "\n"))
 
 	return lipgloss.JoinVertical(lipgloss.Left,
-		"",
 		title,
-		ver,
+		sub,
 		sep,
 		"",
 		tips,

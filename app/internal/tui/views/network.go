@@ -33,7 +33,6 @@ func NewNetworkView(model *tui.Model) *NetworkView {
 	v.menu = tui.NewMenu("󰀂 网络管理", []tui.MenuItem{
 		{Key: '1', Label: "󰓅 BBR 网络优化", ID: "bbr"},
 		{Key: '2', Label: "󰒃 服务器防火墙收敛", ID: "firewall"},
-		{Key: '0', Label: "󰌍 返回", ID: "back"},
 	})
 	return v
 }
@@ -49,8 +48,6 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.MenuSelectMsg:
 		switch msg.ID {
-		case "back":
-			return v, tui.BackCmd
 		case "bbr":
 			return v, v.doBBRStatus
 		case "firewall":
@@ -85,6 +82,9 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, nil
 
 	default:
+		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEsc {
+			return v, tui.BackCmd
+		}
 		if v.step == networkMenu {
 			var cmd tea.Cmd
 			v.menu, cmd = v.menu.Update(msg)

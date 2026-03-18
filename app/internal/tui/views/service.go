@@ -39,7 +39,6 @@ func NewServiceView(model *tui.Model) *ServiceView {
 		{Key: '3', Label: "󰓛 停止所有服务", ID: "stop-all"},
 		{Key: '4', Label: "󰐊 启动所有服务", ID: "start-all"},
 		{Key: '5', Label: "󰒓 管理单个服务", ID: "individual"},
-		{Key: '0', Label: "󰌍 返回", ID: "back"},
 	})
 	return v
 }
@@ -77,8 +76,6 @@ func (v *ServiceView) handleMenuSelect(msg tui.MenuSelectMsg) (tui.View, tea.Cmd
 	switch v.step {
 	case svcMenuMain:
 		switch msg.ID {
-		case "back":
-			return v, tui.BackCmd
 		case "status":
 			return v, func() tea.Msg { return v.doStatusTable() }
 		case "restart-all":
@@ -94,10 +91,6 @@ func (v *ServiceView) handleMenuSelect(msg tui.MenuSelectMsg) (tui.View, tea.Cmd
 		}
 
 	case svcMenuIndividual:
-		if msg.ID == "back" {
-			v.step = svcMenuMain
-			return v, nil
-		}
 		// First selection: pick the service.
 		if strings.HasPrefix(msg.ID, "svc:") {
 			svcName := service.Name(strings.TrimPrefix(msg.ID, "svc:"))
@@ -114,6 +107,15 @@ func (v *ServiceView) handleMenuSelect(msg tui.MenuSelectMsg) (tui.View, tea.Cmd
 }
 
 func (v *ServiceView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEsc {
+		switch v.step {
+		case svcMenuIndividual:
+			v.step = svcMenuMain
+			return v, nil
+		default:
+			return v, tui.BackCmd
+		}
+	}
 	var cmd tea.Cmd
 	switch v.step {
 	case svcMenuMain:
@@ -316,7 +318,6 @@ func (v *ServiceView) buildServiceSelectMenu() tui.MenuModel {
 			ID:    "svc:" + string(svc),
 		})
 	}
-	items = append(items, tui.MenuItem{Key: '0', Label: "󰌍 返回", ID: "back"})
 	return tui.NewMenu("选择服务", items)
 }
 
@@ -326,7 +327,6 @@ func (v *ServiceView) buildActionMenu(svcName service.Name) tui.MenuModel {
 		{Key: '1', Label: "󰑓 重启", ID: "restart"},
 		{Key: '2', Label: "󰓛 停止", ID: "stop"},
 		{Key: '3', Label: "󰐊 启动", ID: "start"},
-		{Key: '0', Label: "󰌍 返回", ID: "back"},
 	}
 	return tui.NewMenu(title, items)
 }

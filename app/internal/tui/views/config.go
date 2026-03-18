@@ -39,7 +39,6 @@ func NewConfigView(model *tui.Model) *ConfigView {
 		{Key: '1', Label: "󰈔 sing-box", ID: "singbox"},
 		{Key: '2', Label: "󰈔 snell-v5", ID: "snell"},
 		{Key: '3', Label: "󰈔 shadow-tls", ID: "shadowtls"},
-		{Key: '0', Label: "󰌍 返回", ID: "back"},
 	})
 	return v
 }
@@ -70,13 +69,6 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case tui.MenuSelectMsg:
 		switch msg.ID {
-		case "back":
-			if v.step == configViewport {
-				v.step = configMenu
-				v.ready = false
-				return v, nil
-			}
-			return v, tui.BackCmd
 		case "singbox":
 			v.step = configViewport
 			v.title = "sing-box 配置"
@@ -110,25 +102,23 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, nil
 
 	default:
+		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEsc {
+			if v.step == configViewport {
+				v.step = configMenu
+				v.ready = false
+				return v, nil
+			}
+			return v, tui.BackCmd
+		}
 		if v.step == configMenu {
 			var cmd tea.Cmd
 			v.menu, cmd = v.menu.Update(msg)
 			return v, cmd
 		}
-		if v.step == configViewport {
-			switch msg := msg.(type) {
-			case tea.KeyMsg:
-				if msg.Type == tea.KeyEsc {
-					v.step = configMenu
-					v.ready = false
-					return v, nil
-				}
-			}
-			if v.ready {
-				var cmd tea.Cmd
-				v.viewport, cmd = v.viewport.Update(msg)
-				return v, cmd
-			}
+		if v.step == configViewport && v.ready {
+			var cmd tea.Cmd
+			v.viewport, cmd = v.viewport.Update(msg)
+			return v, cmd
 		}
 	}
 	return v, nil
