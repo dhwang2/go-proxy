@@ -473,6 +473,11 @@ func (m Model) viewSinglePanel() string {
 // renderLeftPanel renders the persistent left panel content.
 func (m Model) renderLeftPanel() string {
 	innerW := m.leftWidth - 4
+	innerH := m.height - 2 // panel inner height (border = 2 rows)
+	if innerH < 0 {
+		innerH = 0
+	}
+
 	dashboard := RenderCompactDashboard(m.store, m.version, innerW)
 
 	menuView := m.mainMenu.SetWidth(innerW).View()
@@ -484,10 +489,18 @@ func (m Model) renderLeftPanel() string {
 		hint = RenderFooterHint("切换(tab) | 选择(↑↓)", innerW)
 	}
 
+	// Push hint to second-to-last line (one empty line before bottom border).
+	topContent := lipgloss.JoinVertical(lipgloss.Left, dashboard, menuView)
+	topH := lipgloss.Height(topContent)
+	hintH := lipgloss.Height(hint)
+	padH := max(innerH-topH-hintH-1, 0) // -1 for the trailing empty line
+	padding := strings.Repeat("\n", padH)
+
 	return lipgloss.JoinVertical(lipgloss.Left,
-		dashboard,
-		menuView,
+		topContent,
+		padding,
 		hint,
+		"", // one empty line before bottom border
 	)
 }
 
