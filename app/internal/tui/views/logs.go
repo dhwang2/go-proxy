@@ -119,11 +119,10 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *LogsView) View() string {
-	hint := tui.DefaultSubMenuHint
 	if v.step == logsServiceSelect {
-		return tui.RenderSubMenuFrame(v.serviceMenu.View(), hint, v.model.ContentWidth())
+		return tui.RenderSubMenuBody(v.serviceMenu.View(), v.model.ContentWidth())
 	}
-	return tui.RenderSubMenuFrame(v.menu.View(), hint, v.model.ContentWidth())
+	return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
 }
 
 type logsActionDoneMsg struct{ result string }

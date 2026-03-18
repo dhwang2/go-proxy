@@ -113,6 +113,9 @@ var defaultSeparator = lipgloss.NewStyle().Foreground(ColorMuted).Render(strings
 
 // SeparatorDouble renders a thin horizontal rule (─) styled with ColorMuted.
 func SeparatorDouble(width int) string {
+	if width <= 0 {
+		return ""
+	}
 	if width == SeparatorWidth {
 		return defaultSeparator
 	}
@@ -156,6 +159,13 @@ func RenderSubMenuFrame(content, hint string, width int) string {
 	hintRendered := RenderFooterHint(hint, width)
 
 	return lipgloss.JoinVertical(lipgloss.Center, sep, content, sep, hintRendered, sep)
+}
+
+// RenderSubMenuBody wraps sub-menu content with separators only (no hint line).
+// Used in split-panel mode where the hint is positioned at the panel bottom.
+func RenderSubMenuBody(content string, width int) string {
+	sep := SeparatorDouble(width)
+	return lipgloss.JoinVertical(lipgloss.Center, sep, content, sep)
 }
 
 // FormatUserCount renders the user count with red warning color if zero.

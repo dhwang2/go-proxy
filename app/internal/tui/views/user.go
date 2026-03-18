@@ -149,7 +149,7 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *UserView) View() string {
-	return tui.RenderSubMenuFrame(v.menu.View(), tui.DefaultSubMenuHint, v.model.ContentWidth())
+	return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
 }
 
 type userActionDoneMsg struct{ result string }

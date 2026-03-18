@@ -125,11 +125,10 @@ func (v *ServiceView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *ServiceView) View() string {
-	hint := tui.DefaultSubMenuHint
 	if v.step == svcMenuIndividual {
-		return tui.RenderSubMenuFrame(v.subMenu.View(), hint, v.model.ContentWidth())
+		return tui.RenderSubMenuBody(v.subMenu.View(), v.model.ContentWidth())
 	}
-	return tui.RenderSubMenuFrame(v.menu.View(), hint, v.model.ContentWidth())
+	return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
 }
 
 type svcActionDoneMsg struct{ result string }

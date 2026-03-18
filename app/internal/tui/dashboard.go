@@ -229,7 +229,7 @@ func renderCompactServiceStatus() string {
 		case "snell-v5":
 			short = "snell"
 		}
-		parts = append(parts, dot+short)
+		parts = append(parts, dot+" "+short)
 	}
 	result := strings.Join(parts, " ")
 	cachedCompactServiceStatus = result
