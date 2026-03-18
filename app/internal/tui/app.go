@@ -530,13 +530,11 @@ func (m Model) renderRightPanel() string {
 	hintLine := RenderFooterHint(DefaultSubMenuHint, innerW)
 
 	// Calculate padding to push footer to bottom.
-	topContent := lipgloss.JoinVertical(lipgloss.Left, titleBar, breadcrumb, sep1, viewContent)
+	topContent := lipgloss.NewStyle().Width(innerW).Render(
+		lipgloss.JoinVertical(lipgloss.Left, titleBar, breadcrumb, sep1, viewContent))
 	topH := lipgloss.Height(topContent)
 	footerH := lipgloss.Height(hintLine)
-	padH := innerH - topH - footerH
-	if padH < 0 {
-		padH = 0
-	}
+	padH := max(innerH-topH-footerH, 0)
 	padding := strings.Repeat("\n", padH)
 
 	return lipgloss.JoinVertical(lipgloss.Left,

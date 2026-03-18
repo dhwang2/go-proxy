@@ -162,25 +162,26 @@ func RenderCompactDashboard(s *store.Store, version string, width int) string {
 	stats := derived.Dashboard(s)
 
 	title := HeaderTitleStyle.Width(width).Render("go-proxy")
-	sub := HeaderSubStyle.Width(width).Render("作者 dhwang2  v" + version)
+	sub := HeaderSubStyle.Width(width).Render("作者 dhwang2  " + version)
 
-	sysInfo := fmt.Sprintf(" %s %s | %s",
+	lineStyle := lipgloss.NewStyle().Width(width)
+	sysInfo := lineStyle.Render(fmt.Sprintf(" %s %s | %s",
 		LabelStyle.Render("系统:"),
 		ValSysStyle.Render(runtime.GOOS),
 		ValSysStyle.Render(displayArch()),
-	)
-	protoInfo := fmt.Sprintf(" %s %s",
+	))
+	protoInfo := lineStyle.Render(fmt.Sprintf(" %s %s",
 		LabelStyle.Render("协议:"),
 		ValProtoStyle.Render(stats.Protocols),
-	)
-	userInfo := fmt.Sprintf(" %s %s",
+	))
+	userInfo := lineStyle.Render(fmt.Sprintf(" %s %s",
 		LabelStyle.Render("用户:"),
 		FormatUserCount(stats.UserCount),
-	)
-	svcInfo := fmt.Sprintf(" %s %s",
+	))
+	svcInfo := lineStyle.Render(fmt.Sprintf(" %s %s",
 		LabelStyle.Render("服务:"),
 		renderCompactServiceStatus(),
-	)
+	))
 
 	sep := SeparatorDouble(width)
 
