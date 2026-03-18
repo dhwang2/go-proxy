@@ -490,17 +490,19 @@ func (m Model) renderLeftPanel() string {
 	}
 
 	// Push hint to second-to-last line (one empty line before bottom border).
+	// strings.Repeat("\n", N) splits into N+1 lines in JoinVertical,
+	// so total lines = topH + (padH+1) + hintH. We want total = innerH - 1
+	// so Height pads 1 empty line at the bottom (hint at second-to-last row).
 	topContent := lipgloss.JoinVertical(lipgloss.Left, dashboard, menuView)
 	topH := lipgloss.Height(topContent)
 	hintH := lipgloss.Height(hint)
-	padH := max(innerH-topH-hintH-1, 0) // -1 for the trailing empty line
+	padH := max(innerH-topH-hintH-2, 0)
 	padding := strings.Repeat("\n", padH)
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		topContent,
 		padding,
 		hint,
-		"", // one empty line before bottom border
 	)
 }
 

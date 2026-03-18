@@ -223,12 +223,14 @@ func renderCompactServiceStatus() string {
 		// Abbreviate service names for compact display.
 		short := svc
 		switch svc {
+		case "sing-box":
+			short = "sbox"
 		case "shadow-tls":
 			short = "stls"
 		case "caddy-sub":
-			short = "caddy"
+			short = "cdy"
 		case "snell-v5":
-			short = "snell"
+			short = "snl"
 		}
 		parts = append(parts, dot+" "+short)
 	}
