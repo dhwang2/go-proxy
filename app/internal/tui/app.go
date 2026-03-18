@@ -410,12 +410,8 @@ func (m Model) viewSplitPanel() string {
 		rightStyle = rightStyle.BorderForeground(ColorDragBorder)
 	}
 
-	// Inner width = total - borders - padding.
-	leftInner := m.leftWidth - 4
-	rightInner := m.rightWidth - 4
-
-	leftPanel := leftStyle.Width(leftInner).Height(m.height - 2).Render(leftContent)
-	rightPanel := rightStyle.Width(rightInner).Height(m.height - 2).Render(rightContent)
+	leftPanel := leftStyle.Width(m.leftWidth - 2).Height(m.height - 2).Render(leftContent)
+	rightPanel := rightStyle.Width(m.rightWidth - 2).Height(m.height - 2).Render(rightContent)
 
 	content := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
