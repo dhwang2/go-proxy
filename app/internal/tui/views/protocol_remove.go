@@ -109,21 +109,26 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.split, cmd = v.split.Update(msg.MouseMsg)
 		return v, cmd
 	}
+	// In split mode, intercept up/down for menu navigation even when content is showing.
+	if v.split.Enabled() && v.step != protoRemoveMenu {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
+				var cmd tea.Cmd
+				v.menu, cmd = v.menu.Update(msg)
+				return v, cmd
+			}
+		}
+	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
 		return v, inlineCmd
 	}
 	switch msg := msg.(type) {
+	case tui.MenuCursorChangeMsg:
+		return v, v.triggerMenuAction(msg.ID)
 	case tui.MenuSelectMsg:
-		// Validate that the ID is a real protocol tag.
-		if derived.FindInbound(v.model.Store(), msg.ID) == nil {
-			return v, nil
-		}
-		v.pendingTag = msg.ID
-		v.step = protoRemoveConfirm
 		v.split.SetFocusLeft(false)
-		prompt := fmt.Sprintf("确认卸载 %s?", v.pendingTag)
-		return v, v.SetInline(components.NewConfirm(prompt))
+		return v, v.triggerMenuAction(msg.ID)
 
 	case tui.ConfirmResultMsg:
 		if !msg.Confirmed {
@@ -200,6 +205,17 @@ func (v *ProtocolRemoveView) View() string {
 	}
 
 	return v.split.View(menuContent, detailContent)
+}
+
+// triggerMenuAction executes the action for the given menu item ID.
+func (v *ProtocolRemoveView) triggerMenuAction(id string) tea.Cmd {
+	if derived.FindInbound(v.model.Store(), id) == nil {
+		return nil
+	}
+	v.pendingTag = id
+	v.step = protoRemoveConfirm
+	prompt := fmt.Sprintf("确认卸载 %s?", v.pendingTag)
+	return v.SetInline(components.NewConfirm(prompt))
 }
 
 type protoRemoveDoneMsg struct {

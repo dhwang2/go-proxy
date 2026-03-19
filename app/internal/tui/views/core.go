@@ -36,7 +36,7 @@ type CoreView struct {
 
 func NewCoreView(model *tui.Model) *CoreView {
 	v := &CoreView{model: model}
-	v.menu = tui.NewMenu("󰚗 内核管理", []tui.MenuItem{
+	v.menu = tui.NewMenu("", []tui.MenuItem{
 		{Key: '1', Label: "󰋼 查看版本", ID: "versions"},
 		{Key: '2', Label: "󰁪 检查更新", ID: "check"},
 		{Key: '3', Label: "󰏗 执行更新", ID: "update"},
@@ -64,33 +64,26 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.split, cmd = v.split.Update(msg.MouseMsg)
 		return v, cmd
 	}
+	// In split mode, intercept up/down for menu navigation even when content is showing.
+	if v.split.Enabled() && v.step != coreMenu {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
+				var cmd tea.Cmd
+				v.menu, cmd = v.menu.Update(msg)
+				return v, cmd
+			}
+		}
+	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
 		return v, inlineCmd
 	}
 	switch msg := msg.(type) {
+	case tui.MenuCursorChangeMsg:
+		return v, v.triggerMenuAction(msg.ID)
 	case tui.MenuSelectMsg:
 		v.split.SetFocusLeft(false)
-		switch msg.ID {
-		case "versions":
-			v.step = coreWorking
-			return v, tea.Batch(
-				v.SetInline(components.NewSpinner("正在检测版本...")),
-				v.doVersions,
-			)
-		case "check":
-			v.step = coreWorking
-			return v, tea.Batch(
-				v.SetInline(components.NewSpinner("正在检查更新...")),
-				func() tea.Msg { return v.doCheckUpdates(false) },
-			)
-		case "update":
-			v.step = coreWorking
-			return v, tea.Batch(
-				v.SetInline(components.NewSpinner("正在检查更新...")),
-				func() tea.Msg { return v.doCheckUpdates(true) },
-			)
-		}
+		return v, v.triggerMenuAction(msg.ID)
 
 	case coreVersionsDoneMsg:
 		v.step = coreResult
@@ -162,6 +155,31 @@ func (v *CoreView) View() string {
 	}
 
 	return v.split.View(menuContent, detailContent)
+}
+
+// triggerMenuAction executes the action for the given menu item ID.
+func (v *CoreView) triggerMenuAction(id string) tea.Cmd {
+	switch id {
+	case "versions":
+		v.step = coreWorking
+		return tea.Batch(
+			v.SetInline(components.NewSpinner("正在检测版本...")),
+			v.doVersions,
+		)
+	case "check":
+		v.step = coreWorking
+		return tea.Batch(
+			v.SetInline(components.NewSpinner("正在检查更新...")),
+			func() tea.Msg { return v.doCheckUpdates(false) },
+		)
+	case "update":
+		v.step = coreWorking
+		return tea.Batch(
+			v.SetInline(components.NewSpinner("正在检查更新...")),
+			func() tea.Msg { return v.doCheckUpdates(true) },
+		)
+	}
+	return nil
 }
 
 type coreVersionsDoneMsg struct{ result string }

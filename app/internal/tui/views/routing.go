@@ -51,7 +51,7 @@ type RoutingView struct {
 
 func NewRoutingView(model *tui.Model) *RoutingView {
 	v := &RoutingView{model: model}
-	v.menu = tui.NewMenu("󰛳 分流管理", []tui.MenuItem{
+	v.menu = tui.NewMenu("", []tui.MenuItem{
 		{Key: '1', Label: "󰌘 链式代理", ID: "chain"},
 		{Key: '2', Label: "󰒓 配置分流", ID: "config"},
 		{Key: '3', Label: "󰩟 直连出口", ID: "direct"},
@@ -79,12 +79,32 @@ func (v *RoutingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.split, cmd = v.split.Update(msg.MouseMsg)
 		return v, cmd
 	}
+	// In split mode, intercept up/down for menu navigation even when content is showing.
+	if v.split.Enabled() && v.step != routingMenu {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
+				var cmd tea.Cmd
+				v.menu, cmd = v.menu.Update(msg)
+				return v, cmd
+			}
+		}
+	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
 		return v, inlineCmd
 	}
 	switch msg := msg.(type) {
+	case tui.MenuCursorChangeMsg:
+		// Auto-preview for top-level menu items only.
+		if v.step == routingMenu {
+			return v, v.triggerMenuAction(msg.ID)
+		}
+		return v, nil
 	case tui.MenuSelectMsg:
+		if v.step == routingMenu {
+			v.split.SetFocusLeft(false)
+			return v, v.triggerMenuAction(msg.ID)
+		}
 		return v.handleMenuSelect(msg)
 
 	case tui.InputResultMsg:
@@ -105,33 +125,37 @@ func (v *RoutingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	}
 }
 
+// triggerMenuAction executes the action for the given top-level menu item ID.
+func (v *RoutingView) triggerMenuAction(id string) tea.Cmd {
+	switch id {
+	case "chain":
+		v.step = routingChainMenu
+		v.subMenu = tui.NewMenu("󰌘 链式代理", []tui.MenuItem{
+			{Key: '1', Label: "󰐕 添加节点", ID: "add"},
+			{Key: '2', Label: "󰍷 删除节点", ID: "delete"},
+			{Key: '3', Label: "󰋼 查看节点", ID: "view"},
+		})
+		return nil
+	case "config":
+		return v.showUserMenu(routingConfigUser)
+	case "direct":
+		v.step = routingDirect
+		v.subMenu = tui.NewMenu("󰩟 直连出口", []tui.MenuItem{
+			{Key: '1', Label: "󰩟 仅 IPv4", ID: "ipv4_only"},
+			{Key: '2', Label: "󰩟 仅 IPv6", ID: "ipv6_only"},
+			{Key: '3', Label: "󰩟 优先 IPv4", ID: "prefer_ipv4"},
+			{Key: '4', Label: "󰩟 优先 IPv6", ID: "prefer_ipv6"},
+			{Key: '5', Label: "󰩟 AsIs (系统默认)", ID: ""},
+		})
+		return nil
+	case "test":
+		return v.showUserMenu(routingTestUser)
+	}
+	return nil
+}
+
 func (v *RoutingView) handleMenuSelect(msg tui.MenuSelectMsg) (tui.View, tea.Cmd) {
 	switch v.step {
-	case routingMenu:
-		switch msg.ID {
-		case "chain":
-			v.step = routingChainMenu
-			v.subMenu = tui.NewMenu("󰌘 链式代理", []tui.MenuItem{
-				{Key: '1', Label: "󰐕 添加节点", ID: "add"},
-				{Key: '2', Label: "󰍷 删除节点", ID: "delete"},
-				{Key: '3', Label: "󰋼 查看节点", ID: "view"},
-			})
-			return v, nil
-		case "config":
-			return v, v.showUserMenu(routingConfigUser)
-		case "direct":
-			v.step = routingDirect
-			v.subMenu = tui.NewMenu("󰩟 直连出口", []tui.MenuItem{
-				{Key: '1', Label: "󰩟 仅 IPv4", ID: "ipv4_only"},
-				{Key: '2', Label: "󰩟 仅 IPv6", ID: "ipv6_only"},
-				{Key: '3', Label: "󰩟 优先 IPv4", ID: "prefer_ipv4"},
-				{Key: '4', Label: "󰩟 优先 IPv6", ID: "prefer_ipv6"},
-				{Key: '5', Label: "󰩟 AsIs (系统默认)", ID: ""},
-			})
-			return v, nil
-		case "test":
-			return v, v.showUserMenu(routingTestUser)
-		}
 
 	case routingChainMenu:
 		switch msg.ID {

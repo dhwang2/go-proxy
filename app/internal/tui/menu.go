@@ -88,6 +88,12 @@ type MenuSelectMsg struct {
 	Index int
 }
 
+// MenuCursorChangeMsg is sent when the cursor moves to a different item.
+type MenuCursorChangeMsg struct {
+	ID    string
+	Index int
+}
+
 // NewMenu creates a new menu model.
 func NewMenu(title string, items []MenuItem) MenuModel {
 	return MenuModel{
@@ -175,6 +181,7 @@ func (m MenuModel) cursorRow() int {
 func (m MenuModel) Update(msg tea.Msg) (MenuModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		oldCursor := m.cursor
 		switch {
 		case key.Matches(msg, Keys.Up):
 			if m.columns <= 1 {
@@ -198,6 +205,9 @@ func (m MenuModel) Update(msg tea.Msg) (MenuModel, tea.Cmd) {
 					m.cursor = last
 				}
 			}
+			if m.cursor != oldCursor && len(m.items) > 0 {
+				return m, cursorChangeItem(m.items[m.cursor], m.cursor)
+			}
 		case key.Matches(msg, Keys.Down):
 			if m.columns <= 1 {
 				if m.cursor < len(m.items)-1 {
@@ -216,6 +226,9 @@ func (m MenuModel) Update(msg tea.Msg) (MenuModel, tea.Cmd) {
 					// Wrap to first row in this column.
 					m.cursor = col * rows
 				}
+			}
+			if m.cursor != oldCursor && len(m.items) > 0 {
+				return m, cursorChangeItem(m.items[m.cursor], m.cursor)
 			}
 		case key.Matches(msg, Keys.Left):
 			if m.columns > 1 {
@@ -263,6 +276,12 @@ func selectItem(item MenuItem, index int) tea.Cmd {
 	}
 }
 
+func cursorChangeItem(item MenuItem, index int) tea.Cmd {
+	return func() tea.Msg {
+		return MenuCursorChangeMsg{ID: item.ID, Index: index}
+	}
+}
+
 // View renders the menu.
 func (m MenuModel) View() string {
 	if m.columns >= 2 && len(m.items) > 1 {
@@ -276,7 +295,7 @@ func (m MenuModel) viewSingleCol() string {
 
 	if m.title != "" {
 		b.WriteString(menuTitleStyle.Render(m.title))
-		b.WriteString("\n\n")
+		b.WriteString("\n")
 	}
 
 	normalStyle := menuNormalStyle
@@ -308,7 +327,7 @@ func (m MenuModel) viewTwoCol() string {
 
 	if m.title != "" {
 		b.WriteString(menuTitleStyle.Render(m.title))
-		b.WriteString("\n\n")
+		b.WriteString("\n")
 	}
 
 	rows := m.rows()

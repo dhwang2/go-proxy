@@ -67,17 +67,26 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.split, cmd = v.split.Update(msg.MouseMsg)
 		return v, cmd
 	}
+	// In split mode, intercept up/down for menu navigation even when content is showing.
+	if v.split.Enabled() && v.step != protoInstallMenu {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
+				var cmd tea.Cmd
+				v.menu, cmd = v.menu.Update(msg)
+				return v, cmd
+			}
+		}
+	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
 		return v, inlineCmd
 	}
 	switch msg := msg.(type) {
+	case tui.MenuCursorChangeMsg:
+		return v, v.triggerMenuAction(msg.ID)
 	case tui.MenuSelectMsg:
-		v.pendingType = protocol.Type(msg.ID)
-		defaultPort := v.computeDefaultPort(v.pendingType)
-		v.step = protoInstallPort
 		v.split.SetFocusLeft(false)
-		return v, v.SetInline(components.NewTextInput("端口号:", fmt.Sprintf("%d", defaultPort)))
+		return v, v.triggerMenuAction(msg.ID)
 
 	case tui.InputResultMsg:
 		if msg.Cancelled {
@@ -160,6 +169,14 @@ func (v *ProtocolInstallView) View() string {
 	}
 
 	return v.split.View(menuContent, detailContent)
+}
+
+// triggerMenuAction executes the action for the given menu item ID.
+func (v *ProtocolInstallView) triggerMenuAction(id string) tea.Cmd {
+	v.pendingType = protocol.Type(id)
+	defaultPort := v.computeDefaultPort(v.pendingType)
+	v.step = protoInstallPort
+	return v.SetInline(components.NewTextInput("端口号:", fmt.Sprintf("%d", defaultPort)))
 }
 
 type protoInstallDoneMsg struct {

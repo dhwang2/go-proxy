@@ -455,27 +455,18 @@ func (m Model) renderLeftPanel() string {
 		hint = RenderFooterHint("切换(tab) | 选择(↑↓)", innerW)
 	}
 
-	// Push hint to second-to-last line (one empty line before bottom border).
-	// strings.Repeat("\n", N) splits into N+1 lines in JoinVertical,
-	// so total lines = topH + (padH+1) + hintH. We want total = innerH - 1
-	// so Height pads 1 empty line at the bottom (hint at second-to-last row).
+	// Use Height to fill top section, pushing hint flush with bottom border.
 	topContent := lipgloss.JoinVertical(lipgloss.Left, dashboard, menuView)
-	topH := lipgloss.Height(topContent)
 	hintH := lipgloss.Height(hint)
-	padH := max(innerH-topH-hintH-2, 0)
-	padding := strings.Repeat("\n", padH)
+	topSection := lipgloss.NewStyle().Height(max(innerH-hintH, 0)).Render(topContent)
 
-	return lipgloss.JoinVertical(lipgloss.Left,
-		topContent,
-		padding,
-		hint,
-	)
+	return lipgloss.JoinVertical(lipgloss.Left, topSection, hint)
 }
 
 // renderRightPanel renders the dynamic right panel content.
 func (m Model) renderRightPanel() string {
 	innerW := m.rightWidth - 4
-	innerH := m.height - 4 // panel inner height (border = 2 rows)
+	innerH := m.height - 2 // panel inner height (border = 2 rows)
 	if innerH < 0 {
 		innerH = 0
 	}
@@ -505,20 +496,13 @@ func (m Model) renderRightPanel() string {
 
 	// Footer hint pinned to bottom.
 	hintLine := RenderFooterHint(DefaultSubMenuHint, innerW)
-
-	// Calculate padding to push footer to bottom.
-	topContent := lipgloss.NewStyle().Width(innerW).Render(
-		lipgloss.JoinVertical(lipgloss.Left, titleBar, breadcrumb, sep1, viewContent))
-	topH := lipgloss.Height(topContent)
 	footerH := lipgloss.Height(hintLine)
-	padH := max(innerH-topH-footerH, 0)
-	padding := strings.Repeat("\n", padH)
 
-	return lipgloss.JoinVertical(lipgloss.Left,
-		topContent,
-		padding,
-		hintLine,
-	)
+	// Use Height to fill top section, pushing footer flush with bottom border.
+	topContent := lipgloss.JoinVertical(lipgloss.Left, titleBar, breadcrumb, sep1, viewContent)
+	topSection := lipgloss.NewStyle().Width(innerW).Height(max(innerH-footerH, 0)).Render(topContent)
+
+	return lipgloss.JoinVertical(lipgloss.Left, topSection, hintLine)
 }
 
 // renderBreadcrumb renders the navigation breadcrumb trail.
@@ -575,7 +559,6 @@ func (m Model) renderWelcome(width int) string {
 		title,
 		sub,
 		sep,
-		"",
 		tips,
 	)
 }

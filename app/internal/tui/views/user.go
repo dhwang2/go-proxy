@@ -36,7 +36,7 @@ const (
 
 func NewUserView(model *tui.Model) *UserView {
 	v := &UserView{model: model}
-	v.menu = tui.NewMenu("󰁥 用户管理", []tui.MenuItem{
+	v.menu = tui.NewMenu("", []tui.MenuItem{
 		{Key: '1', Label: "󰋼 用户列表", ID: "list"},
 		{Key: '2', Label: "󰐕 添加用户", ID: "add"},
 		{Key: '3', Label: "󰑕 重置用户", ID: "rename"},
@@ -67,43 +67,30 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, cmd
 	}
 
+	// In split mode, intercept up/down for menu navigation even when content is showing.
+	if v.split.Enabled() && v.step != userMenu {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
+				var cmd tea.Cmd
+				v.menu, cmd = v.menu.Update(msg)
+				return v, cmd
+			}
+		}
+	}
+
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
 		return v, inlineCmd
 	}
 
 	switch msg := msg.(type) {
+	case tui.MenuCursorChangeMsg:
+		// Auto-preview: trigger action without changing focus.
+		return v, v.triggerMenuAction(msg.ID)
+
 	case tui.MenuSelectMsg:
-		switch msg.ID {
-		case "list":
-			v.step = userList
-			v.split.SetFocusLeft(false)
-			return v, v.listUsers
-		case "add":
-			v.step = userAdd
-			v.split.SetFocusLeft(false)
-			return v, v.SetInline(components.NewTextInput("用户名:", "user2"))
-		case "rename":
-			names := derived.UserNames(v.model.Store())
-			if len(names) == 0 {
-				v.step = userResult
-				v.split.SetFocusLeft(false)
-				return v, v.SetInline(components.NewResult("暂无用户"))
-			}
-			v.step = userRenameOld
-			v.split.SetFocusLeft(false)
-			return v, v.SetInline(components.NewSelectList("选择要重置的用户:", names))
-		case "delete":
-			names := derived.UserNames(v.model.Store())
-			if len(names) == 0 {
-				v.step = userResult
-				v.split.SetFocusLeft(false)
-				return v, v.SetInline(components.NewResult("暂无用户"))
-			}
-			v.step = userDelete
-			v.split.SetFocusLeft(false)
-			return v, v.SetInline(components.NewSelectList("选择要删除的用户:", names))
-		}
+		v.split.SetFocusLeft(false)
+		return v, v.triggerMenuAction(msg.ID)
 
 	case tui.InputResultMsg:
 		if msg.Cancelled {
@@ -166,6 +153,35 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 	}
 	return v, inlineCmd
+}
+
+// triggerMenuAction executes the action for the given menu item ID.
+func (v *UserView) triggerMenuAction(id string) tea.Cmd {
+	switch id {
+	case "list":
+		v.step = userList
+		return v.listUsers
+	case "add":
+		v.step = userAdd
+		return v.SetInline(components.NewTextInput("用户名:", "user2"))
+	case "rename":
+		names := derived.UserNames(v.model.Store())
+		if len(names) == 0 {
+			v.step = userResult
+			return v.SetInline(components.NewResult("暂无用户"))
+		}
+		v.step = userRenameOld
+		return v.SetInline(components.NewSelectList("选择要重置的用户:", names))
+	case "delete":
+		names := derived.UserNames(v.model.Store())
+		if len(names) == 0 {
+			v.step = userResult
+			return v.SetInline(components.NewResult("暂无用户"))
+		}
+		v.step = userDelete
+		return v.SetInline(components.NewSelectList("选择要删除的用户:", names))
+	}
+	return nil
 }
 
 func (v *UserView) View() string {

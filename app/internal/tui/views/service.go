@@ -35,7 +35,7 @@ type ServiceView struct {
 
 func NewServiceView(model *tui.Model) *ServiceView {
 	v := &ServiceView{model: model}
-	v.menu = tui.NewMenu("󰒓 协议管理", []tui.MenuItem{
+	v.menu = tui.NewMenu("", []tui.MenuItem{
 		{Key: '1', Label: "󰋼 查看服务状态", ID: "status"},
 		{Key: '2', Label: "󰑓 重启所有服务", ID: "restart-all"},
 		{Key: '3', Label: "󰓛 停止所有服务", ID: "stop-all"},
@@ -64,12 +64,32 @@ func (v *ServiceView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.split, cmd = v.split.Update(msg.MouseMsg)
 		return v, cmd
 	}
+	// In split mode, intercept up/down for menu navigation even when content is showing.
+	if v.split.Enabled() && v.step != svcMenuMain {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
+				var cmd tea.Cmd
+				v.menu, cmd = v.menu.Update(msg)
+				return v, cmd
+			}
+		}
+	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
 		return v, inlineCmd
 	}
 	switch msg := msg.(type) {
+	case tui.MenuCursorChangeMsg:
+		// Auto-preview: trigger action without changing focus (main menu only).
+		if v.step == svcMenuMain {
+			return v, v.triggerMenuAction(msg.ID)
+		}
+		return v, nil
 	case tui.MenuSelectMsg:
+		if v.step == svcMenuMain {
+			v.split.SetFocusLeft(false)
+			return v, v.triggerMenuAction(msg.ID)
+		}
 		return v.handleMenuSelect(msg)
 
 	case svcActionDoneMsg:
@@ -87,23 +107,31 @@ func (v *ServiceView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	}
 }
 
+// triggerMenuAction executes the action for the given main menu item ID.
+func (v *ServiceView) triggerMenuAction(id string) tea.Cmd {
+	switch id {
+	case "status":
+		v.step = svcResult
+		return func() tea.Msg { return v.doStatusTable() }
+	case "restart-all":
+		v.step = svcResult
+		return func() tea.Msg { return v.doBulkAction("restart") }
+	case "stop-all":
+		v.step = svcResult
+		return func() tea.Msg { return v.doBulkAction("stop") }
+	case "start-all":
+		v.step = svcResult
+		return func() tea.Msg { return v.doBulkAction("start") }
+	case "individual":
+		v.step = svcMenuIndividual
+		v.subMenu = v.buildServiceSelectMenu()
+		return nil
+	}
+	return nil
+}
+
 func (v *ServiceView) handleMenuSelect(msg tui.MenuSelectMsg) (tui.View, tea.Cmd) {
 	switch v.step {
-	case svcMenuMain:
-		switch msg.ID {
-		case "status":
-			return v, func() tea.Msg { return v.doStatusTable() }
-		case "restart-all":
-			return v, func() tea.Msg { return v.doBulkAction("restart") }
-		case "stop-all":
-			return v, func() tea.Msg { return v.doBulkAction("stop") }
-		case "start-all":
-			return v, func() tea.Msg { return v.doBulkAction("start") }
-		case "individual":
-			v.step = svcMenuIndividual
-			v.subMenu = v.buildServiceSelectMenu()
-			return v, nil
-		}
 
 	case svcMenuIndividual:
 		// First selection: pick the service.

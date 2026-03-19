@@ -37,7 +37,7 @@ type ConfigView struct {
 
 func NewConfigView(model *tui.Model) *ConfigView {
 	v := &ConfigView{model: model}
-	v.menu = tui.NewMenu("󰈔 配置详情", []tui.MenuItem{
+	v.menu = tui.NewMenu("", []tui.MenuItem{
 		{Key: '1', Label: "󰈔 sing-box", ID: "singbox"},
 		{Key: '2', Label: "󰈔 snell-v5", ID: "snell"},
 		{Key: '3', Label: "󰈔 shadow-tls", ID: "shadowtls"},
@@ -65,6 +65,16 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.split, cmd = v.split.Update(msg.MouseMsg)
 		return v, cmd
 	}
+	// In split mode, intercept up/down for menu navigation even when content is showing.
+	if v.split.Enabled() && v.step != configMenu {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
+				var cmd tea.Cmd
+				v.menu, cmd = v.menu.Update(msg)
+				return v, cmd
+			}
+		}
+	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
 		return v, inlineCmd
@@ -84,34 +94,11 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		return v, nil
 
+	case tui.MenuCursorChangeMsg:
+		return v, v.triggerMenuAction(msg.ID)
 	case tui.MenuSelectMsg:
 		v.split.SetFocusLeft(false)
-		switch msg.ID {
-		case "singbox":
-			v.step = configViewport
-			v.title = "sing-box 配置"
-			v.ready = false
-			content := v.renderSingBox()
-			return v, func() tea.Msg {
-				return configContentMsg{content: content}
-			}
-		case "snell":
-			v.step = configViewport
-			v.title = "snell-v5 配置"
-			v.ready = false
-			content := v.renderSnell()
-			return v, func() tea.Msg {
-				return configContentMsg{content: content}
-			}
-		case "shadowtls":
-			v.step = configViewport
-			v.title = "shadow-tls 配置"
-			v.ready = false
-			content := v.renderShadowTLS()
-			return v, func() tea.Msg {
-				return configContentMsg{content: content}
-			}
-		}
+		return v, v.triggerMenuAction(msg.ID)
 
 	case configContentMsg:
 		v.viewport = viewport.New(v.model.Width(), v.model.Height()-3)
@@ -182,6 +169,31 @@ func (v *ConfigView) renderViewport() string {
 		v.viewport.View(),
 		footer,
 	)
+}
+
+// triggerMenuAction executes the action for the given menu item ID.
+func (v *ConfigView) triggerMenuAction(id string) tea.Cmd {
+	switch id {
+	case "singbox":
+		v.step = configViewport
+		v.title = "sing-box 配置"
+		v.ready = false
+		content := v.renderSingBox()
+		return func() tea.Msg { return configContentMsg{content: content} }
+	case "snell":
+		v.step = configViewport
+		v.title = "snell-v5 配置"
+		v.ready = false
+		content := v.renderSnell()
+		return func() tea.Msg { return configContentMsg{content: content} }
+	case "shadowtls":
+		v.step = configViewport
+		v.title = "shadow-tls 配置"
+		v.ready = false
+		content := v.renderShadowTLS()
+		return func() tea.Msg { return configContentMsg{content: content} }
+	}
+	return nil
 }
 
 type configContentMsg struct{ content string }

@@ -50,9 +50,9 @@ func (m *SubSplitModel) setSize(w, h int) {
 		return
 	}
 	m.enabled = true
-	// Default: left gets 40% of width.
+	// Default: left gets 28% of width (close to menu text + 4 char padding).
 	if m.leftWidth == 0 {
-		m.leftWidth = w * 40 / 100
+		m.leftWidth = w * 28 / 100
 	}
 	m.clampLeftWidth()
 }
@@ -152,19 +152,14 @@ func (m SubSplitModel) View(leftContent, rightContent string) string {
 	lw := m.leftWidth
 	rw := m.totalWidth - lw - 1
 
-	// Render both sides first to determine natural height.
-	left := lipgloss.NewStyle().Width(lw).Render(leftContent)
-	right := lipgloss.NewStyle().Width(rw).Render(rightContent)
-
-	// Match height to the taller panel.
-	h := max(lipgloss.Height(left), lipgloss.Height(right))
+	// Use totalHeight so divider extends to bottom border.
+	h := m.totalHeight
 	if h < 1 {
 		h = 1
 	}
 
-	// Re-render with matched heights.
-	left = lipgloss.NewStyle().Width(lw).Height(h).Render(leftContent)
-	right = lipgloss.NewStyle().Width(rw).Height(h).Render(rightContent)
+	left := lipgloss.NewStyle().Width(lw).Height(h).Render(leftContent)
+	right := lipgloss.NewStyle().Width(rw).Height(h).Render(rightContent)
 
 	// Render divider spanning full height.
 	divColor := ColorPanelBorder

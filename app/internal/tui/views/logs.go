@@ -35,7 +35,7 @@ type LogsView struct {
 
 func NewLogsView(model *tui.Model) *LogsView {
 	v := &LogsView{model: model}
-	v.menu = tui.NewMenu("󰌱 运行日志", []tui.MenuItem{
+	v.menu = tui.NewMenu("", []tui.MenuItem{
 		{Key: '1', Label: "󰌱 查看脚本日志 (最近30行)", ID: "script"},
 		{Key: '2', Label: "󰌱 查看 Watchdog 日志 (最近30行)", ID: "watchdog"},
 		{Key: '3', Label: "󰌱 查看服务日志 (按服务选择)", ID: "service"},
@@ -62,11 +62,27 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.split, cmd = v.split.Update(msg.MouseMsg)
 		return v, cmd
 	}
+	// In split mode, intercept up/down for menu navigation even when content is showing.
+	if v.split.Enabled() && v.step != logsMenu {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
+				var cmd tea.Cmd
+				v.menu, cmd = v.menu.Update(msg)
+				return v, cmd
+			}
+		}
+	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
 		return v, inlineCmd
 	}
 	switch msg := msg.(type) {
+	case tui.MenuCursorChangeMsg:
+		// Auto-preview for top-level menu items only.
+		if v.step != logsServiceSelect {
+			return v, v.triggerMenuAction(msg.ID)
+		}
+		return v, nil
 	case tui.MenuSelectMsg:
 		if v.step == logsServiceSelect {
 			svc := msg.ID
@@ -77,26 +93,8 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				func() tea.Msg { return v.readServiceLog(svc) },
 			)
 		}
-
 		v.split.SetFocusLeft(false)
-		switch msg.ID {
-		case "script":
-			v.step = logsResult
-			return v, tea.Batch(
-				v.SetInline(components.NewSpinner("加载日志...")),
-				func() tea.Msg { return v.readScriptLog() },
-			)
-		case "watchdog":
-			v.step = logsResult
-			return v, tea.Batch(
-				v.SetInline(components.NewSpinner("加载日志...")),
-				func() tea.Msg { return v.readWatchdogLog() },
-			)
-		case "service":
-			v.step = logsServiceSelect
-			v.split.SetFocusLeft(true)
-			return v, nil
-		}
+		return v, v.triggerMenuAction(msg.ID)
 
 	case logsActionDoneMsg:
 		v.step = logsResult
@@ -163,6 +161,29 @@ func (v *LogsView) View() string {
 	}
 
 	return v.split.View(menuContent, detailContent)
+}
+
+// triggerMenuAction executes the action for the given main menu item ID.
+func (v *LogsView) triggerMenuAction(id string) tea.Cmd {
+	switch id {
+	case "script":
+		v.step = logsResult
+		return tea.Batch(
+			v.SetInline(components.NewSpinner("加载日志...")),
+			func() tea.Msg { return v.readScriptLog() },
+		)
+	case "watchdog":
+		v.step = logsResult
+		return tea.Batch(
+			v.SetInline(components.NewSpinner("加载日志...")),
+			func() tea.Msg { return v.readWatchdogLog() },
+		)
+	case "service":
+		v.step = logsServiceSelect
+		v.split.SetFocusLeft(true)
+		return nil
+	}
+	return nil
 }
 
 type logsActionDoneMsg struct{ result string }

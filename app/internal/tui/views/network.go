@@ -32,7 +32,7 @@ type NetworkView struct {
 
 func NewNetworkView(model *tui.Model) *NetworkView {
 	v := &NetworkView{model: model}
-	v.menu = tui.NewMenu("󰀂 网络管理", []tui.MenuItem{
+	v.menu = tui.NewMenu("", []tui.MenuItem{
 		{Key: '1', Label: "󰓅 BBR 网络优化", ID: "bbr"},
 		{Key: '2', Label: "󰒃 服务器防火墙收敛", ID: "firewall"},
 	})
@@ -58,18 +58,26 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.split, cmd = v.split.Update(msg.MouseMsg)
 		return v, cmd
 	}
+	// In split mode, intercept up/down for menu navigation even when content is showing.
+	if v.split.Enabled() && v.step != networkMenu {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
+				var cmd tea.Cmd
+				v.menu, cmd = v.menu.Update(msg)
+				return v, cmd
+			}
+		}
+	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
 		return v, inlineCmd
 	}
 	switch msg := msg.(type) {
+	case tui.MenuCursorChangeMsg:
+		return v, v.triggerMenuAction(msg.ID)
 	case tui.MenuSelectMsg:
-		switch msg.ID {
-		case "bbr":
-			return v, v.doBBRStatus
-		case "firewall":
-			return v, v.doFirewall
-		}
+		v.split.SetFocusLeft(false)
+		return v, v.triggerMenuAction(msg.ID)
 
 	case networkActionDoneMsg:
 		v.split.SetFocusLeft(false)
@@ -127,6 +135,17 @@ func (v *NetworkView) View() string {
 	}
 
 	return v.split.View(menuContent, detailContent)
+}
+
+// triggerMenuAction executes the action for the given menu item ID.
+func (v *NetworkView) triggerMenuAction(id string) tea.Cmd {
+	switch id {
+	case "bbr":
+		return v.doBBRStatus
+	case "firewall":
+		return v.doFirewall
+	}
+	return nil
 }
 
 type networkActionDoneMsg struct {
