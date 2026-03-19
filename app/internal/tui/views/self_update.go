@@ -12,6 +12,7 @@ import (
 )
 
 type SelfUpdateView struct {
+	tui.InlineState
 	model  *tui.Model
 	step   selfUpdateStep
 	check  *update.SelfUpdateCheck
@@ -41,34 +42,26 @@ func (v *SelfUpdateView) Init() tea.Cmd {
 }
 
 func (v *SelfUpdateView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	inlineCmd, handled := v.UpdateInline(msg)
+	if handled {
+		return v, inlineCmd
+	}
 	switch msg := msg.(type) {
 	case selfUpdateCheckDoneMsg:
 		if msg.err != nil {
 			v.step = selfUpdateResult
-			return v, func() tea.Msg {
-				return tui.ShowOverlayMsg{
-					Overlay: components.NewResult("检查更新失败: " + msg.err.Error()),
-				}
-			}
+			return v, v.SetInline(components.NewResult("检查更新失败: " + msg.err.Error()))
 		}
 		v.check = msg.check
 		if !msg.check.UpdateAvail {
 			v.step = selfUpdateResult
 			result := fmt.Sprintf("当前版本: %s\n已是最新版本", msg.check.CurrentVersion)
-			return v, func() tea.Msg {
-				return tui.ShowOverlayMsg{
-					Overlay: components.NewResult(result),
-				}
-			}
+			return v, v.SetInline(components.NewResult(result))
 		}
 		v.step = selfUpdateConfirm
 		prompt := fmt.Sprintf("发现新版本: %s → %s\n是否更新?",
 			msg.check.CurrentVersion, msg.check.LatestVersion)
-		return v, func() tea.Msg {
-			return tui.ShowOverlayMsg{
-				Overlay: components.NewConfirm(prompt),
-			}
-		}
+		return v, v.SetInline(components.NewConfirm(prompt))
 
 	case tui.ConfirmResultMsg:
 		if !msg.Confirmed {
@@ -81,11 +74,7 @@ func (v *SelfUpdateView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case selfUpdateDoneMsg:
 		if msg.err != nil {
 			v.step = selfUpdateResult
-			return v, func() tea.Msg {
-				return tui.ShowOverlayMsg{
-					Overlay: components.NewResult("更新失败: " + msg.err.Error()),
-				}
-			}
+			return v, v.SetInline(components.NewResult("更新失败: " + msg.err.Error()))
 		}
 		// Successful update: set exit message and quit immediately.
 		v.model.SetExitMessage(fmt.Sprintf("更新完成 (%s)，请重新运行 proxy", v.check.LatestVersion))
@@ -98,10 +87,13 @@ func (v *SelfUpdateView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, tui.BackCmd
 		}
 	}
-	return v, nil
+	return v, inlineCmd
 }
 
 func (v *SelfUpdateView) View() string {
+	if v.HasInline() {
+		return v.ViewInline()
+	}
 	if v.step == selfUpdateChecking || v.step == selfUpdateUpdating {
 		return "\n  " + v.status + "\n"
 	}

@@ -24,6 +24,7 @@ type View interface {
 	Update(msg tea.Msg) (View, tea.Cmd)
 	View() string
 	Name() string
+	HasInline() bool
 }
 
 // viewDisplayName maps view IDs to Chinese display names for breadcrumbs/titles.
@@ -50,7 +51,6 @@ type Model struct {
 	width        int
 	height       int
 	views        map[string]View
-	overlay      OverlayModel
 	current      string     // name of the active sub-view ("" = none)
 	focus        FocusPanel // which panel has keyboard focus
 	mainMenu     MenuModel
@@ -189,7 +189,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseMsg:
-		if !m.splitPanel || m.overlay != nil {
+		if !m.splitPanel {
 			return m, nil
 		}
 		switch msg.Action {
@@ -225,7 +225,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case NavigateMsg:
 		if msg.Name == "main-menu" {
-			// Going back to main menu = close right panel.
 			m.current = ""
 			m.focus = FocusLeft
 			m.mainMenu = m.mainMenu.SetActiveID("")
@@ -236,7 +235,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.current = msg.Name
 		m.focus = FocusRight
 		m.mainMenu = m.mainMenu.SetActiveID(msg.Name).SetDim(true)
-		m.overlay = nil
 		if v, ok := m.views[msg.Name]; ok {
 			cmd := v.Init()
 			return m, cmd
@@ -244,10 +242,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case BackMsg:
-		if m.overlay != nil {
-			m.overlay = nil
-			return m, nil
-		}
 		// If in right panel and nav depth > 1, go back within sub-view hierarchy.
 		if m.nav.Depth() > 1 {
 			name := m.nav.Pop()
@@ -267,20 +261,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.nav.Clear()
 		return m, nil
 
-	case ShowOverlayMsg:
-		m.overlay = msg.Overlay
-		if m.overlay != nil {
-			cmd := m.overlay.Init()
-			return m, cmd
-		}
-		return m, nil
-
-	case DismissOverlayMsg:
-		m.overlay = nil
-		return m, nil
-
 	case InputResultMsg, ConfirmResultMsg, ResultDismissedMsg, OverlaySelectMsg:
-		m.overlay = nil
+		// Forward component result messages to the active view.
 		if v, ok := m.views[m.current]; ok {
 			newView, cmd := v.Update(msg)
 			m.views[m.current] = newView
@@ -304,14 +286,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-		if m.overlay != nil {
-			var cmd tea.Cmd
-			m.overlay, cmd = m.overlay.Update(msg)
-			return m, cmd
-		}
-
-		// Tab toggles focus between panels.
+		// Tab toggles focus between panels (blocked when view has inline component).
 		if key.Matches(msg, Keys.Tab) && m.splitPanel && m.current != "" {
+			if v, ok := m.views[m.current]; ok && v.HasInline() {
+				// Forward Tab to the view; inline component may use it.
+				newView, cmd := v.Update(msg)
+				m.views[m.current] = newView
+				return m, cmd
+			}
 			if m.focus == FocusLeft {
 				m.focus = FocusRight
 				m.mainMenu = m.mainMenu.SetDim(true)
@@ -342,26 +324,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, BackCmd
 			}
-		}
-	}
-
-	// Route overlay messages to both view and overlay.
-	if m.overlay != nil {
-		var viewCmd tea.Cmd
-		if v, ok := m.views[m.current]; ok {
-			newView, cmd := v.Update(msg)
-			m.views[m.current] = newView
-			viewCmd = cmd
-		}
-		var overlayCmd tea.Cmd
-		m.overlay, overlayCmd = m.overlay.Update(msg)
-		switch {
-		case viewCmd != nil && overlayCmd != nil:
-			return m, tea.Batch(viewCmd, overlayCmd)
-		case viewCmd != nil:
-			return m, viewCmd
-		default:
-			return m, overlayCmd
 		}
 	}
 
@@ -413,19 +375,7 @@ func (m Model) viewSplitPanel() string {
 	leftPanel := leftStyle.Width(m.leftWidth - 2).Height(m.height - 2).Render(leftContent)
 	rightPanel := rightStyle.Width(m.rightWidth - 2).Height(m.height - 2).Render(rightContent)
 
-	content := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
-
-	if m.overlay != nil {
-		overlayContent := m.overlay.View()
-		content = lipgloss.Place(
-			m.width, m.height,
-			lipgloss.Center, lipgloss.Center,
-			overlayContent,
-			lipgloss.WithWhitespaceChars(" "),
-		)
-	}
-
-	return content
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 }
 
 // viewSinglePanel renders the fallback full-screen layout for narrow terminals.
@@ -455,16 +405,6 @@ func (m Model) viewSinglePanel() string {
 		hintSep := SeparatorDouble(w)
 		hintLine := RenderFooterHint(DefaultSubMenuHint, w)
 		content = lipgloss.JoinVertical(lipgloss.Center, viewContent, hintSep, hintLine, hintSep)
-	}
-
-	if m.overlay != nil {
-		overlayContent := m.overlay.View()
-		content = lipgloss.Place(
-			m.width, m.height,
-			lipgloss.Center, lipgloss.Center,
-			overlayContent,
-			lipgloss.WithWhitespaceChars(" "),
-		)
 	}
 
 	return content

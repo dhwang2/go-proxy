@@ -36,6 +36,7 @@ const (
 )
 
 type RoutingView struct {
+	tui.InlineState
 	model   *tui.Model
 	menu    tui.MenuModel
 	subMenu tui.MenuModel
@@ -65,6 +66,10 @@ func (v *RoutingView) Init() tea.Cmd {
 }
 
 func (v *RoutingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	inlineCmd, handled := v.UpdateInline(msg)
+	if handled {
+		return v, inlineCmd
+	}
 	switch msg := msg.(type) {
 	case tui.MenuSelectMsg:
 		return v.handleMenuSelect(msg)
@@ -74,9 +79,7 @@ func (v *RoutingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case routingActionDoneMsg:
 		v.step = routingResult
-		return v, func() tea.Msg {
-			return tui.ShowOverlayMsg{Overlay: components.NewResult(msg.result)}
-		}
+		return v, v.SetInline(components.NewResult(msg.result))
 
 	case tui.ResultDismissedMsg:
 		v.step = routingMenu
@@ -119,11 +122,7 @@ func (v *RoutingView) handleMenuSelect(msg tui.MenuSelectMsg) (tui.View, tea.Cmd
 		switch msg.ID {
 		case "add":
 			v.step = routingChainAddInput
-			return v, func() tea.Msg {
-				return tui.ShowOverlayMsg{
-					Overlay: components.NewTextInput("链式代理 (地址:端口:用户:密码):", ""),
-				}
-			}
+			return v, v.SetInline(components.NewTextInput("链式代理 (地址:端口:用户:密码):", ""))
 		case "delete":
 			return v, v.showChainDeleteMenu()
 		case "view":
@@ -159,11 +158,7 @@ func (v *RoutingView) handleMenuSelect(msg tui.MenuSelectMsg) (tui.View, tea.Cmd
 	case routingTestUser:
 		v.selectedUser = msg.ID
 		v.step = routingTestDomain
-		return v, func() tea.Msg {
-			return tui.ShowOverlayMsg{
-				Overlay: components.NewTextInput("测试域名:", "google.com"),
-			}
-		}
+		return v, v.SetInline(components.NewTextInput("测试域名:", "google.com"))
 	}
 
 	return v, nil
@@ -239,6 +234,9 @@ func (v *RoutingView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *RoutingView) View() string {
+	if v.HasInline() {
+		return v.ViewInline()
+	}
 	switch v.step {
 	case routingChainMenu, routingChainDeleteSelect, routingConfigUser,
 		routingConfigPreset, routingConfigOutbound, routingDirect, routingTestUser:
@@ -328,9 +326,7 @@ func (v *RoutingView) showChainDeleteMenu() tea.Cmd {
 
 func (v *RoutingView) showError(msg string) tea.Cmd {
 	v.step = routingResult
-	return func() tea.Msg {
-		return tui.ShowOverlayMsg{Overlay: components.NewResult(msg)}
-	}
+	return v.SetInline(components.NewResult(msg))
 }
 
 // --- Action methods ---

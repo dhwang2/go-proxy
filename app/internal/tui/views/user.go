@@ -13,6 +13,7 @@ import (
 )
 
 type UserView struct {
+	tui.InlineState
 	model   *tui.Model
 	menu    tui.MenuModel
 	step    userStep
@@ -50,6 +51,10 @@ func (v *UserView) Init() tea.Cmd {
 }
 
 func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	inlineCmd, handled := v.UpdateInline(msg)
+	if handled {
+		return v, inlineCmd
+	}
 	switch msg := msg.(type) {
 	case tui.MenuSelectMsg:
 		switch msg.ID {
@@ -58,43 +63,23 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, v.listUsers
 		case "add":
 			v.step = userAdd
-			return v, func() tea.Msg {
-				return tui.ShowOverlayMsg{
-					Overlay: components.NewTextInput("用户名:", "user2"),
-				}
-			}
+			return v, v.SetInline(components.NewTextInput("用户名:", "user2"))
 		case "rename":
 			names := derived.UserNames(v.model.Store())
 			if len(names) == 0 {
 				v.step = userResult
-				return v, func() tea.Msg {
-					return tui.ShowOverlayMsg{
-						Overlay: components.NewResult("暂无用户"),
-					}
-				}
+				return v, v.SetInline(components.NewResult("暂无用户"))
 			}
 			v.step = userRenameOld
-			return v, func() tea.Msg {
-				return tui.ShowOverlayMsg{
-					Overlay: components.NewSelectList("选择要重置的用户:", names),
-				}
-			}
+			return v, v.SetInline(components.NewSelectList("选择要重置的用户:", names))
 		case "delete":
 			names := derived.UserNames(v.model.Store())
 			if len(names) == 0 {
 				v.step = userResult
-				return v, func() tea.Msg {
-					return tui.ShowOverlayMsg{
-						Overlay: components.NewResult("暂无用户"),
-					}
-				}
+				return v, v.SetInline(components.NewResult("暂无用户"))
 			}
 			v.step = userDelete
-			return v, func() tea.Msg {
-				return tui.ShowOverlayMsg{
-					Overlay: components.NewSelectList("选择要删除的用户:", names),
-				}
-			}
+			return v, v.SetInline(components.NewSelectList("选择要删除的用户:", names))
 		}
 
 	case tui.InputResultMsg:
@@ -109,11 +94,7 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		case userRenameOld:
 			v.oldName = msg.Value
 			v.step = userRenameNew
-			return v, func() tea.Msg {
-				return tui.ShowOverlayMsg{
-					Overlay: components.NewTextInput("新用户名:", ""),
-				}
-			}
+			return v, v.SetInline(components.NewTextInput("新用户名:", ""))
 		case userRenameNew:
 			oldName := v.oldName
 			newName := msg.Value
@@ -125,11 +106,7 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case userActionDoneMsg:
 		v.step = userResult
-		return v, func() tea.Msg {
-			return tui.ShowOverlayMsg{
-				Overlay: components.NewResult(msg.result),
-			}
-		}
+		return v, v.SetInline(components.NewResult(msg.result))
 
 	case tui.ResultDismissedMsg:
 		v.step = userMenu
@@ -145,10 +122,13 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, cmd
 		}
 	}
-	return v, nil
+	return v, inlineCmd
 }
 
 func (v *UserView) View() string {
+	if v.HasInline() {
+		return v.ViewInline()
+	}
 	return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
 }
 

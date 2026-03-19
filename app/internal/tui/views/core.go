@@ -25,6 +25,7 @@ const (
 )
 
 type CoreView struct {
+	tui.InlineState
 	model   *tui.Model
 	menu    tui.MenuModel
 	step    coreStep
@@ -50,65 +51,53 @@ func (v *CoreView) Init() tea.Cmd {
 }
 
 func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	inlineCmd, handled := v.UpdateInline(msg)
+	if handled {
+		return v, inlineCmd
+	}
 	switch msg := msg.(type) {
 	case tui.MenuSelectMsg:
 		switch msg.ID {
 		case "versions":
 			v.step = coreWorking
-			return v, tea.Sequence(
-				func() tea.Msg {
-					return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在检测版本...")}
-				},
+			return v, tea.Batch(
+				v.SetInline(components.NewSpinner("正在检测版本...")),
 				v.doVersions,
 			)
 		case "check":
 			v.step = coreWorking
-			return v, tea.Sequence(
-				func() tea.Msg {
-					return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在检查更新...")}
-				},
+			return v, tea.Batch(
+				v.SetInline(components.NewSpinner("正在检查更新...")),
 				func() tea.Msg { return v.doCheckUpdates(false) },
 			)
 		case "update":
 			v.step = coreWorking
-			return v, tea.Sequence(
-				func() tea.Msg {
-					return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在检查更新...")}
-				},
+			return v, tea.Batch(
+				v.SetInline(components.NewSpinner("正在检查更新...")),
 				func() tea.Msg { return v.doCheckUpdates(true) },
 			)
 		}
 
 	case coreVersionsDoneMsg:
 		v.step = coreResult
-		return v, func() tea.Msg {
-			return tui.ShowOverlayMsg{Overlay: components.NewResult(msg.result)}
-		}
+		return v, v.SetInline(components.NewResult(msg.result))
 
 	case coreCheckDoneMsg:
 		if msg.forUpdate && len(msg.updates) > 0 {
 			v.pending = msg.updates
 			v.step = coreConfirm
-			return v, func() tea.Msg {
-				return tui.ShowOverlayMsg{
-					Overlay: components.NewConfirm(msg.result + "\n\n是否执行更新？"),
-				}
-			}
+			return v, v.SetInline(components.NewConfirm(msg.result + "\n\n是否执行更新？"))
 		}
 		v.step = coreResult
-		return v, func() tea.Msg {
-			return tui.ShowOverlayMsg{Overlay: components.NewResult(msg.result)}
-		}
+		return v, v.SetInline(components.NewResult(msg.result))
 
 	case tui.ConfirmResultMsg:
 		if msg.Confirmed && len(v.pending) > 0 {
 			updates := v.pending
 			v.pending = nil
 			v.step = coreWorking
-			return v, tea.Sequence(
-				func() tea.Msg {
-					return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在下载更新...")}
-				},
+			return v, tea.Batch(
+				v.SetInline(components.NewSpinner("正在下载更新...")),
 				func() tea.Msg { return v.doUpdate(updates) },
 			)
 		}
@@ -117,9 +106,7 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case coreUpdateDoneMsg:
 		v.step = coreResult
-		return v, func() tea.Msg {
-			return tui.ShowOverlayMsg{Overlay: components.NewResult(msg.result)}
-		}
+		return v, v.SetInline(components.NewResult(msg.result))
 
 	case tui.ResultDismissedMsg:
 		v.step = coreMenu
@@ -135,10 +122,13 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, cmd
 		}
 	}
-	return v, nil
+	return v, inlineCmd
 }
 
 func (v *CoreView) View() string {
+	if v.HasInline() {
+		return v.ViewInline()
+	}
 	return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
 }
 

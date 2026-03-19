@@ -14,6 +14,7 @@ import (
 )
 
 type UninstallView struct {
+	tui.InlineState
 	model *tui.Model
 	step  uninstallStep
 }
@@ -33,36 +34,28 @@ func (v *UninstallView) Name() string { return "uninstall" }
 
 func (v *UninstallView) Init() tea.Cmd {
 	v.step = uninstallConfirm
-	return func() tea.Msg {
-		return tui.ShowOverlayMsg{
-			Overlay: components.NewConfirm("确认卸载所有服务和配置?"),
-		}
-	}
+	return v.SetInline(components.NewConfirm("确认卸载所有服务和配置?"))
 }
 
 func (v *UninstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	inlineCmd, handled := v.UpdateInline(msg)
+	if handled {
+		return v, inlineCmd
+	}
 	switch msg := msg.(type) {
 	case tui.ConfirmResultMsg:
 		if !msg.Confirmed {
 			return v, tui.BackCmd
 		}
-		return v, tea.Sequence(
-			func() tea.Msg {
-				return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在卸载...")}
-			},
-			v.doUninstall,
-		)
+		initCmd := v.SetInline(components.NewSpinner("正在卸载..."))
+		return v, tea.Batch(initCmd, v.doUninstall)
 
 	case uninstallDoneMsg:
 		v.step = uninstallResult
 		if msg.success {
 			v.model.SetExitMessage("卸载完成，所有服务和配置已移除")
 		}
-		return v, func() tea.Msg {
-			return tui.ShowOverlayMsg{
-				Overlay: components.NewResult(msg.result),
-			}
-		}
+		return v, v.SetInline(components.NewResult(msg.result))
 
 	case tui.ResultDismissedMsg:
 		return v, tea.Quit
@@ -71,10 +64,15 @@ func (v *UninstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, tui.BackCmd
 		}
 	}
-	return v, nil
+	return v, inlineCmd
 }
 
-func (v *UninstallView) View() string { return "" }
+func (v *UninstallView) View() string {
+	if v.HasInline() {
+		return v.ViewInline()
+	}
+	return ""
+}
 
 type uninstallDoneMsg struct {
 	result  string

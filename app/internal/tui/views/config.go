@@ -25,6 +25,7 @@ const (
 )
 
 type ConfigView struct {
+	tui.InlineState
 	model    *tui.Model
 	menu     tui.MenuModel
 	viewport viewport.Model
@@ -52,6 +53,10 @@ func (v *ConfigView) Init() tea.Cmd {
 }
 
 func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	inlineCmd, handled := v.UpdateInline(msg)
+	if handled {
+		return v, inlineCmd
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		if v.step == configViewport {
@@ -121,10 +126,13 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, cmd
 		}
 	}
-	return v, nil
+	return v, inlineCmd
 }
 
 func (v *ConfigView) View() string {
+	if v.HasInline() {
+		return v.ViewInline()
+	}
 	if v.step == configMenu {
 		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
 	}

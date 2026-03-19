@@ -13,6 +13,7 @@ import (
 )
 
 type ProtocolRemoveView struct {
+	tui.InlineState
 	model       *tui.Model
 	menu        tui.MenuModel
 	step        protoRemoveStep
@@ -46,11 +47,7 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 	if len(inv) == 0 {
 		v.step = protoRemoveResult
 		v.emptyResult = true
-		return func() tea.Msg {
-			return tui.ShowOverlayMsg{
-				Overlay: components.NewResult("没有已安装的协议"),
-			}
-		}
+		return v.SetInline(components.NewResult("没有已安装的协议"))
 	}
 
 	membership := derived.Membership(v.model.Store())
@@ -99,6 +96,10 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 }
 
 func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	inlineCmd, handled := v.UpdateInline(msg)
+	if handled {
+		return v, inlineCmd
+	}
 	switch msg := msg.(type) {
 	case tui.MenuSelectMsg:
 		// Validate that the ID is a real protocol tag.
@@ -108,11 +109,7 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.pendingTag = msg.ID
 		v.step = protoRemoveConfirm
 		prompt := fmt.Sprintf("确认卸载 %s?", v.pendingTag)
-		return v, func() tea.Msg {
-			return tui.ShowOverlayMsg{
-				Overlay: components.NewConfirm(prompt),
-			}
-		}
+		return v, v.SetInline(components.NewConfirm(prompt))
 
 	case tui.ConfirmResultMsg:
 		if !msg.Confirmed {
@@ -120,10 +117,8 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, nil
 		}
 		tag := v.pendingTag
-		return v, tea.Sequence(
-			func() tea.Msg {
-				return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在卸载...")}
-			},
+		return v, tea.Batch(
+			v.SetInline(components.NewSpinner("正在卸载...")),
 			func() tea.Msg {
 				return protoRemoveDoneMsg{tag: tag, err: v.doRemove(tag)}
 			},
@@ -137,11 +132,7 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		} else {
 			result = "已卸载: " + msg.tag
 		}
-		return v, func() tea.Msg {
-			return tui.ShowOverlayMsg{
-				Overlay: components.NewResult(result),
-			}
-		}
+		return v, v.SetInline(components.NewResult(result))
 
 	case tui.ResultDismissedMsg:
 		if v.emptyResult {
@@ -160,10 +151,13 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, cmd
 		}
 	}
-	return v, nil
+	return v, inlineCmd
 }
 
 func (v *ProtocolRemoveView) View() string {
+	if v.HasInline() {
+		return v.ViewInline()
+	}
 	if v.step == protoRemoveMenu && v.tableHeader != "" {
 		content := v.tableHeader + "\n" + v.menu.View()
 		return tui.RenderSubMenuBody(content, v.model.ContentWidth())

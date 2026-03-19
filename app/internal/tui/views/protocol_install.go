@@ -13,6 +13,7 @@ import (
 )
 
 type ProtocolInstallView struct {
+	tui.InlineState
 	model       *tui.Model
 	menu        tui.MenuModel
 	step        protoInstallStep
@@ -53,17 +54,17 @@ func (v *ProtocolInstallView) Init() tea.Cmd {
 }
 
 func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	inlineCmd, handled := v.UpdateInline(msg)
+	if handled {
+		return v, inlineCmd
+	}
 	switch msg := msg.(type) {
 	case tui.MenuSelectMsg:
 		v.pendingType = protocol.Type(msg.ID)
 		// Compute default port and show it as placeholder.
 		defaultPort := v.computeDefaultPort(v.pendingType)
 		v.step = protoInstallPort
-		return v, func() tea.Msg {
-			return tui.ShowOverlayMsg{
-				Overlay: components.NewTextInput("端口号:", fmt.Sprintf("%d", defaultPort)),
-			}
-		}
+		return v, v.SetInline(components.NewTextInput("端口号:", fmt.Sprintf("%d", defaultPort)))
 
 	case tui.InputResultMsg:
 		if msg.Cancelled {
@@ -72,10 +73,8 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		pt := v.pendingType
 		portStr := msg.Value
-		return v, tea.Sequence(
-			func() tea.Msg {
-				return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在安装依赖...")}
-			},
+		return v, tea.Batch(
+			v.SetInline(components.NewSpinner("正在安装依赖...")),
 			func() tea.Msg {
 				return v.doInstall(pt, portStr)
 			},
@@ -88,26 +87,16 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		if msg.installResult != nil && v.pendingType == protocol.Snell {
 			v.step = protoInstallShadowTLSPrompt
 			resultText := msg.result + "\n\n是否配置 shadow-tls 保护此端口?"
-			return v, func() tea.Msg {
-				return tui.ShowOverlayMsg{
-					Overlay: components.NewConfirm(resultText),
-				}
-			}
+			return v, v.SetInline(components.NewConfirm(resultText))
 		}
-		return v, func() tea.Msg {
-			return tui.ShowOverlayMsg{
-				Overlay: components.NewResult(msg.result),
-			}
-		}
+		return v, v.SetInline(components.NewResult(msg.result))
 
 	case tui.ConfirmResultMsg:
 		if v.step == protoInstallShadowTLSPrompt {
 			if msg.Confirmed && v.lastResult != nil {
 				snellPort := v.lastResult.Port
-				return v, tea.Sequence(
-					func() tea.Msg {
-						return tui.ShowOverlayMsg{Overlay: components.NewSpinner("正在配置 shadow-tls...")}
-					},
+				return v, tea.Batch(
+					v.SetInline(components.NewSpinner("正在配置 shadow-tls...")),
 					func() tea.Msg {
 						return v.doShadowTLSForSnell(snellPort)
 					},
@@ -115,12 +104,8 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 			// User declined; show the original result.
 			v.step = protoInstallResult
-			return v, func() tea.Msg {
-				return tui.ShowOverlayMsg{
-					Overlay: components.NewResult(fmt.Sprintf("安装 snell 端口 %d 成功\nPSK: %s",
-						v.lastResult.Port, v.lastResult.Credential)),
-				}
-			}
+			return v, v.SetInline(components.NewResult(fmt.Sprintf("安装 snell 端口 %d 成功\nPSK: %s",
+				v.lastResult.Port, v.lastResult.Credential)))
 		}
 
 	case tui.ResultDismissedMsg:
@@ -137,10 +122,13 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, cmd
 		}
 	}
-	return v, nil
+	return v, inlineCmd
 }
 
 func (v *ProtocolInstallView) View() string {
+	if v.HasInline() {
+		return v.ViewInline()
+	}
 	return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
 }
 

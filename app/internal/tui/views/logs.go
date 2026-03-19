@@ -24,6 +24,7 @@ const (
 )
 
 type LogsView struct {
+	tui.InlineState
 	model       *tui.Model
 	menu        tui.MenuModel
 	serviceMenu tui.MenuModel
@@ -48,15 +49,17 @@ func (v *LogsView) Init() tea.Cmd {
 }
 
 func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	inlineCmd, handled := v.UpdateInline(msg)
+	if handled {
+		return v, inlineCmd
+	}
 	switch msg := msg.(type) {
 	case tui.MenuSelectMsg:
 		if v.step == logsServiceSelect {
 			svc := msg.ID
 			v.step = logsResult
-			return v, tea.Sequence(
-				func() tea.Msg {
-					return tui.ShowOverlayMsg{Overlay: components.NewSpinner("加载日志...")}
-				},
+			return v, tea.Batch(
+				v.SetInline(components.NewSpinner("加载日志...")),
 				func() tea.Msg { return v.readServiceLog(svc) },
 			)
 		}
@@ -64,18 +67,14 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		switch msg.ID {
 		case "script":
 			v.step = logsResult
-			return v, tea.Sequence(
-				func() tea.Msg {
-					return tui.ShowOverlayMsg{Overlay: components.NewSpinner("加载日志...")}
-				},
+			return v, tea.Batch(
+				v.SetInline(components.NewSpinner("加载日志...")),
 				func() tea.Msg { return v.readScriptLog() },
 			)
 		case "watchdog":
 			v.step = logsResult
-			return v, tea.Sequence(
-				func() tea.Msg {
-					return tui.ShowOverlayMsg{Overlay: components.NewSpinner("加载日志...")}
-				},
+			return v, tea.Batch(
+				v.SetInline(components.NewSpinner("加载日志...")),
 				func() tea.Msg { return v.readWatchdogLog() },
 			)
 		case "service":
@@ -86,11 +85,7 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case logsActionDoneMsg:
 		v.step = logsResult
-		return v, func() tea.Msg {
-			return tui.ShowOverlayMsg{
-				Overlay: components.NewResult(msg.result),
-			}
-		}
+		return v, v.SetInline(components.NewResult(msg.result))
 
 	case tui.ResultDismissedMsg:
 		v.step = logsMenu
@@ -117,10 +112,13 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, cmd
 		}
 	}
-	return v, nil
+	return v, inlineCmd
 }
 
 func (v *LogsView) View() string {
+	if v.HasInline() {
+		return v.ViewInline()
+	}
 	if v.step == logsServiceSelect {
 		return tui.RenderSubMenuBody(v.serviceMenu.View(), v.model.ContentWidth())
 	}

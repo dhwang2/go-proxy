@@ -23,6 +23,7 @@ const (
 )
 
 type NetworkView struct {
+	tui.InlineState
 	model *tui.Model
 	menu  tui.MenuModel
 	step  networkStep
@@ -45,6 +46,10 @@ func (v *NetworkView) Init() tea.Cmd {
 }
 
 func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	inlineCmd, handled := v.UpdateInline(msg)
+	if handled {
+		return v, inlineCmd
+	}
 	switch msg := msg.(type) {
 	case tui.MenuSelectMsg:
 		switch msg.ID {
@@ -57,18 +62,10 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case networkActionDoneMsg:
 		if msg.needConfirm {
 			v.step = networkConfirm
-			return v, func() tea.Msg {
-				return tui.ShowOverlayMsg{
-					Overlay: components.NewConfirm(msg.result),
-				}
-			}
+			return v, v.SetInline(components.NewConfirm(msg.result))
 		}
 		v.step = networkResult
-		return v, func() tea.Msg {
-			return tui.ShowOverlayMsg{
-				Overlay: components.NewResult(msg.result),
-			}
-		}
+		return v, v.SetInline(components.NewResult(msg.result))
 
 	case tui.ConfirmResultMsg:
 		if msg.Confirmed {
@@ -91,10 +88,13 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, cmd
 		}
 	}
-	return v, nil
+	return v, inlineCmd
 }
 
 func (v *NetworkView) View() string {
+	if v.HasInline() {
+		return v.ViewInline()
+	}
 	return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
 }
 

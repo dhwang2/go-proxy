@@ -14,6 +14,7 @@ import (
 )
 
 type SubscriptionView struct {
+	tui.InlineState
 	model *tui.Model
 }
 
@@ -25,14 +26,14 @@ func (v *SubscriptionView) Name() string { return "subscription" }
 
 func (v *SubscriptionView) Init() tea.Cmd {
 	result := v.renderAllLinks()
-	return func() tea.Msg {
-		return tui.ShowOverlayMsg{
-			Overlay: components.NewResult(result),
-		}
-	}
+	return v.SetInline(components.NewResult(result))
 }
 
 func (v *SubscriptionView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	inlineCmd, handled := v.UpdateInline(msg)
+	if handled {
+		return v, inlineCmd
+	}
 	switch msg := msg.(type) {
 	case tui.ResultDismissedMsg:
 		return v, tui.BackCmd
@@ -41,10 +42,15 @@ func (v *SubscriptionView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, tui.BackCmd
 		}
 	}
-	return v, nil
+	return v, inlineCmd
 }
 
-func (v *SubscriptionView) View() string { return "" }
+func (v *SubscriptionView) View() string {
+	if v.HasInline() {
+		return v.ViewInline()
+	}
+	return ""
+}
 
 // renderAllLinks generates all subscription links for all users at once,
 // organized by section like shell-proxy.

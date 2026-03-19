@@ -24,6 +24,7 @@ const (
 )
 
 type ServiceView struct {
+	tui.InlineState
 	model   *tui.Model
 	menu    tui.MenuModel
 	subMenu tui.MenuModel
@@ -51,17 +52,17 @@ func (v *ServiceView) Init() tea.Cmd {
 }
 
 func (v *ServiceView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	inlineCmd, handled := v.UpdateInline(msg)
+	if handled {
+		return v, inlineCmd
+	}
 	switch msg := msg.(type) {
 	case tui.MenuSelectMsg:
 		return v.handleMenuSelect(msg)
 
 	case svcActionDoneMsg:
 		v.step = svcResult
-		return v, func() tea.Msg {
-			return tui.ShowOverlayMsg{
-				Overlay: components.NewResult(msg.result),
-			}
-		}
+		return v, v.SetInline(components.NewResult(msg.result))
 
 	case tui.ResultDismissedMsg:
 		v.step = svcMenuMain
@@ -127,6 +128,9 @@ func (v *ServiceView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *ServiceView) View() string {
+	if v.HasInline() {
+		return v.ViewInline()
+	}
 	if v.step == svcMenuIndividual {
 		return tui.RenderSubMenuBody(v.subMenu.View(), v.model.ContentWidth())
 	}
