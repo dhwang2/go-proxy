@@ -111,16 +111,12 @@ func (v *ServiceView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 func (v *ServiceView) triggerMenuAction(id string) tea.Cmd {
 	switch id {
 	case "status":
-		v.step = svcResult
 		return func() tea.Msg { return v.doStatusTable() }
 	case "restart-all":
-		v.step = svcResult
 		return func() tea.Msg { return v.doBulkAction("restart") }
 	case "stop-all":
-		v.step = svcResult
 		return func() tea.Msg { return v.doBulkAction("stop") }
 	case "start-all":
-		v.step = svcResult
 		return func() tea.Msg { return v.doBulkAction("start") }
 	case "individual":
 		v.step = svcMenuIndividual
