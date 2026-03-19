@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"go-proxy/internal/protocol"
 	"go-proxy/internal/tui"
@@ -16,6 +17,7 @@ type ProtocolInstallView struct {
 	tui.InlineState
 	model       *tui.Model
 	menu        tui.MenuModel
+	split       tui.SubSplitModel
 	step        protoInstallStep
 	pendingType protocol.Type
 	lastResult  *protocol.InstallResult
@@ -38,6 +40,8 @@ func (v *ProtocolInstallView) Name() string { return "protocol-install" }
 
 func (v *ProtocolInstallView) Init() tea.Cmd {
 	v.step = protoInstallMenu
+	v.split.SetFocusLeft(true)
+	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-6)
 	types := protocol.InstallableTypes()
 	specs := protocol.Specs()
 	items := make([]tui.MenuItem, 0, len(types)+1)
@@ -54,6 +58,15 @@ func (v *ProtocolInstallView) Init() tea.Cmd {
 }
 
 func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tui.ViewResizeMsg:
+		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-6)
+		return v, nil
+	case tui.SubSplitMouseMsg:
+		var cmd tea.Cmd
+		v.split, cmd = v.split.Update(msg.MouseMsg)
+		return v, cmd
+	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
 		return v, inlineCmd
@@ -61,14 +74,15 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.MenuSelectMsg:
 		v.pendingType = protocol.Type(msg.ID)
-		// Compute default port and show it as placeholder.
 		defaultPort := v.computeDefaultPort(v.pendingType)
 		v.step = protoInstallPort
+		v.split.SetFocusLeft(false)
 		return v, v.SetInline(components.NewTextInput("端口号:", fmt.Sprintf("%d", defaultPort)))
 
 	case tui.InputResultMsg:
 		if msg.Cancelled {
 			v.step = protoInstallMenu
+			v.split.SetFocusLeft(true)
 			return v, nil
 		}
 		pt := v.pendingType
@@ -109,8 +123,8 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 
 	case tui.ResultDismissedMsg:
-		v.Init()
-		return v, nil
+		cmd := v.Init()
+		return v, cmd
 
 	default:
 		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEsc {
@@ -126,10 +140,26 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *ProtocolInstallView) View() string {
-	if v.HasInline() {
-		return v.ViewInline()
+	if v.step == protoInstallMenu || !v.split.Enabled() {
+		if v.HasInline() {
+			return v.ViewInline()
+		}
+		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
 	}
-	return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
+
+	menuContent := v.menu.View()
+	var detailContent string
+	if v.HasInline() {
+		tui.InSplitPanel = true
+		detailContent = v.ViewInline()
+		tui.InSplitPanel = false
+	} else {
+		detailContent = lipgloss.NewStyle().
+			Foreground(tui.ColorMuted).
+			Render("加载中...")
+	}
+
+	return v.split.View(menuContent, detailContent)
 }
 
 type protoInstallDoneMsg struct {

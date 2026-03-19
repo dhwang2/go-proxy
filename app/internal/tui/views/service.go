@@ -28,6 +28,7 @@ type ServiceView struct {
 	model   *tui.Model
 	menu    tui.MenuModel
 	subMenu tui.MenuModel
+	split   tui.SubSplitModel
 	step    svcStep
 	target  service.Name // selected individual service
 }
@@ -48,10 +49,21 @@ func (v *ServiceView) Name() string { return "service" }
 
 func (v *ServiceView) Init() tea.Cmd {
 	v.step = svcMenuMain
+	v.split.SetFocusLeft(true)
+	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-6)
 	return nil
 }
 
 func (v *ServiceView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tui.ViewResizeMsg:
+		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-6)
+		return v, nil
+	case tui.SubSplitMouseMsg:
+		var cmd tea.Cmd
+		v.split, cmd = v.split.Update(msg.MouseMsg)
+		return v, cmd
+	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
 		return v, inlineCmd
@@ -62,10 +74,12 @@ func (v *ServiceView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case svcActionDoneMsg:
 		v.step = svcResult
+		v.split.SetFocusLeft(false)
 		return v, v.SetInline(components.NewResult(msg.result))
 
 	case tui.ResultDismissedMsg:
 		v.step = svcMenuMain
+		v.split.SetFocusLeft(true)
 		return v, nil
 
 	default:
@@ -112,6 +126,7 @@ func (v *ServiceView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 		switch v.step {
 		case svcMenuIndividual:
 			v.step = svcMenuMain
+			v.split.SetFocusLeft(true)
 			return v, nil
 		default:
 			return v, tui.BackCmd
@@ -128,13 +143,35 @@ func (v *ServiceView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *ServiceView) View() string {
-	if v.HasInline() {
-		return v.ViewInline()
+	if v.step == svcMenuMain || !v.split.Enabled() {
+		if v.HasInline() {
+			return v.ViewInline()
+		}
+		if v.step == svcMenuIndividual {
+			return tui.RenderSubMenuBody(v.subMenu.View(), v.model.ContentWidth())
+		}
+		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
 	}
+
+	var menuContent string
 	if v.step == svcMenuIndividual {
-		return tui.RenderSubMenuBody(v.subMenu.View(), v.model.ContentWidth())
+		menuContent = v.subMenu.View()
+	} else {
+		menuContent = v.menu.View()
 	}
-	return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
+
+	var detailContent string
+	if v.HasInline() {
+		tui.InSplitPanel = true
+		detailContent = v.ViewInline()
+		tui.InSplitPanel = false
+	} else {
+		detailContent = lipgloss.NewStyle().
+			Foreground(tui.ColorMuted).
+			Render("加载中...")
+	}
+
+	return v.split.View(menuContent, detailContent)
 }
 
 type svcActionDoneMsg struct{ result string }

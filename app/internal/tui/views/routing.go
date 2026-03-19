@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"go-proxy/internal/derived"
 	"go-proxy/internal/routing"
@@ -40,6 +41,7 @@ type RoutingView struct {
 	model   *tui.Model
 	menu    tui.MenuModel
 	subMenu tui.MenuModel
+	split   tui.SubSplitModel
 	step    routingStep
 	// State for multi-step flows
 	selectedUser    string
@@ -62,10 +64,21 @@ func (v *RoutingView) Name() string { return "routing" }
 
 func (v *RoutingView) Init() tea.Cmd {
 	v.step = routingMenu
+	v.split.SetFocusLeft(true)
+	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-6)
 	return nil
 }
 
 func (v *RoutingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tui.ViewResizeMsg:
+		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-6)
+		return v, nil
+	case tui.SubSplitMouseMsg:
+		var cmd tea.Cmd
+		v.split, cmd = v.split.Update(msg.MouseMsg)
+		return v, cmd
+	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
 		return v, inlineCmd
@@ -79,10 +92,12 @@ func (v *RoutingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case routingActionDoneMsg:
 		v.step = routingResult
+		v.split.SetFocusLeft(false)
 		return v, v.SetInline(components.NewResult(msg.result))
 
 	case tui.ResultDismissedMsg:
 		v.step = routingMenu
+		v.split.SetFocusLeft(true)
 		return v, nil
 
 	default:
@@ -166,14 +181,15 @@ func (v *RoutingView) handleMenuSelect(msg tui.MenuSelectMsg) (tui.View, tea.Cmd
 
 func (v *RoutingView) handleInput(msg tui.InputResultMsg) (tui.View, tea.Cmd) {
 	if msg.Cancelled {
-		// Return to appropriate parent step.
 		switch v.step {
 		case routingChainAddInput:
 			v.step = routingChainMenu
 		case routingTestDomain:
 			v.step = routingMenu
+			v.split.SetFocusLeft(true)
 		default:
 			v.step = routingMenu
+			v.split.SetFocusLeft(true)
 		}
 		return v, nil
 	}
@@ -201,12 +217,14 @@ func (v *RoutingView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 		switch v.step {
 		case routingChainMenu:
 			v.step = routingMenu
+			v.split.SetFocusLeft(true)
 			return v, nil
 		case routingChainDeleteSelect:
 			v.step = routingChainMenu
 			return v, nil
 		case routingConfigUser:
 			v.step = routingMenu
+			v.split.SetFocusLeft(true)
 			return v, nil
 		case routingConfigPreset:
 			return v, v.showUserMenu(routingConfigUser)
@@ -214,9 +232,11 @@ func (v *RoutingView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, v.showPresetMenu()
 		case routingDirect:
 			v.step = routingMenu
+			v.split.SetFocusLeft(true)
 			return v, nil
 		case routingTestUser:
 			v.step = routingMenu
+			v.split.SetFocusLeft(true)
 			return v, nil
 		default:
 			return v, tui.BackCmd
@@ -234,16 +254,40 @@ func (v *RoutingView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *RoutingView) View() string {
-	if v.HasInline() {
-		return v.ViewInline()
+	if v.step == routingMenu || !v.split.Enabled() {
+		if v.HasInline() {
+			return v.ViewInline()
+		}
+		switch v.step {
+		case routingChainMenu, routingChainDeleteSelect, routingConfigUser,
+			routingConfigPreset, routingConfigOutbound, routingDirect, routingTestUser:
+			return tui.RenderSubMenuBody(v.subMenu.View(), v.model.ContentWidth())
+		default:
+			return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
+		}
 	}
+
+	var menuContent string
 	switch v.step {
 	case routingChainMenu, routingChainDeleteSelect, routingConfigUser,
 		routingConfigPreset, routingConfigOutbound, routingDirect, routingTestUser:
-		return tui.RenderSubMenuBody(v.subMenu.View(), v.model.ContentWidth())
+		menuContent = v.subMenu.View()
 	default:
-		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
+		menuContent = v.menu.View()
 	}
+
+	var detailContent string
+	if v.HasInline() {
+		tui.InSplitPanel = true
+		detailContent = v.ViewInline()
+		tui.InSplitPanel = false
+	} else {
+		detailContent = lipgloss.NewStyle().
+			Foreground(tui.ColorMuted).
+			Render("加载中...")
+	}
+
+	return v.split.View(menuContent, detailContent)
 }
 
 // --- Helper methods to build dynamic menus ---

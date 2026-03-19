@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"go-proxy/internal/derived"
 	"go-proxy/internal/tui"
@@ -16,6 +17,7 @@ type UserView struct {
 	tui.InlineState
 	model   *tui.Model
 	menu    tui.MenuModel
+	split   tui.SubSplitModel
 	step    userStep
 	oldName string // for rename: stores the old username
 }
@@ -40,6 +42,8 @@ func NewUserView(model *tui.Model) *UserView {
 		{Key: '3', Label: "󰑕 重置用户", ID: "rename"},
 		{Key: '4', Label: "󰍷 删除用户", ID: "delete"},
 	})
+	cw := model.ContentWidth()
+	v.split = tui.NewSubSplit(cw, model.Height()-6)
 	return v
 }
 
@@ -47,44 +51,64 @@ func (v *UserView) Name() string { return "user" }
 
 func (v *UserView) Init() tea.Cmd {
 	v.step = userMenu
+	v.split.SetFocusLeft(true)
 	return nil
 }
 
 func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tui.ViewResizeMsg:
+		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-6)
+		return v, nil
+
+	case tui.SubSplitMouseMsg:
+		var cmd tea.Cmd
+		v.split, cmd = v.split.Update(msg.MouseMsg)
+		return v, cmd
+	}
+
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
 		return v, inlineCmd
 	}
+
 	switch msg := msg.(type) {
 	case tui.MenuSelectMsg:
 		switch msg.ID {
 		case "list":
 			v.step = userList
+			v.split.SetFocusLeft(false)
 			return v, v.listUsers
 		case "add":
 			v.step = userAdd
+			v.split.SetFocusLeft(false)
 			return v, v.SetInline(components.NewTextInput("用户名:", "user2"))
 		case "rename":
 			names := derived.UserNames(v.model.Store())
 			if len(names) == 0 {
 				v.step = userResult
+				v.split.SetFocusLeft(false)
 				return v, v.SetInline(components.NewResult("暂无用户"))
 			}
 			v.step = userRenameOld
+			v.split.SetFocusLeft(false)
 			return v, v.SetInline(components.NewSelectList("选择要重置的用户:", names))
 		case "delete":
 			names := derived.UserNames(v.model.Store())
 			if len(names) == 0 {
 				v.step = userResult
+				v.split.SetFocusLeft(false)
 				return v, v.SetInline(components.NewResult("暂无用户"))
 			}
 			v.step = userDelete
+			v.split.SetFocusLeft(false)
 			return v, v.SetInline(components.NewSelectList("选择要删除的用户:", names))
 		}
 
 	case tui.InputResultMsg:
 		if msg.Cancelled {
 			v.step = userMenu
+			v.split.SetFocusLeft(true)
 			return v, nil
 		}
 		switch v.step {
@@ -110,11 +134,30 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case tui.ResultDismissedMsg:
 		v.step = userMenu
+		v.split.SetFocusLeft(true)
 		return v, nil
 
 	default:
-		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEsc {
-			return v, tui.BackCmd
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			if keyMsg.Type == tea.KeyEsc {
+				if v.step != userMenu {
+					v.step = userMenu
+					v.split.SetFocusLeft(true)
+					return v, nil
+				}
+				return v, tui.BackCmd
+			}
+			// Left/Right arrow toggles sub-split focus.
+			if v.split.Enabled() && v.step != userMenu {
+				if keyMsg.Type == tea.KeyLeft {
+					v.split.SetFocusLeft(true)
+					return v, nil
+				}
+				if keyMsg.Type == tea.KeyRight {
+					v.split.SetFocusLeft(false)
+					return v, nil
+				}
+			}
 		}
 		if v.step == userMenu {
 			var cmd tea.Cmd
@@ -126,10 +169,29 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *UserView) View() string {
-	if v.HasInline() {
-		return v.ViewInline()
+	// 未选操作或分栏不可用：保持原行为
+	if v.step == userMenu || !v.split.Enabled() {
+		if v.HasInline() {
+			return v.ViewInline()
+		}
+		return tui.RenderSubMenuBody(v.menu.View(), v.split.TotalWidth())
 	}
-	return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
+
+	// Sub-split: left = menu, right = inline component or hint.
+	menuContent := v.menu.View()
+
+	var detailContent string
+	if v.HasInline() {
+		tui.InSplitPanel = true
+		detailContent = v.ViewInline()
+		tui.InSplitPanel = false
+	} else {
+		detailContent = lipgloss.NewStyle().
+			Foreground(tui.ColorMuted).
+			Render("加载中...")
+	}
+
+	return v.split.View(menuContent, detailContent)
 }
 
 type userActionDoneMsg struct{ result string }

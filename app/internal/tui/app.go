@@ -178,10 +178,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.recalcLayout()
 
-		// Forward resize to current sub-view.
+		// Forward resize to current sub-view with actual dimensions.
 		if m.current != "" {
 			if v, ok := m.views[m.current]; ok {
-				newView, cmd := v.Update(msg)
+				resizeMsg := ViewResizeMsg{ContentWidth: m.contentWidth, ContentHeight: m.height}
+				newView, cmd := v.Update(resizeMsg)
 				m.views[m.current] = newView
 				return m, cmd
 			}
@@ -192,12 +193,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.splitPanel {
 			return m, nil
 		}
+
+		// Check if this is a main divider drag operation.
+		onMainDivider := msg.X >= m.leftWidth-3 && msg.X <= m.leftWidth+3
+
 		switch msg.Action {
 		case tea.MouseActionPress:
-			if msg.Button == tea.MouseButtonLeft {
-				if msg.X >= m.leftWidth-3 && msg.X <= m.leftWidth+3 {
-					m.dragging = true
-				}
+			if msg.Button == tea.MouseButtonLeft && onMainDivider {
+				m.dragging = true
+				return m, nil
 			}
 		case tea.MouseActionMotion:
 			if m.dragging {
@@ -217,9 +221,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.contentWidth < 30 {
 					m.contentWidth = 30
 				}
+				return m, nil
 			}
 		case tea.MouseActionRelease:
-			m.dragging = false
+			if m.dragging {
+				m.dragging = false
+				return m, nil
+			}
+		}
+
+		// Forward mouse events inside the right panel to the current view.
+		// Right panel inner area starts at leftWidth + 2 (border + padding).
+		rightInnerX := m.leftWidth + 2
+		if m.current != "" && msg.X >= rightInnerX {
+			relMsg := msg
+			relMsg.X = msg.X - rightInnerX
+			relMsg.Y = msg.Y - 1 // account for top border
+			if v, ok := m.views[m.current]; ok {
+				newView, cmd := v.Update(SubSplitMouseMsg{MouseMsg: relMsg})
+				m.views[m.current] = newView
+				return m, cmd
+			}
 		}
 		return m, nil
 
@@ -236,8 +258,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.focus = FocusRight
 		m.mainMenu = m.mainMenu.SetActiveID(msg.Name).SetDim(true)
 		if v, ok := m.views[msg.Name]; ok {
-			cmd := v.Init()
-			return m, cmd
+			initCmd := v.Init()
+			// Send actual content dimensions since views' *Model pointer is stale.
+			resizeMsg := ViewResizeMsg{ContentWidth: m.contentWidth, ContentHeight: m.height}
+			newView, resizeCmd := v.Update(resizeMsg)
+			m.views[msg.Name] = newView
+			return m, tea.Batch(initCmd, resizeCmd)
 		}
 		return m, nil
 

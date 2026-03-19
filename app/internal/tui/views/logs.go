@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"go-proxy/internal/config"
 	"go-proxy/internal/derived"
@@ -28,6 +29,7 @@ type LogsView struct {
 	model       *tui.Model
 	menu        tui.MenuModel
 	serviceMenu tui.MenuModel
+	split       tui.SubSplitModel
 	step        logsStep
 }
 
@@ -45,10 +47,21 @@ func (v *LogsView) Name() string { return "logs" }
 
 func (v *LogsView) Init() tea.Cmd {
 	v.step = logsMenu
+	v.split.SetFocusLeft(true)
+	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-6)
 	return nil
 }
 
 func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tui.ViewResizeMsg:
+		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-6)
+		return v, nil
+	case tui.SubSplitMouseMsg:
+		var cmd tea.Cmd
+		v.split, cmd = v.split.Update(msg.MouseMsg)
+		return v, cmd
+	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
 		return v, inlineCmd
@@ -58,12 +71,14 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		if v.step == logsServiceSelect {
 			svc := msg.ID
 			v.step = logsResult
+			v.split.SetFocusLeft(false)
 			return v, tea.Batch(
 				v.SetInline(components.NewSpinner("加载日志...")),
 				func() tea.Msg { return v.readServiceLog(svc) },
 			)
 		}
 
+		v.split.SetFocusLeft(false)
 		switch msg.ID {
 		case "script":
 			v.step = logsResult
@@ -79,16 +94,18 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			)
 		case "service":
 			v.step = logsServiceSelect
-			v.serviceMenu = v.buildServiceMenu()
+			v.split.SetFocusLeft(true)
 			return v, nil
 		}
 
 	case logsActionDoneMsg:
 		v.step = logsResult
+		v.split.SetFocusLeft(false)
 		return v, v.SetInline(components.NewResult(msg.result))
 
 	case tui.ResultDismissedMsg:
 		v.step = logsMenu
+		v.split.SetFocusLeft(true)
 		return v, nil
 
 	default:
@@ -96,6 +113,7 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			switch v.step {
 			case logsServiceSelect:
 				v.step = logsMenu
+				v.split.SetFocusLeft(true)
 				return v, nil
 			default:
 				return v, tui.BackCmd
@@ -116,13 +134,35 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *LogsView) View() string {
-	if v.HasInline() {
-		return v.ViewInline()
+	if v.step == logsMenu || !v.split.Enabled() {
+		if v.HasInline() {
+			return v.ViewInline()
+		}
+		if v.step == logsServiceSelect {
+			return tui.RenderSubMenuBody(v.serviceMenu.View(), v.model.ContentWidth())
+		}
+		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
 	}
+
+	var menuContent string
 	if v.step == logsServiceSelect {
-		return tui.RenderSubMenuBody(v.serviceMenu.View(), v.model.ContentWidth())
+		menuContent = v.serviceMenu.View()
+	} else {
+		menuContent = v.menu.View()
 	}
-	return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
+
+	var detailContent string
+	if v.HasInline() {
+		tui.InSplitPanel = true
+		detailContent = v.ViewInline()
+		tui.InSplitPanel = false
+	} else {
+		detailContent = lipgloss.NewStyle().
+			Foreground(tui.ColorMuted).
+			Render("加载中...")
+	}
+
+	return v.split.View(menuContent, detailContent)
 }
 
 type logsActionDoneMsg struct{ result string }

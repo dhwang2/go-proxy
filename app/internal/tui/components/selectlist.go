@@ -81,5 +81,9 @@ func (m SelectListModel) View() string {
 		"",
 	)
 
-	return tui.DialogStyle.Render(content)
+	style := tui.DialogStyle
+	if tui.InSplitPanel {
+		style = tui.PlainDialogStyle
+	}
+	return style.Render(content)
 }

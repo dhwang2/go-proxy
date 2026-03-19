@@ -28,6 +28,7 @@ type ConfigView struct {
 	tui.InlineState
 	model    *tui.Model
 	menu     tui.MenuModel
+	split    tui.SubSplitModel
 	viewport viewport.Model
 	step     configStep
 	ready    bool
@@ -49,10 +50,21 @@ func (v *ConfigView) Name() string { return "config" }
 func (v *ConfigView) Init() tea.Cmd {
 	v.step = configMenu
 	v.ready = false
+	v.split.SetFocusLeft(true)
+	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-6)
 	return nil
 }
 
 func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tui.ViewResizeMsg:
+		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-6)
+		return v, nil
+	case tui.SubSplitMouseMsg:
+		var cmd tea.Cmd
+		v.split, cmd = v.split.Update(msg.MouseMsg)
+		return v, cmd
+	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
 		return v, inlineCmd
@@ -73,6 +85,7 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, nil
 
 	case tui.MenuSelectMsg:
+		v.split.SetFocusLeft(false)
 		switch msg.ID {
 		case "singbox":
 			v.step = configViewport
@@ -111,6 +124,7 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			if v.step == configViewport {
 				v.step = configMenu
 				v.ready = false
+				v.split.SetFocusLeft(true)
 				return v, nil
 			}
 			return v, tui.BackCmd
@@ -130,13 +144,23 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *ConfigView) View() string {
-	if v.HasInline() {
-		return v.ViewInline()
-	}
-	if v.step == configMenu {
-		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
+	if v.step == configMenu || !v.split.Enabled() {
+		if v.HasInline() {
+			return v.ViewInline()
+		}
+		if v.step == configMenu {
+			return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
+		}
+		return v.renderViewport()
 	}
 
+	menuContent := v.menu.View()
+	detailContent := v.renderViewport()
+
+	return v.split.View(menuContent, detailContent)
+}
+
+func (v *ConfigView) renderViewport() string {
 	titleStyle := lipgloss.NewStyle().
 		Foreground(tui.ColorPrimary).
 		Bold(true).

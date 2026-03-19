@@ -26,6 +26,7 @@ type NetworkView struct {
 	tui.InlineState
 	model *tui.Model
 	menu  tui.MenuModel
+	split tui.SubSplitModel
 	step  networkStep
 }
 
@@ -42,10 +43,21 @@ func (v *NetworkView) Name() string { return "network" }
 
 func (v *NetworkView) Init() tea.Cmd {
 	v.step = networkMenu
+	v.split.SetFocusLeft(true)
+	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-6)
 	return nil
 }
 
 func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tui.ViewResizeMsg:
+		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-6)
+		return v, nil
+	case tui.SubSplitMouseMsg:
+		var cmd tea.Cmd
+		v.split, cmd = v.split.Update(msg.MouseMsg)
+		return v, cmd
+	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
 		return v, inlineCmd
@@ -60,6 +72,7 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 
 	case networkActionDoneMsg:
+		v.split.SetFocusLeft(false)
 		if msg.needConfirm {
 			v.step = networkConfirm
 			return v, v.SetInline(components.NewConfirm(msg.result))
@@ -72,10 +85,12 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, v.doEnableBBR
 		}
 		v.step = networkMenu
+		v.split.SetFocusLeft(true)
 		return v, nil
 
 	case tui.ResultDismissedMsg:
 		v.step = networkMenu
+		v.split.SetFocusLeft(true)
 		return v, nil
 
 	default:
@@ -92,10 +107,26 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *NetworkView) View() string {
-	if v.HasInline() {
-		return v.ViewInline()
+	if v.step == networkMenu || !v.split.Enabled() {
+		if v.HasInline() {
+			return v.ViewInline()
+		}
+		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
 	}
-	return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
+
+	menuContent := v.menu.View()
+	var detailContent string
+	if v.HasInline() {
+		tui.InSplitPanel = true
+		detailContent = v.ViewInline()
+		tui.InSplitPanel = false
+	} else {
+		detailContent = lipgloss.NewStyle().
+			Foreground(tui.ColorMuted).
+			Render("加载中...")
+	}
+
+	return v.split.View(menuContent, detailContent)
 }
 
 type networkActionDoneMsg struct {

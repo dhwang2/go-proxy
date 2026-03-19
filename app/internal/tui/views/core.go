@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"go-proxy/internal/config"
 	"go-proxy/internal/core"
@@ -28,6 +29,7 @@ type CoreView struct {
 	tui.InlineState
 	model   *tui.Model
 	menu    tui.MenuModel
+	split   tui.SubSplitModel
 	step    coreStep
 	pending []core.UpdateCheck
 }
@@ -47,16 +49,28 @@ func (v *CoreView) Name() string { return "core" }
 func (v *CoreView) Init() tea.Cmd {
 	v.step = coreMenu
 	v.pending = nil
+	v.split.SetFocusLeft(true)
+	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-6)
 	return nil
 }
 
 func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tui.ViewResizeMsg:
+		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-6)
+		return v, nil
+	case tui.SubSplitMouseMsg:
+		var cmd tea.Cmd
+		v.split, cmd = v.split.Update(msg.MouseMsg)
+		return v, cmd
+	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
 		return v, inlineCmd
 	}
 	switch msg := msg.(type) {
 	case tui.MenuSelectMsg:
+		v.split.SetFocusLeft(false)
 		switch msg.ID {
 		case "versions":
 			v.step = coreWorking
@@ -102,6 +116,7 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			)
 		}
 		v.step = coreMenu
+		v.split.SetFocusLeft(true)
 		return v, nil
 
 	case coreUpdateDoneMsg:
@@ -110,6 +125,7 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case tui.ResultDismissedMsg:
 		v.step = coreMenu
+		v.split.SetFocusLeft(true)
 		return v, nil
 
 	default:
@@ -126,10 +142,26 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *CoreView) View() string {
-	if v.HasInline() {
-		return v.ViewInline()
+	if v.step == coreMenu || !v.split.Enabled() {
+		if v.HasInline() {
+			return v.ViewInline()
+		}
+		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
 	}
-	return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
+
+	menuContent := v.menu.View()
+	var detailContent string
+	if v.HasInline() {
+		tui.InSplitPanel = true
+		detailContent = v.ViewInline()
+		tui.InSplitPanel = false
+	} else {
+		detailContent = lipgloss.NewStyle().
+			Foreground(tui.ColorMuted).
+			Render("加载中...")
+	}
+
+	return v.split.View(menuContent, detailContent)
 }
 
 type coreVersionsDoneMsg struct{ result string }

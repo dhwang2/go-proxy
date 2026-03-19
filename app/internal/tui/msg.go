@@ -40,6 +40,20 @@ type OverlaySelectMsg struct {
 	ID string
 }
 
+// ViewResizeMsg carries the actual content dimensions to views.
+// This is needed because views hold a pointer to the original Model which
+// does not receive updates from bubbletea's value-based model copy.
+type ViewResizeMsg struct {
+	ContentWidth  int
+	ContentHeight int
+}
+
+// SubSplitMouseMsg wraps a mouse event with coordinates relative to the
+// right panel's inner area, so views can forward it to their SubSplitModel.
+type SubSplitMouseMsg struct {
+	tea.MouseMsg
+}
+
 // OverlayModel is the interface for overlay components.
 type OverlayModel interface {
 	Init() tea.Cmd

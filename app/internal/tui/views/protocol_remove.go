@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"go-proxy/internal/derived"
 	"go-proxy/internal/protocol"
@@ -16,6 +17,7 @@ type ProtocolRemoveView struct {
 	tui.InlineState
 	model       *tui.Model
 	menu        tui.MenuModel
+	split       tui.SubSplitModel
 	step        protoRemoveStep
 	pendingTag  string
 	tableHeader string
@@ -40,6 +42,8 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 	v.step = protoRemoveMenu
 	v.pendingTag = ""
 	v.emptyResult = false
+	v.split.SetFocusLeft(true)
+	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-6)
 	// Reload store from disk to pick up changes from protocol install.
 	v.model.Store().Reload()
 	inv := derived.Inventory(v.model.Store())
@@ -96,6 +100,15 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 }
 
 func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tui.ViewResizeMsg:
+		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-6)
+		return v, nil
+	case tui.SubSplitMouseMsg:
+		var cmd tea.Cmd
+		v.split, cmd = v.split.Update(msg.MouseMsg)
+		return v, cmd
+	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
 		return v, inlineCmd
@@ -108,12 +121,14 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		v.pendingTag = msg.ID
 		v.step = protoRemoveConfirm
+		v.split.SetFocusLeft(false)
 		prompt := fmt.Sprintf("确认卸载 %s?", v.pendingTag)
 		return v, v.SetInline(components.NewConfirm(prompt))
 
 	case tui.ConfirmResultMsg:
 		if !msg.Confirmed {
 			v.step = protoRemoveMenu
+			v.split.SetFocusLeft(true)
 			return v, nil
 		}
 		tag := v.pendingTag
@@ -155,14 +170,36 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *ProtocolRemoveView) View() string {
+	if v.step == protoRemoveMenu || !v.split.Enabled() {
+		if v.HasInline() {
+			return v.ViewInline()
+		}
+		if v.step == protoRemoveMenu && v.tableHeader != "" {
+			content := v.tableHeader + "\n" + v.menu.View()
+			return tui.RenderSubMenuBody(content, v.model.ContentWidth())
+		}
+		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
+	}
+
+	var menuContent string
+	if v.tableHeader != "" {
+		menuContent = v.tableHeader + "\n" + v.menu.View()
+	} else {
+		menuContent = v.menu.View()
+	}
+
+	var detailContent string
 	if v.HasInline() {
-		return v.ViewInline()
+		tui.InSplitPanel = true
+		detailContent = v.ViewInline()
+		tui.InSplitPanel = false
+	} else {
+		detailContent = lipgloss.NewStyle().
+			Foreground(tui.ColorMuted).
+			Render("加载中...")
 	}
-	if v.step == protoRemoveMenu && v.tableHeader != "" {
-		content := v.tableHeader + "\n" + v.menu.View()
-		return tui.RenderSubMenuBody(content, v.model.ContentWidth())
-	}
-	return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
+
+	return v.split.View(menuContent, detailContent)
 }
 
 type protoRemoveDoneMsg struct {
