@@ -9,7 +9,7 @@ import (
 
 // Colors — One Dark inspired palette for terminal TUI.
 var (
-	ColorPrimary     = lipgloss.Color("#61AFEF") // Blue (titles)
+	ColorPrimary     = lipgloss.Color("#E8590C") // Orange-red (borders, accents)
 	ColorTitle       = lipgloss.Color("#FF9500") // Orange (main title accent)
 	ColorLabel       = lipgloss.Color("#E5E7EB") // Very bright gray (menu items, labels)
 	ColorLabelDim    = lipgloss.Color("#ABB2BF") // Medium gray (unfocused panel)
@@ -17,13 +17,13 @@ var (
 	ColorSuccess     = lipgloss.Color("#98C379") // Green (running)
 	ColorError       = lipgloss.Color("#E06C75") // Red (stopped/error)
 	ColorMuted       = lipgloss.Color("#6B7280") // Darker gray (hints, separators)
-	ColorAccent      = lipgloss.Color("#61AFEF") // Blue (selected item bg)
+	ColorAccent      = lipgloss.Color("#E8590C") // Orange-red (selected item bg)
 	ColorAccentFg    = lipgloss.Color("#282C34") // Dark (selected item fg)
 	ColorFooterKey   = lipgloss.Color("#C678DD") // Purple (footer shortcut keys)
 	ColorPanelBorder = lipgloss.Color("#4B5263") // Subtle dark (panel border)
-	ColorPanelFocus  = lipgloss.Color("#61AFEF") // Accent blue (focused panel border)
+	ColorPanelFocus  = lipgloss.Color("#E8590C") // Orange-red (focused panel border)
 	ColorDragBorder  = lipgloss.Color("#E5C07B") // Yellow (drag resize indicator)
-	ColorActiveBg    = lipgloss.Color("#3E4452") // Dark highlight (active menu item bg)
+	ColorActiveBg    = lipgloss.Color("#87005F") // Pink/magenta highlight (active menu item bg, 256-safe)
 )
 
 // SeparatorWidth is the default width for double-line separators.
@@ -90,10 +90,9 @@ var (
 				BorderForeground(ColorPanelFocus).
 				Padding(0, 1)
 
-	// Sub-menu title bar (solid colored bar).
+	// Sub-menu title bar (no background, text only).
 	SubMenuTitleStyle = lipgloss.NewStyle().
-				Background(ColorAccent).
-				Foreground(ColorAccentFg).
+				Foreground(ColorPrimary).
 				Bold(true).
 				Padding(0, 1)
 
@@ -104,7 +103,7 @@ var (
 	// Active menu item (sub-menu is open for this item).
 	MenuActiveStyle = lipgloss.NewStyle().
 			Background(ColorActiveBg).
-			Foreground(ColorPrimary).
+			Foreground(ColorTitle).
 			Bold(true)
 )
 

@@ -290,7 +290,7 @@ func (m MenuModel) viewSingleCol() string {
 
 		switch {
 		case i == m.cursor && !m.dim:
-			b.WriteString(menuSelectedStyle.Render(fmt.Sprintf(" ▸ %c. %s %s", item.Key, icon, label)))
+			b.WriteString(menuSelectedStyle.Render(fmt.Sprintf(" ▶ %c. %s %s", item.Key, icon, label)))
 		case item.ID == m.activeID && m.activeID != "":
 			suffix := " ◂"
 			b.WriteString(MenuActiveStyle.Render(fmt.Sprintf("   %c. %s %s%s", item.Key, icon, label, suffix)))
@@ -353,7 +353,7 @@ func (m MenuModel) renderItem(idx, colWidth int) string {
 
 	var line string
 	if idx == m.cursor {
-		line = menuSelectedStyle.Render(fmt.Sprintf(" ▸ %c. %s %s", item.Key, icon, label))
+		line = menuSelectedStyle.Render(fmt.Sprintf(" ▶ %c. %s %s", item.Key, icon, label))
 	} else {
 		line = menuNormalStyle.Render(fmt.Sprintf("   %c. %s %s", item.Key, icon, label))
 	}
