@@ -205,6 +205,7 @@ func ParseOutboundHeader(raw json.RawMessage) (OutboundHeader, error) {
 // RouteConfig holds sing-box route configuration.
 type RouteConfig struct {
 	DefaultDomainResolver string            `json:"default_domain_resolver,omitempty"`
+	Final                 string            `json:"final,omitempty"`
 	Rules                 []RouteRule       `json:"rules,omitempty"`
 	RuleSet               []json.RawMessage `json:"rule_set,omitempty"`
 }

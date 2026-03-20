@@ -17,20 +17,20 @@ var (
 	ColorSuccess     = lipgloss.Color("#98C379") // Green (running)
 	ColorError       = lipgloss.Color("#E06C75") // Red (stopped/error)
 	ColorMuted       = lipgloss.Color("#6B7280") // Darker gray (hints, separators)
-	ColorAccent      = lipgloss.Color("#E8590C") // Orange-red (selected item bg)
+	ColorAccent      = lipgloss.Color("#A5D6A7") // Light green (selected item bg)
 	ColorAccentFg    = lipgloss.Color("#282C34") // Dark (selected item fg)
 	ColorFooterKey   = lipgloss.Color("#C678DD") // Purple (footer shortcut keys)
 	ColorPanelBorder = lipgloss.Color("#4B5263") // Subtle dark (panel border)
 	ColorPanelFocus  = lipgloss.Color("#E8590C") // Orange-red (focused panel border)
 	ColorDragBorder  = lipgloss.Color("#E5C07B") // Yellow (drag resize indicator)
-	ColorActiveBg    = lipgloss.Color("#87005F") // Pink/magenta highlight (active menu item bg, 256-safe)
+	ColorActiveBg    = lipgloss.Color("#A5D6A7") // Light green (active menu item bg)
 )
 
 // SeparatorWidth is the default width for double-line separators.
 const SeparatorWidth = 68
 
 // DefaultSubMenuHint is the standard hint shown at the bottom of sub-menus.
-const DefaultSubMenuHint = "确认(enter)"
+const DefaultSubMenuHint = "确认(enter) | 取消(esc)"
 
 // Reusable styles.
 var (

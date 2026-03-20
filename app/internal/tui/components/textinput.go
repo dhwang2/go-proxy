@@ -76,33 +76,11 @@ func (m TextInputModel) Update(msg tea.Msg) (tui.OverlayModel, tea.Cmd) {
 }
 
 func (m TextInputModel) View() string {
-	okStyle := lipgloss.NewStyle().Padding(0, 2)
-	cancelStyle := lipgloss.NewStyle().Padding(0, 2)
-
-	if m.focused == 1 {
-		okStyle = okStyle.Foreground(tui.ColorPrimary).Bold(true)
-	}
-	if m.focused == 2 {
-		cancelStyle = cancelStyle.Foreground(tui.ColorError).Bold(true)
-	}
-
-	buttons := lipgloss.JoinHorizontal(lipgloss.Center,
-		okStyle.Render("[ 确定 ]"),
-		cancelStyle.Render("[ 取消 ]"),
-	)
-
-	hintStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
-	hint := hintStyle.Render("esc 取消 | enter 确认")
-
 	content := lipgloss.JoinVertical(lipgloss.Center,
 		"",
 		m.prompt,
 		"",
 		m.input.View(),
-		"",
-		buttons,
-		"",
-		hint,
 		"",
 	)
 

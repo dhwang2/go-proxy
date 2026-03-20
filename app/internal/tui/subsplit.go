@@ -76,6 +76,9 @@ func (m *SubSplitModel) SetSize(w, h int) {
 // TotalWidth returns the total available width.
 func (m SubSplitModel) TotalWidth() int { return m.totalWidth }
 
+// TotalHeight returns the total available height.
+func (m SubSplitModel) TotalHeight() int { return m.totalHeight }
+
 // Enabled returns whether sub-split is active.
 func (m SubSplitModel) Enabled() bool { return m.enabled }
 

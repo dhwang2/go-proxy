@@ -38,24 +38,13 @@ func (m ResultModel) Update(msg tea.Msg) (tui.OverlayModel, tea.Cmd) {
 }
 
 func (m ResultModel) View() string {
-	okStyle := lipgloss.NewStyle().
-		Foreground(tui.ColorPrimary).
-		Bold(true).
-		Padding(0, 2)
-
 	// Wrap message text to prevent dialog overflow.
 	maxWidth := 70
 	msg := wrapText(m.message, maxWidth)
 
-	// Left-align the message content but center the button.
-	button := lipgloss.NewStyle().Width(maxWidth).Align(lipgloss.Center).
-		Render(okStyle.Render("[ 确定 ]"))
-
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		"",
 		msg,
-		"",
-		button,
 		"",
 	)
 

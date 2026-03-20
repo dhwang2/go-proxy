@@ -11,7 +11,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"go-proxy/internal/config"
-	"go-proxy/internal/derived"
 	"go-proxy/internal/service"
 	"go-proxy/internal/store"
 	"go-proxy/internal/tui"
@@ -32,7 +31,6 @@ type ConfigView struct {
 	viewport viewport.Model
 	step     configStep
 	ready    bool
-	title    string
 }
 
 func NewConfigView(model *tui.Model) *ConfigView {
@@ -61,6 +59,17 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-6)
 		return v, nil
 	case tui.SubSplitMouseMsg:
+		// Handle mouse wheel scrolling for viewport
+		if v.step == configViewport && v.ready {
+			if msg.Button == tea.MouseButtonWheelUp {
+				v.viewport.LineUp(3)
+				return v, nil
+			}
+			if msg.Button == tea.MouseButtonWheelDown {
+				v.viewport.LineDown(3)
+				return v, nil
+			}
+		}
 		var cmd tea.Cmd
 		v.split, cmd = v.split.Update(msg.MouseMsg)
 		return v, cmd
@@ -80,20 +89,6 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, inlineCmd
 	}
 	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		if v.step == configViewport {
-			headerHeight := 2
-			footerHeight := 1
-			if !v.ready {
-				v.viewport = viewport.New(msg.Width, msg.Height-headerHeight-footerHeight)
-				v.ready = true
-			} else {
-				v.viewport.Width = msg.Width
-				v.viewport.Height = msg.Height - headerHeight - footerHeight
-			}
-		}
-		return v, nil
-
 	case tui.MenuCursorChangeMsg:
 		return v, v.triggerMenuAction(msg.ID)
 	case tui.MenuSelectMsg:
@@ -101,7 +96,13 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, v.triggerMenuAction(msg.ID)
 
 	case configContentMsg:
-		v.viewport = viewport.New(v.model.Width(), v.model.Height()-3)
+		w := v.model.ContentWidth()
+		h := v.model.Height() - 6
+		if v.split.Enabled() {
+			w = v.split.RightWidth()
+			h = v.split.TotalHeight()
+		}
+		v.viewport = viewport.New(w, h)
 		v.viewport.SetContent(msg.content)
 		v.ready = true
 		return v, nil
@@ -148,27 +149,10 @@ func (v *ConfigView) View() string {
 }
 
 func (v *ConfigView) renderViewport() string {
-	titleStyle := lipgloss.NewStyle().
-		Foreground(tui.ColorPrimary).
-		Bold(true).
-		PaddingLeft(1)
-
-	header := titleStyle.Render(v.title)
-
-	footerStyle := lipgloss.NewStyle().
-		Foreground(tui.ColorMuted).
-		PaddingLeft(1)
-	footer := footerStyle.Render("↑↓ 滚动 | esc 返回")
-
 	if !v.ready {
-		return lipgloss.JoinVertical(lipgloss.Left, header, "加载中...", footer)
+		return "加载中..."
 	}
-
-	return lipgloss.JoinVertical(lipgloss.Left,
-		header,
-		v.viewport.View(),
-		footer,
-	)
+	return v.viewport.View()
 }
 
 // triggerMenuAction executes the action for the given menu item ID.
@@ -176,19 +160,16 @@ func (v *ConfigView) triggerMenuAction(id string) tea.Cmd {
 	switch id {
 	case "singbox":
 		v.step = configViewport
-		v.title = "sing-box 配置"
 		v.ready = false
 		content := v.renderSingBox()
 		return func() tea.Msg { return configContentMsg{content: content} }
 	case "snell":
 		v.step = configViewport
-		v.title = "snell-v5 配置"
 		v.ready = false
 		content := v.renderSnell()
 		return func() tea.Msg { return configContentMsg{content: content} }
 	case "shadowtls":
 		v.step = configViewport
-		v.title = "shadow-tls 配置"
 		v.ready = false
 		content := v.renderShadowTLS()
 		return func() tea.Msg { return configContentMsg{content: content} }
@@ -202,99 +183,87 @@ func (v *ConfigView) renderSingBox() string {
 	s := v.model.Store()
 	var sb strings.Builder
 
+	titleStyle := lipgloss.NewStyle().Foreground(tui.ColorPrimary).Bold(true)
 	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
 	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
 	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
+	sep := sepStyle.Render(strings.Repeat("─", 42))
 
-	// Summary stats
-	sb.WriteString(labelStyle.Render("  概览"))
+	sb.WriteString(titleStyle.Render("sing-box 配置"))
 	sb.WriteString("\n")
-	sb.WriteString(sepStyle.Render("  " + strings.Repeat("─", 40)))
+	sb.WriteString(sep)
 	sb.WriteString("\n")
 
-	// Inbound count
-	sb.WriteString(fmt.Sprintf("  %-16s %s\n",
-		labelStyle.Render("Inbound 数量:"),
+	// 入站数量
+	sb.WriteString(fmt.Sprintf("%-12s %s\n",
+		labelStyle.Render("入站数量:"),
 		valStyle.Render(fmt.Sprintf("%d", len(s.SingBox.Inbounds)))))
 
-	// Protocol types
-	inv := derived.Inventory(s)
-	if len(inv) > 0 {
-		var types []string
-		for _, info := range inv {
-			label := info.Type
-			if info.HasReality {
-				label += "+reality"
-			}
-			types = append(types, fmt.Sprintf("%s/%d", label, info.Port))
-		}
-		sb.WriteString(fmt.Sprintf("  %-16s %s\n",
-			labelStyle.Render("协议/端口:"),
-			valStyle.Render(strings.Join(types, ", "))))
+	// 全局出口
+	globalFinal := "🐸 direct"
+	if s.SingBox.Route != nil && s.SingBox.Route.Final != "" {
+		globalFinal = s.SingBox.Route.Final
 	}
+	sb.WriteString(fmt.Sprintf("%-12s %s\n",
+		labelStyle.Render("全局出口:"),
+		valStyle.Render(globalFinal)))
 
-	// Outbound count
-	sb.WriteString(fmt.Sprintf("  %-16s %s\n",
-		labelStyle.Render("Outbound 数量:"),
-		valStyle.Render(fmt.Sprintf("%d", len(s.SingBox.Outbounds)))))
-
-	// Global outbound types
-	if len(s.SingBox.Outbounds) > 0 {
-		var obTypes []string
-		for _, raw := range s.SingBox.Outbounds {
-			h, err := store.ParseOutboundHeader(raw)
-			if err == nil {
-				obTypes = append(obTypes, h.Type)
-			}
-		}
-		if len(obTypes) > 0 {
-			sb.WriteString(fmt.Sprintf("  %-16s %s\n",
-				labelStyle.Render("Outbound 类型:"),
-				valStyle.Render(strings.Join(obTypes, ", "))))
-		}
-	}
-
-	// DNS info
+	// dns策略 / dns出口
 	if s.SingBox.DNS != nil {
-		sb.WriteString(fmt.Sprintf("  %-16s %s\n",
-			labelStyle.Render("DNS 服务器:"),
-			valStyle.Render(fmt.Sprintf("%d", len(s.SingBox.DNS.Servers)))))
-		sb.WriteString(fmt.Sprintf("  %-16s %s\n",
-			labelStyle.Render("DNS 规则:"),
-			valStyle.Render(fmt.Sprintf("%d", len(s.SingBox.DNS.Rules)))))
+		sb.WriteString(fmt.Sprintf("%-12s %s\n",
+			labelStyle.Render("dns策略:"),
+			valStyle.Render(s.SingBox.DNS.Strategy)))
+		sb.WriteString(fmt.Sprintf("%-12s %s\n",
+			labelStyle.Render("dns出口:"),
+			valStyle.Render(s.SingBox.DNS.Final)))
 	}
 
-	// Route rules
-	if s.SingBox.Route != nil {
-		sb.WriteString(fmt.Sprintf("  %-16s %s\n",
-			labelStyle.Render("路由规则:"),
-			valStyle.Render(fmt.Sprintf("%d", len(s.SingBox.Route.Rules)))))
-		sb.WriteString(fmt.Sprintf("  %-16s %s\n",
-			labelStyle.Render("规则集:"),
-			valStyle.Render(fmt.Sprintf("%d", len(s.SingBox.Route.RuleSet)))))
-	}
-
-	// User count
-	names := derived.UserNames(s)
-	sb.WriteString(fmt.Sprintf("  %-16s %s\n",
-		labelStyle.Render("用户数量:"),
-		valStyle.Render(fmt.Sprintf("%d", len(names)))))
-
-	// Full JSON
+	sb.WriteString(sep)
 	sb.WriteString("\n")
-	sb.WriteString(labelStyle.Render("  完整配置"))
-	sb.WriteString("\n")
-	sb.WriteString(sepStyle.Render("  " + strings.Repeat("─", 40)))
-	sb.WriteString("\n")
-
-	data, err := json.MarshalIndent(s.SingBox, "", "  ")
-	if err != nil {
-		sb.WriteString("  渲染配置失败: " + err.Error())
-	} else {
-		sb.WriteString(string(data))
-	}
+	sb.WriteString(renderOrderedSingBoxJSON(s.SingBox))
 
 	return sb.String()
+}
+
+func renderOrderedSingBoxJSON(c *store.SingBoxConfig) string {
+	type entry struct {
+		key  string
+		data json.RawMessage
+	}
+	var entries []entry
+
+	add := func(key string, v interface{}) {
+		data, err := json.MarshalIndent(v, "  ", "  ")
+		if err != nil {
+			return
+		}
+		entries = append(entries, entry{key, data})
+	}
+
+	if c.Log != nil {
+		add("log", c.Log)
+	}
+	if len(c.Experimental) > 0 {
+		add("experimental", c.Experimental)
+	}
+	if c.DNS != nil {
+		add("dns", c.DNS)
+	}
+	if len(c.Inbounds) > 0 {
+		add("inbounds", c.Inbounds)
+	}
+	if len(c.Outbounds) > 0 {
+		add("outbounds", c.Outbounds)
+	}
+	if c.Route != nil {
+		add("route", c.Route)
+	}
+
+	var parts []string
+	for _, e := range entries {
+		parts = append(parts, fmt.Sprintf("  %q: %s", e.key, string(e.data)))
+	}
+	return "{\n" + strings.Join(parts, ",\n") + "\n}"
 }
 
 func (v *ConfigView) renderSnell() string {
@@ -303,11 +272,14 @@ func (v *ConfigView) renderSnell() string {
 		return "  snell-v5 未安装\n\n  配置文件: " + config.SnellConfigFile
 	}
 
+	titleStyle := lipgloss.NewStyle().Foreground(tui.ColorPrimary).Bold(true)
 	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
 	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
 	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
 
 	var sb strings.Builder
+	sb.WriteString(titleStyle.Render("  snell-v5 配置"))
+	sb.WriteString("\n\n")
 	sb.WriteString(labelStyle.Render("  概览"))
 	sb.WriteString("\n")
 	sb.WriteString(sepStyle.Render("  " + strings.Repeat("─", 40)))
@@ -339,11 +311,14 @@ func (v *ConfigView) renderSnell() string {
 }
 
 func (v *ConfigView) renderShadowTLS() string {
+	titleStyle := lipgloss.NewStyle().Foreground(tui.ColorPrimary).Bold(true)
 	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
 	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
 	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
 
 	var sb strings.Builder
+	sb.WriteString(titleStyle.Render("  shadow-tls 配置"))
+	sb.WriteString("\n\n")
 	found := false
 
 	for _, raw := range v.model.Store().SingBox.Outbounds {

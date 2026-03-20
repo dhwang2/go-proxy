@@ -69,15 +69,11 @@ func (m SelectListModel) View() string {
 		b.WriteString("\n")
 	}
 
-	hintStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
-	hint := hintStyle.Render("esc 取消 | enter 确认")
-
 	content := lipgloss.JoinVertical(lipgloss.Center,
 		"",
 		m.title,
 		"",
 		b.String(),
-		hint,
 		"",
 	)
 
