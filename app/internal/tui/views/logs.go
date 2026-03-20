@@ -36,9 +36,9 @@ type LogsView struct {
 func NewLogsView(model *tui.Model) *LogsView {
 	v := &LogsView{model: model}
 	v.menu = tui.NewMenu("", []tui.MenuItem{
-		{Key: '1', Label: "󰌱 查看脚本日志 (最近30行)", ID: "script"},
-		{Key: '2', Label: "󰌱 查看 Watchdog 日志 (最近30行)", ID: "watchdog"},
-		{Key: '3', Label: "󰌱 查看服务日志 (按服务选择)", ID: "service"},
+		{Key: '1', Label: "󰌱 查看脚本日志", ID: "script"},
+		{Key: '2', Label: "󰌱 查看 Watchdog 日志", ID: "watchdog"},
+		{Key: '3', Label: "󰌱 查看服务日志", ID: "service"},
 	})
 	return v
 }
@@ -48,14 +48,14 @@ func (v *LogsView) Name() string { return "logs" }
 func (v *LogsView) Init() tea.Cmd {
 	v.step = logsMenu
 	v.split.SetFocusLeft(true)
-	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-6)
+	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-5)
 	return nil
 }
 
 func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.ViewResizeMsg:
-		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-6)
+		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-5)
 		return v, nil
 	case tui.SubSplitMouseMsg:
 		var cmd tea.Cmd

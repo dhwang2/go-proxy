@@ -99,10 +99,10 @@ func (v *SelfUpdateView) View() string {
 		return v.ViewInline()
 	}
 	if v.step == selfUpdateConfirm {
-		return "\n  " + v.confirmPrompt + "\n"
+		return "  " + v.confirmPrompt
 	}
 	if v.step == selfUpdateChecking || v.step == selfUpdateUpdating {
-		return "\n  " + v.status + "\n"
+		return "  " + v.status
 	}
 	return ""
 }

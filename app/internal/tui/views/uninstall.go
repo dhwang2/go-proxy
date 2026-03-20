@@ -77,7 +77,7 @@ func (v *UninstallView) View() string {
 		return v.ViewInline()
 	}
 	if v.step == uninstallConfirm {
-		return "\n  " + v.confirmPrompt + "\n"
+		return "  " + v.confirmPrompt
 	}
 	return ""
 }

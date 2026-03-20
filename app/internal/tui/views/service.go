@@ -50,14 +50,14 @@ func (v *ServiceView) Name() string { return "service" }
 func (v *ServiceView) Init() tea.Cmd {
 	v.step = svcMenuMain
 	v.split.SetFocusLeft(true)
-	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-6)
+	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-5)
 	return nil
 }
 
 func (v *ServiceView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.ViewResizeMsg:
-		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-6)
+		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-5)
 		return v, nil
 	case tui.SubSplitMouseMsg:
 		var cmd tea.Cmd

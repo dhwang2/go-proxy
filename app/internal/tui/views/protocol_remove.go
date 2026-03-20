@@ -43,7 +43,7 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 	v.pendingTag = ""
 	v.emptyResult = false
 	v.split.SetFocusLeft(true)
-	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-6)
+	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-5)
 	// Reload store from disk to pick up changes from protocol install.
 	v.model.Store().Reload()
 	inv := derived.Inventory(v.model.Store())
@@ -99,7 +99,7 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.ViewResizeMsg:
-		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-6)
+		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-5)
 		return v, nil
 	case tui.SubSplitMouseMsg:
 		var cmd tea.Cmd

@@ -44,14 +44,14 @@ func (v *NetworkView) Name() string { return "network" }
 func (v *NetworkView) Init() tea.Cmd {
 	v.step = networkMenu
 	v.split.SetFocusLeft(true)
-	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-6)
+	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-5)
 	return nil
 }
 
 func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.ViewResizeMsg:
-		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-6)
+		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-5)
 		return v, nil
 	case tui.SubSplitMouseMsg:
 		var cmd tea.Cmd

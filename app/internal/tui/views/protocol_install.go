@@ -41,7 +41,7 @@ func (v *ProtocolInstallView) Name() string { return "protocol-install" }
 func (v *ProtocolInstallView) Init() tea.Cmd {
 	v.step = protoInstallMenu
 	v.split.SetFocusLeft(true)
-	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-6)
+	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-5)
 	types := protocol.InstallableTypes()
 	specs := protocol.Specs()
 	items := make([]tui.MenuItem, 0, len(types)+1)
@@ -60,7 +60,7 @@ func (v *ProtocolInstallView) Init() tea.Cmd {
 func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.ViewResizeMsg:
-		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-6)
+		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-5)
 		return v, nil
 	case tui.SubSplitMouseMsg:
 		var cmd tea.Cmd

@@ -312,22 +312,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-		// Tab toggles focus between panels (blocked when view has inline component).
-		if key.Matches(msg, Keys.Tab) && m.splitPanel && m.current != "" {
-			if v, ok := m.views[m.current]; ok && v.HasInline() {
-				// Forward Tab to the view; inline component may use it.
-				newView, cmd := v.Update(msg)
-				m.views[m.current] = newView
-				return m, cmd
-			}
-			if m.focus == FocusLeft {
-				m.focus = FocusRight
-				m.mainMenu = m.mainMenu.SetDim(true)
-			} else {
+		// Left/Right arrows toggle focus between panels.
+		if m.splitPanel && m.current != "" {
+			if key.Matches(msg, Keys.Left) && m.focus == FocusRight {
 				m.focus = FocusLeft
 				m.mainMenu = m.mainMenu.SetDim(false)
+				return m, nil
 			}
-			return m, nil
+			if key.Matches(msg, Keys.Right) && m.focus == FocusLeft {
+				m.focus = FocusRight
+				m.mainMenu = m.mainMenu.SetDim(true)
+				return m, nil
+			}
 		}
 
 		// Global keys.
@@ -452,7 +448,7 @@ func (m Model) renderLeftPanel() string {
 	if m.current == "" {
 		hint = RenderFooterHint("退出(esc) | 选择(↑↓)", innerW)
 	} else {
-		hint = RenderFooterHint("切换(tab) | 选择(↑↓)", innerW)
+		hint = RenderFooterHint("切换(←→) | 选择(↑↓)", innerW)
 	}
 
 	// Use Height to fill top section, pushing hint flush with bottom border.
@@ -494,15 +490,11 @@ func (m Model) renderRightPanel() string {
 		viewContent = v.View()
 	}
 
-	// Footer hint pinned to bottom.
-	hintLine := RenderFooterHint(DefaultSubMenuHint, innerW)
-	footerH := lipgloss.Height(hintLine)
-
-	// Use Height to fill top section, pushing footer flush with bottom border.
+	// Use Height to fill the full inner area so SubSplit dividers reach the bottom border.
 	topContent := lipgloss.JoinVertical(lipgloss.Left, titleBar, breadcrumb, sep1, viewContent)
-	topSection := lipgloss.NewStyle().Width(innerW).Height(max(innerH-footerH, 0)).Render(topContent)
+	topSection := lipgloss.NewStyle().Width(innerW).Height(innerH).Render(topContent)
 
-	return lipgloss.JoinVertical(lipgloss.Left, topSection, hintLine)
+	return topSection
 }
 
 // renderBreadcrumb renders the navigation breadcrumb trail.
@@ -551,7 +543,7 @@ func (m Model) renderWelcome(width int) string {
 	tips := lipgloss.NewStyle().Foreground(ColorLabel).Render(strings.Join([]string{
 		"  开始:",
 		"  1. 选择左侧菜单项打开功能面板",
-		"  2. Tab 键切换左右面板焦点",
+		"  2. ← → 键切换左右面板焦点",
 		"  3. 快捷键: 1-9, a-c 直接选择菜单项",
 	}, "\n"))
 

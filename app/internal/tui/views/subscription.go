@@ -30,7 +30,7 @@ func (v *SubscriptionView) HasInline() bool { return false }
 func (v *SubscriptionView) Init() tea.Cmd {
 	content := v.renderAllLinks()
 	w := v.model.ContentWidth()
-	h := v.model.Height() - 6
+	h := v.model.Height() - 5
 	v.viewport = viewport.New(w, h)
 	v.viewport.SetContent(content)
 	v.ready = true
@@ -41,7 +41,7 @@ func (v *SubscriptionView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.ViewResizeMsg:
 		v.viewport.Width = msg.ContentWidth
-		v.viewport.Height = msg.ContentHeight - 6
+		v.viewport.Height = msg.ContentHeight - 5
 		return v, nil
 	case tui.SubSplitMouseMsg:
 		if msg.Button == tea.MouseButtonWheelUp {

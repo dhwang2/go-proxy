@@ -44,7 +44,7 @@ func NewUserView(model *tui.Model) *UserView {
 		{Key: '4', Label: "󰍷 删除用户", ID: "delete"},
 	})
 	cw := model.ContentWidth()
-	v.split = tui.NewSubSplit(cw, model.Height()-6)
+	v.split = tui.NewSubSplit(cw, model.Height()-5)
 	return v
 }
 
@@ -59,7 +59,7 @@ func (v *UserView) Init() tea.Cmd {
 func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.ViewResizeMsg:
-		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-6)
+		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-5)
 		return v, nil
 
 	case tui.SubSplitMouseMsg:

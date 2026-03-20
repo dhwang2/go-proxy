@@ -49,14 +49,14 @@ func (v *ConfigView) Init() tea.Cmd {
 	v.step = configMenu
 	v.ready = false
 	v.split.SetFocusLeft(true)
-	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-6)
+	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-5)
 	return nil
 }
 
 func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.ViewResizeMsg:
-		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-6)
+		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-5)
 		return v, nil
 	case tui.SubSplitMouseMsg:
 		// Handle mouse wheel scrolling for viewport
@@ -97,7 +97,7 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case configContentMsg:
 		w := v.model.ContentWidth()
-		h := v.model.Height() - 6
+		h := v.model.Height() - 5
 		if v.split.Enabled() {
 			w = v.split.RightWidth()
 			h = v.split.TotalHeight()
