@@ -15,8 +15,9 @@ import (
 
 type UninstallView struct {
 	tui.InlineState
-	model *tui.Model
-	step  uninstallStep
+	model         *tui.Model
+	step          uninstallStep
+	confirmPrompt string
 }
 
 type uninstallStep int
@@ -34,7 +35,8 @@ func (v *UninstallView) Name() string { return "uninstall" }
 
 func (v *UninstallView) Init() tea.Cmd {
 	v.step = uninstallConfirm
-	return v.SetInline(components.NewConfirm("确认卸载所有服务和配置?"))
+	v.confirmPrompt = "确认卸载所有服务和配置?"
+	return nil
 }
 
 func (v *UninstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
@@ -43,13 +45,6 @@ func (v *UninstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, inlineCmd
 	}
 	switch msg := msg.(type) {
-	case tui.ConfirmResultMsg:
-		if !msg.Confirmed {
-			return v, tui.BackCmd
-		}
-		initCmd := v.SetInline(components.NewSpinner("正在卸载..."))
-		return v, tea.Batch(initCmd, v.doUninstall)
-
 	case uninstallDoneMsg:
 		v.step = uninstallResult
 		if msg.success {
@@ -60,6 +55,16 @@ func (v *UninstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tui.ResultDismissedMsg:
 		return v, tea.Quit
 	case tea.KeyMsg:
+		if v.step == uninstallConfirm {
+			switch {
+			case msg.Type == tea.KeyEnter:
+				initCmd := v.SetInline(components.NewSpinner("正在卸载..."))
+				return v, tea.Batch(initCmd, v.doUninstall)
+			case msg.Type == tea.KeyEsc:
+				return v, tui.BackCmd
+			}
+			return v, nil
+		}
 		if msg.Type == tea.KeyEsc {
 			return v, tui.BackCmd
 		}
@@ -70,6 +75,9 @@ func (v *UninstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 func (v *UninstallView) View() string {
 	if v.HasInline() {
 		return v.ViewInline()
+	}
+	if v.step == uninstallConfirm {
+		return "\n  " + v.confirmPrompt + "\n"
 	}
 	return ""
 }

@@ -13,10 +13,11 @@ import (
 
 type SelfUpdateView struct {
 	tui.InlineState
-	model  *tui.Model
-	step   selfUpdateStep
-	check  *update.SelfUpdateCheck
-	status string
+	model         *tui.Model
+	step          selfUpdateStep
+	check         *update.SelfUpdateCheck
+	status        string
+	confirmPrompt string
 }
 
 type selfUpdateStep int
@@ -59,17 +60,9 @@ func (v *SelfUpdateView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, v.SetInline(components.NewResult(result))
 		}
 		v.step = selfUpdateConfirm
-		prompt := fmt.Sprintf("发现新版本: %s → %s\n是否更新?",
+		v.confirmPrompt = fmt.Sprintf("发现新版本: %s → %s\n是否更新?",
 			msg.check.CurrentVersion, msg.check.LatestVersion)
-		return v, v.SetInline(components.NewConfirm(prompt))
-
-	case tui.ConfirmResultMsg:
-		if !msg.Confirmed {
-			return v, tui.BackCmd
-		}
-		v.step = selfUpdateUpdating
-		v.status = "正在下载更新..."
-		return v, v.doUpdate
+		return v, nil
 
 	case selfUpdateDoneMsg:
 		if msg.err != nil {
@@ -83,6 +76,17 @@ func (v *SelfUpdateView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tui.ResultDismissedMsg:
 		return v, tui.BackCmd
 	case tea.KeyMsg:
+		if v.step == selfUpdateConfirm {
+			switch {
+			case msg.Type == tea.KeyEnter:
+				v.step = selfUpdateUpdating
+				v.status = "正在下载更新..."
+				return v, v.doUpdate
+			case msg.Type == tea.KeyEsc:
+				return v, tui.BackCmd
+			}
+			return v, nil
+		}
 		if msg.Type == tea.KeyEsc {
 			return v, tui.BackCmd
 		}
@@ -93,6 +97,9 @@ func (v *SelfUpdateView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 func (v *SelfUpdateView) View() string {
 	if v.HasInline() {
 		return v.ViewInline()
+	}
+	if v.step == selfUpdateConfirm {
+		return "\n  " + v.confirmPrompt + "\n"
 	}
 	if v.step == selfUpdateChecking || v.step == selfUpdateUpdating {
 		return "\n  " + v.status + "\n"

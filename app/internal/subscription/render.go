@@ -11,6 +11,7 @@ type Format string
 const (
 	FormatSurge   Format = "surge"
 	FormatSingBox Format = "singbox"
+	FormatURI     Format = "uri"
 )
 
 // Link holds a generated subscription link or config for one protocol membership.
@@ -46,6 +47,8 @@ func Render(s *store.Store, userName string, format Format, host string) []Link 
 			content = renderSurge(ib, entry, host)
 		case FormatSingBox:
 			content = renderSingBox(ib, entry, host)
+		case FormatURI:
+			content = renderURI(ib, entry, host)
 		default:
 			continue
 		}

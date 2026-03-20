@@ -200,79 +200,59 @@ func (v *ServiceView) View() string {
 
 type svcActionDoneMsg struct{ result string }
 
-// doStatusTable renders a shell-proxy style protocol/service table.
+// doStatusTable renders a shell-proxy style protocol overview and service status.
 func (v *ServiceView) doStatusTable() tea.Msg {
 	ctx := context.Background()
-	inv := derived.Inventory(v.model.Store())
+	s := v.model.Store()
 
-	// Styles for the table.
-	headerStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
+	userStyle := lipgloss.NewStyle().Foreground(tui.ColorAccent).Bold(true)
+	protoStyle := lipgloss.NewStyle().Foreground(tui.ColorSuccess)
+	portStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#C678DD"))
 	greenDot := lipgloss.NewStyle().Foreground(tui.ColorSuccess).Render("●")
 	redDot := lipgloss.NewStyle().Foreground(tui.ColorError).Render("●")
-	grayDot := lipgloss.NewStyle().Foreground(tui.ColorMuted).Render("●")
+	grayCircle := lipgloss.NewStyle().Foreground(tui.ColorMuted).Render("○")
 	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
 
 	var sb strings.Builder
-	sb.WriteString("  协议/服务状态\n\n")
 
-	// Table header.
-	sb.WriteString(fmt.Sprintf("  %s  %s  %s  %s  %s\n",
-		headerStyle.Render(fmt.Sprintf("%-14s", "协议")),
-		headerStyle.Render(fmt.Sprintf("%-8s", "状态")),
-		headerStyle.Render(fmt.Sprintf("%-7s", "端口")),
-		headerStyle.Render(fmt.Sprintf("%-6s", "用户")),
-		headerStyle.Render("详情"),
-	))
-	sb.WriteString(sepStyle.Render("  "+strings.Repeat("─", 56)) + "\n")
+	// --- Section 1: Protocol overview (per-user) ---
+	names := derived.UserNames(s)
+	membership := derived.Membership(s)
 
-	// Protocol rows from inventory.
-	for _, p := range inv {
-		svcName := protocolServiceName(p.Type)
-		st, _ := service.GetStatus(ctx, svcName)
+	if len(names) == 0 {
+		sb.WriteString("  ")
+		sb.WriteString(grayCircle)
+		sb.WriteString(" 未安装\n")
+	} else {
+		for _, name := range names {
+			sb.WriteString("  ")
+			sb.WriteString(userStyle.Render(name))
+			sb.WriteString("\n")
 
-		var dot string
-		var statusText string
-		if st == nil {
-			dot = grayDot
-			statusText = "未安装"
-		} else if st.Running {
-			dot = greenDot
-			statusText = "运行中"
-		} else {
-			dot = redDot
-			statusText = "已停止"
+			entries := membership[name]
+			if len(entries) == 0 {
+				sb.WriteString("    ")
+				sb.WriteString(grayCircle)
+				sb.WriteString(" 无协议\n")
+			} else {
+				for _, e := range entries {
+					port := e.Port
+					bulletDot := lipgloss.NewStyle().Foreground(tui.ColorSuccess).Render("●")
+					sb.WriteString(fmt.Sprintf("    %s %s - %s\n",
+						bulletDot,
+						protoStyle.Render(e.Proto),
+						portStyle.Render(fmt.Sprintf("%d", port)),
+					))
+				}
+			}
 		}
-
-		detail := ""
-		if p.HasReality {
-			detail = "Reality"
-		}
-
-		sb.WriteString(fmt.Sprintf("  %-14s  %s %-6s  %-7d  %-6d  %s\n",
-			p.Type, dot, statusText, p.Port, p.UserCount, detail))
 	}
 
-	// Snell row (if configured).
-	if v.model.Store().SnellConf != nil {
-		st, _ := service.GetStatus(ctx, service.Snell)
-		var dot, statusText string
-		if st == nil {
-			dot = grayDot
-			statusText = "未安装"
-		} else if st.Running {
-			dot = greenDot
-			statusText = "运行中"
-		} else {
-			dot = redDot
-			statusText = "已停止"
-		}
-		port := snellPort(v.model.Store().SnellConf.Listen)
-		sb.WriteString(fmt.Sprintf("  %-14s  %s %-6s  %-7d  %-6d  %s\n",
-			"snell", dot, statusText, port, 1, "psk"))
-	}
+	// Separator between sections.
+	sb.WriteString(sepStyle.Render("  " + strings.Repeat("─", 56)))
+	sb.WriteString("\n")
 
-	// All managed services.
-	sb.WriteString(sepStyle.Render("  "+strings.Repeat("─", 56)) + "\n")
+	// --- Section 2: Service status ---
 	for _, extra := range []struct {
 		name    string
 		svcName service.Name
@@ -286,7 +266,7 @@ func (v *ServiceView) doStatusTable() tea.Msg {
 		st, _ := service.GetStatus(ctx, extra.svcName)
 		var dot, statusText string
 		if st == nil {
-			dot = grayDot
+			dot = grayCircle
 			statusText = "未安装"
 		} else if st.Running {
 			dot = greenDot
@@ -295,7 +275,7 @@ func (v *ServiceView) doStatusTable() tea.Msg {
 			dot = redDot
 			statusText = "已停止"
 		}
-		sb.WriteString(fmt.Sprintf("  %-14s  %s %s\n", extra.name, dot, statusText))
+		sb.WriteString(fmt.Sprintf("  %-16s %s %s\n", extra.name+":", dot, statusText))
 	}
 
 	return svcActionDoneMsg{result: sb.String()}
