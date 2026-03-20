@@ -14,6 +14,10 @@ const (
 
 	// LogDir holds service and script logs.
 	LogDir = WorkDir + "/logs"
+
+	// CaddyCertDir is the root certificate storage directory used by caddy-sub
+	// (matches XDG_DATA_HOME=/etc/go-proxy so caddy writes to /etc/go-proxy/caddy/certificates/).
+	CaddyCertDir = WorkDir + "/caddy/certificates"
 )
 
 // Config file paths.
@@ -25,6 +29,7 @@ var (
 	SnellConfigFile  = filepath.Join(WorkDir, "snell-v5.conf")
 	SubscriptionFile = filepath.Join(WorkDir, "subscription.txt")
 	CaddyFile        = filepath.Join(WorkDir, "Caddyfile")
+	DomainFile       = filepath.Join(WorkDir, ".domain")
 )
 
 // Binary paths.

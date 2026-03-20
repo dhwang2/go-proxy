@@ -36,9 +36,5 @@ func (m SpinnerModel) View() string {
 	content := lipgloss.JoinVertical(lipgloss.Center,
 		m.spinner.View()+" "+m.message,
 	)
-	style := tui.DialogStyle
-	if tui.InSplitPanel {
-		style = tui.PlainDialogStyle
-	}
-	return style.Render(content)
+	return tui.DialogStyle.Render(content)
 }

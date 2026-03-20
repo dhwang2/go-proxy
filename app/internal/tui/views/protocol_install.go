@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"go-proxy/internal/cert"
 	"go-proxy/internal/protocol"
 	"go-proxy/internal/tui"
 	"go-proxy/internal/tui/components"
@@ -15,18 +16,21 @@ import (
 
 type ProtocolInstallView struct {
 	tui.InlineState
-	model       *tui.Model
-	menu        tui.MenuModel
-	split       tui.SubSplitModel
-	step        protoInstallStep
-	pendingType protocol.Type
-	lastResult  *protocol.InstallResult
+	model         *tui.Model
+	menu          tui.MenuModel
+	split         tui.SubSplitModel
+	step          protoInstallStep
+	pendingType   protocol.Type
+	pendingDomain string
+	lastResult    *protocol.InstallResult
 }
 
 type protoInstallStep int
 
 const (
 	protoInstallMenu protoInstallStep = iota
+	protoInstallDomain
+	protoInstallCert
 	protoInstallPort
 	protoInstallResult
 	protoInstallShadowTLSPrompt
@@ -100,6 +104,9 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.setFocus(true)
 			return v, nil
 		}
+		if v.step == protoInstallDomain {
+			return v.handleDomainInput(msg.Value)
+		}
 		pt := v.pendingType
 		portStr := msg.Value
 		return v, tea.Batch(
@@ -108,6 +115,15 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				return v.doInstall(pt, portStr)
 			},
 		)
+
+	case certDoneMsg:
+		if msg.err != nil {
+			v.step = protoInstallResult
+			return v, v.SetInline(components.NewResult("证书申请失败: " + msg.err.Error()))
+		}
+		v.step = protoInstallPort
+		defaultPort := v.computeDefaultPort(v.pendingType)
+		return v, v.SetInline(components.NewTextInput("端口号:", fmt.Sprintf("%d", defaultPort)))
 
 	case protoInstallDoneMsg:
 		v.step = protoInstallResult
@@ -197,9 +213,42 @@ func (v *ProtocolInstallView) View() string {
 // triggerMenuAction executes the action for the given menu item ID.
 func (v *ProtocolInstallView) triggerMenuAction(id string) tea.Cmd {
 	v.pendingType = protocol.Type(id)
+	spec := protocol.Specs()[v.pendingType]
+	if spec.NeedsTLS && !spec.UsesReality {
+		v.step = protoInstallDomain
+		existing := cert.ReadDomain()
+		return v.SetInline(components.NewTextInput("域名 (用于 TLS 证书):", existing))
+	}
 	defaultPort := v.computeDefaultPort(v.pendingType)
 	v.step = protoInstallPort
 	return v.SetInline(components.NewTextInput("端口号:", fmt.Sprintf("%d", defaultPort)))
+}
+
+// handleDomainInput processes the submitted domain and decides next step.
+func (v *ProtocolInstallView) handleDomainInput(domain string) (tui.View, tea.Cmd) {
+	if !cert.IsValidDomain(domain) {
+		v.step = protoInstallDomain
+		return v, v.SetInline(components.NewTextInput("域名无效，请重新输入:", domain))
+	}
+	v.pendingDomain = domain
+	if cert.CertExists(domain) {
+		v.step = protoInstallPort
+		defaultPort := v.computeDefaultPort(v.pendingType)
+		return v, v.SetInline(components.NewTextInput("端口号:", fmt.Sprintf("%d", defaultPort)))
+	}
+	v.step = protoInstallCert
+	d := domain
+	return v, tea.Batch(
+		v.SetInline(components.NewSpinner("证书申请中...")),
+		func() tea.Msg {
+			err := cert.EnsureCertificate(context.Background(), d, "")
+			return certDoneMsg{err: err}
+		},
+	)
+}
+
+type certDoneMsg struct {
+	err error
 }
 
 type protoInstallDoneMsg struct {
@@ -235,6 +284,7 @@ func (v *ProtocolInstallView) doInstall(pt protocol.Type, portStr string) tea.Ms
 		ProtoType: pt,
 		Port:      port,
 		UserName:  "user",
+		Domain:    v.pendingDomain,
 	}
 
 	// Provision dependencies (download binaries, create systemd services).

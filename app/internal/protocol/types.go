@@ -156,7 +156,7 @@ func CollectUsedPorts(ports []int) map[int]bool {
 
 // caddyCertIssuerDirs returns the issuer subdirectories under the caddy certificates directory.
 func caddyCertIssuerDirs() []string {
-	caddyCertDir := filepath.Join(config.ConfDir, "caddy", "certificates")
+	caddyCertDir := config.CaddyCertDir
 	entries, err := os.ReadDir(caddyCertDir)
 	if err != nil {
 		return nil

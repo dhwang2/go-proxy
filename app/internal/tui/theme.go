@@ -48,11 +48,7 @@ var (
 			Bold(true)
 
 	DialogStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(ColorPrimary).
 			Padding(1, 3)
-
-	PlainDialogStyle = lipgloss.NewStyle().Padding(1, 3)
 
 	// Value styles used in dashboard and config views.
 	ValSysStyle   = lipgloss.NewStyle().Foreground(ColorValSys).Bold(true)

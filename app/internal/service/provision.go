@@ -90,6 +90,8 @@ After=network.target
 
 [Service]
 Type=simple
+Environment=XDG_DATA_HOME=/etc/go-proxy
+Environment=XDG_CONFIG_HOME=/etc/go-proxy
 ExecStart=%s run --config %s --adapter caddyfile
 Restart=on-failure
 RestartSec=10s
