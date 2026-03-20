@@ -62,6 +62,14 @@ func (m ConfirmModel) View() string {
 		noStyle.Render("[ 否 ]"),
 	)
 
+	if tui.InSplitPanel {
+		return lipgloss.JoinVertical(lipgloss.Left,
+			m.prompt,
+			"",
+			buttons,
+		)
+	}
+
 	content := lipgloss.JoinVertical(lipgloss.Center,
 		"",
 		m.prompt,
@@ -70,10 +78,5 @@ func (m ConfirmModel) View() string {
 		buttons,
 		"",
 	)
-
-	style := tui.DialogStyle
-	if tui.InSplitPanel {
-		style = tui.PlainDialogStyle
-	}
-	return style.Render(content)
+	return tui.DialogStyle.Render(content)
 }

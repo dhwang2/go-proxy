@@ -64,9 +64,12 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 		}
 	}
 
-	// Table header.
-	v.tableHeader = fmt.Sprintf("  %-4s %-16s %-8s %-8s %s",
-		"#", "协议", "端口", "用户", "详情")
+	// Table header + separator.
+	// Menu prefix is 7 display-cells ("   1.  "), label uses "%-14s %-8d %s".
+	// CJK chars are 2 cells wide, so pad manually to match ASCII column widths.
+	header := "  #    协议          端口     用户"
+	sep := "  " + strings.Repeat("─", 50)
+	v.tableHeader = header + "\n" + sep
 
 	items := make([]tui.MenuItem, 0, len(inv)+1)
 	for i, info := range inv {
@@ -75,19 +78,13 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 			k = rune('a' + i - 9)
 		}
 
-		userCount := info.UserCount
-		userDetail := strings.Join(tagUsers[info.Tag], "  ")
-		if userDetail == "" {
-			userDetail = "无"
+		userNames := strings.Join(tagUsers[info.Tag], "  ")
+		if userNames == "" {
+			userNames = "—"
 		}
 
-		detail := userDetail
-		if info.HasReality {
-			detail = "reality  " + detail
-		}
-
-		label := fmt.Sprintf("%-14s %-8d %-8d %s",
-			info.Type, info.Port, userCount, detail)
+		label := fmt.Sprintf("%-14s %-8d %s",
+			info.Type, info.Port, userNames)
 
 		items = append(items, tui.MenuItem{
 			Key:   k,

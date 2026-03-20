@@ -61,12 +61,22 @@ func (m SelectListModel) View() string {
 
 	for i, item := range m.items {
 		if i == m.cursor {
-			style := lipgloss.NewStyle().Foreground(tui.ColorPrimary).Bold(true)
-			b.WriteString(style.Render(fmt.Sprintf("  ▸ %s", item)))
+			style := lipgloss.NewStyle().
+				Background(tui.ColorAccent).
+				Foreground(tui.ColorAccentFg).
+				Bold(true)
+			b.WriteString(style.Render(fmt.Sprintf("  %d. %s", i+1, item)))
 		} else {
-			b.WriteString(fmt.Sprintf("    %s", item))
+			b.WriteString(fmt.Sprintf("  %d. %s", i+1, item))
 		}
 		b.WriteString("\n")
+	}
+
+	if tui.InSplitPanel {
+		return lipgloss.JoinVertical(lipgloss.Left,
+			m.title,
+			b.String(),
+		)
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Center,
@@ -76,10 +86,5 @@ func (m SelectListModel) View() string {
 		b.String(),
 		"",
 	)
-
-	style := tui.DialogStyle
-	if tui.InSplitPanel {
-		style = tui.PlainDialogStyle
-	}
-	return style.Render(content)
+	return tui.DialogStyle.Render(content)
 }

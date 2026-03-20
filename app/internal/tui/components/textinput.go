@@ -76,17 +76,18 @@ func (m TextInputModel) Update(msg tea.Msg) (tui.OverlayModel, tea.Cmd) {
 }
 
 func (m TextInputModel) View() string {
-	content := lipgloss.JoinVertical(lipgloss.Center,
+	if tui.InSplitPanel {
+		return lipgloss.JoinVertical(lipgloss.Left,
+			m.prompt,
+			m.input.View(),
+		)
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Left,
 		"",
 		m.prompt,
-		"",
 		m.input.View(),
 		"",
 	)
-
-	style := tui.DialogStyle
-	if tui.InSplitPanel {
-		style = tui.PlainDialogStyle
-	}
-	return style.Render(content)
+	return tui.DialogStyle.Render(content)
 }

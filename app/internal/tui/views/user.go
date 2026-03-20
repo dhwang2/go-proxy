@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -163,7 +164,7 @@ func (v *UserView) triggerMenuAction(id string) tea.Cmd {
 		return v.listUsers
 	case "add":
 		v.step = userAdd
-		return v.SetInline(components.NewTextInput("用户名:", "user2"))
+		return v.SetInline(components.NewTextInput("输入用户名:", ""))
 	case "rename":
 		names := derived.UserNames(v.model.Store())
 		if len(names) == 0 {
@@ -171,7 +172,7 @@ func (v *UserView) triggerMenuAction(id string) tea.Cmd {
 			return v.SetInline(components.NewResult("暂无用户"))
 		}
 		v.step = userRenameOld
-		return v.SetInline(components.NewSelectList("选择要重置的用户:", names))
+		return v.SetInline(components.NewSelectList("选择要重命名的用户:", names))
 	case "delete":
 		names := derived.UserNames(v.model.Store())
 		if len(names) == 0 {
@@ -214,14 +215,46 @@ type userActionDoneMsg struct{ result string }
 
 func (v *UserView) listUsers() tea.Msg {
 	users := user.List(v.model.Store())
+	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
+	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
+	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
+
 	var sb strings.Builder
-	sb.WriteString("用户列表\n\n")
+	// Find max name width for alignment.
+	nameWidth := 8 // minimum
+	for _, u := range users {
+		if w := lipgloss.Width(u.Name); w > nameWidth {
+			nameWidth = w
+		}
+	}
+	nameWidth += 2 // padding
+
+	sb.WriteString(labelStyle.Render(fmt.Sprintf("%-*s", nameWidth, "用户列表")))
+	sb.WriteString(labelStyle.Render("协议"))
+	sb.WriteString("\n")
+	sb.WriteString(sepStyle.Render(strings.Repeat("─", 42)))
+	sb.WriteString("\n")
+
 	if len(users) == 0 {
-		sb.WriteString("暂无用户")
+		sb.WriteString("暂无用户\n")
 	}
 	for _, u := range users {
-		sb.WriteString(fmt.Sprintf("  %s  (%d 协议, %d 路由)\n",
-			u.Name, len(u.Memberships), u.RouteCount))
+		protoSummary := "(无协议)"
+		if len(u.Memberships) > 0 {
+			counts := make(map[string]int)
+			for _, m := range u.Memberships {
+				counts[m.Proto]++
+			}
+			var parts []string
+			for proto, count := range counts {
+				parts = append(parts, fmt.Sprintf("%s x%d", proto, count))
+			}
+			sort.Strings(parts)
+			protoSummary = strings.Join(parts, ", ")
+		}
+		sb.WriteString(labelStyle.Render(fmt.Sprintf("%-*s", nameWidth, u.Name)))
+		sb.WriteString(valStyle.Render(protoSummary))
+		sb.WriteString("\n")
 	}
 	return userActionDoneMsg{result: sb.String()}
 }

@@ -42,17 +42,16 @@ func (m ResultModel) View() string {
 	maxWidth := 70
 	msg := wrapText(m.message, maxWidth)
 
+	if tui.InSplitPanel {
+		return msg
+	}
+
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		"",
 		msg,
 		"",
 	)
-
-	style := tui.DialogStyle
-	if tui.InSplitPanel {
-		style = tui.PlainDialogStyle
-	}
-	return style.Render(content)
+	return tui.DialogStyle.Render(content)
 }
 
 // wrapText wraps long lines to fit within maxWidth.
