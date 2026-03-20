@@ -2,6 +2,14 @@ package tui
 
 import tea "github.com/charmbracelet/bubbletea"
 
+// CursorComponent is implemented by inline components that use left/right keys
+// for cursor movement (e.g., text input). When an inline component implements
+// this interface and returns true, UpdateInline will intercept left/right keys.
+// Otherwise, left/right keys pass through for SubSplit focus navigation.
+type CursorComponent interface {
+	UsesCursor() bool
+}
+
 // InlineState manages an inline component rendered within a view's content area.
 // Views embed this struct and call SetInline to show components (text input,
 // confirm, result, spinner, select list) directly in the right panel instead of
@@ -47,8 +55,17 @@ func (s *InlineState) UpdateInline(msg tea.Msg) (tea.Cmd, bool) {
 	s.component, cmd = s.component.Update(msg)
 	// Only intercept user-input events; let domain and tick messages pass
 	// through so the view can handle async results while a spinner runs.
-	switch msg.(type) {
-	case tea.KeyMsg, tea.MouseMsg:
+	switch m := msg.(type) {
+	case tea.KeyMsg:
+		// Pass through Left/Right keys for SubSplit focus navigation
+		// unless the component uses cursor movement (e.g., TextInput).
+		if m.Type == tea.KeyLeft || m.Type == tea.KeyRight {
+			if cc, ok := s.component.(CursorComponent); !ok || !cc.UsesCursor() {
+				return cmd, false
+			}
+		}
+		return cmd, true
+	case tea.MouseMsg:
 		return cmd, true
 	}
 	return cmd, false

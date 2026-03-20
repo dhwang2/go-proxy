@@ -62,6 +62,12 @@ func NewRoutingView(model *tui.Model) *RoutingView {
 
 func (v *RoutingView) Name() string { return "routing" }
 
+func (v *RoutingView) setFocus(left bool) {
+	v.split.SetFocusLeft(left)
+	v.menu = v.menu.SetDim(!left)
+	v.subMenu = v.subMenu.SetDim(!left)
+}
+
 func (v *RoutingView) Init() tea.Cmd {
 	v.step = routingMenu
 	v.split.SetFocusLeft(true)
@@ -80,11 +86,11 @@ func (v *RoutingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, cmd
 	}
 	// In split mode, intercept up/down for menu navigation even when content is showing.
-	if v.split.Enabled() && v.step != routingMenu {
+	if v.split.Enabled() && v.step != routingMenu && v.split.FocusLeft() {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
 				var cmd tea.Cmd
-				v.menu, cmd = v.menu.Update(msg)
+				v.subMenu, cmd = v.subMenu.Update(msg)
 				return v, cmd
 			}
 		}
@@ -102,7 +108,7 @@ func (v *RoutingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, nil
 	case tui.MenuSelectMsg:
 		if v.step == routingMenu {
-			v.split.SetFocusLeft(false)
+			v.setFocus(false)
 			return v, v.triggerMenuAction(msg.ID)
 		}
 		return v.handleMenuSelect(msg)
@@ -112,12 +118,12 @@ func (v *RoutingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case routingActionDoneMsg:
 		v.step = routingResult
-		v.split.SetFocusLeft(false)
+		v.setFocus(false)
 		return v, v.SetInline(components.NewResult(msg.result))
 
 	case tui.ResultDismissedMsg:
 		v.step = routingMenu
-		v.split.SetFocusLeft(true)
+		v.setFocus(true)
 		return v, nil
 
 	default:
@@ -210,10 +216,10 @@ func (v *RoutingView) handleInput(msg tui.InputResultMsg) (tui.View, tea.Cmd) {
 			v.step = routingChainMenu
 		case routingTestDomain:
 			v.step = routingMenu
-			v.split.SetFocusLeft(true)
+			v.setFocus(true)
 		default:
 			v.step = routingMenu
-			v.split.SetFocusLeft(true)
+			v.setFocus(true)
 		}
 		return v, nil
 	}
@@ -241,14 +247,14 @@ func (v *RoutingView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 		switch v.step {
 		case routingChainMenu:
 			v.step = routingMenu
-			v.split.SetFocusLeft(true)
+			v.setFocus(true)
 			return v, nil
 		case routingChainDeleteSelect:
 			v.step = routingChainMenu
 			return v, nil
 		case routingConfigUser:
 			v.step = routingMenu
-			v.split.SetFocusLeft(true)
+			v.setFocus(true)
 			return v, nil
 		case routingConfigPreset:
 			return v, v.showUserMenu(routingConfigUser)
@@ -256,14 +262,27 @@ func (v *RoutingView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, v.showPresetMenu()
 		case routingDirect:
 			v.step = routingMenu
-			v.split.SetFocusLeft(true)
+			v.setFocus(true)
 			return v, nil
 		case routingTestUser:
 			v.step = routingMenu
-			v.split.SetFocusLeft(true)
+			v.setFocus(true)
 			return v, nil
 		default:
 			return v, tui.BackCmd
+		}
+	}
+	// Left/Right arrow toggles sub-split focus.
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		if v.split.Enabled() && v.step != routingMenu {
+			if keyMsg.Type == tea.KeyLeft {
+				v.setFocus(true)
+				return v, nil
+			}
+			if keyMsg.Type == tea.KeyRight && v.HasInline() {
+				v.setFocus(false)
+				return v, nil
+			}
 		}
 	}
 	var cmd tea.Cmd
@@ -275,6 +294,10 @@ func (v *RoutingView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.subMenu, cmd = v.subMenu.Update(msg)
 	}
 	return v, cmd
+}
+
+func (v *RoutingView) IsSubSplitRightFocused() bool {
+	return v.split.Enabled() && !v.split.FocusLeft()
 }
 
 func (v *RoutingView) View() string {

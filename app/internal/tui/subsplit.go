@@ -12,6 +12,14 @@ import (
 // skip their DialogStyle border.
 var InSplitPanel bool
 
+// SubSplitFocuser is an optional interface for views with SubSplit navigation.
+// When implemented, app.go checks before intercepting the Left arrow key:
+// if the SubSplit right panel is focused, Left is forwarded to the view
+// (Level 3 → Level 2) instead of jumping to the main left panel (Level 1).
+type SubSplitFocuser interface {
+	IsSubSplitRightFocused() bool
+}
+
 const (
 	subSplitMinLeft    = 20
 	subSplitMinRight   = 20

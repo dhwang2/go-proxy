@@ -46,6 +46,11 @@ func NewCoreView(model *tui.Model) *CoreView {
 
 func (v *CoreView) Name() string { return "core" }
 
+func (v *CoreView) setFocus(left bool) {
+	v.split.SetFocusLeft(left)
+	v.menu = v.menu.SetDim(!left)
+}
+
 func (v *CoreView) Init() tea.Cmd {
 	v.step = coreMenu
 	v.pending = nil
@@ -65,7 +70,7 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, cmd
 	}
 	// In split mode, intercept up/down for menu navigation even when content is showing.
-	if v.split.Enabled() && v.step != coreMenu {
+	if v.split.Enabled() && v.step != coreMenu && v.split.FocusLeft() {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
 				var cmd tea.Cmd
@@ -82,7 +87,7 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tui.MenuCursorChangeMsg:
 		return v, v.triggerMenuAction(msg.ID)
 	case tui.MenuSelectMsg:
-		v.split.SetFocusLeft(false)
+		v.setFocus(false)
 		return v, v.triggerMenuAction(msg.ID)
 
 	case coreVersionsDoneMsg:
@@ -109,7 +114,7 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			)
 		}
 		v.step = coreMenu
-		v.split.SetFocusLeft(true)
+		v.setFocus(true)
 		return v, nil
 
 	case coreUpdateDoneMsg:
@@ -118,12 +123,25 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case tui.ResultDismissedMsg:
 		v.step = coreMenu
-		v.split.SetFocusLeft(true)
+		v.setFocus(true)
 		return v, nil
 
 	default:
 		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEsc {
 			return v, tui.BackCmd
+		}
+		// Left/Right arrow toggles sub-split focus.
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			if v.split.Enabled() && v.step != coreMenu {
+				if keyMsg.Type == tea.KeyLeft {
+					v.setFocus(true)
+					return v, nil
+				}
+				if keyMsg.Type == tea.KeyRight && v.HasInline() {
+					v.setFocus(false)
+					return v, nil
+				}
+			}
 		}
 		if v.step == coreMenu {
 			var cmd tea.Cmd
@@ -132,6 +150,10 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 	}
 	return v, inlineCmd
+}
+
+func (v *CoreView) IsSubSplitRightFocused() bool {
+	return v.split.Enabled() && !v.split.FocusLeft()
 }
 
 func (v *CoreView) View() string {

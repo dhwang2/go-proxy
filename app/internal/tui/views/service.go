@@ -47,6 +47,12 @@ func NewServiceView(model *tui.Model) *ServiceView {
 
 func (v *ServiceView) Name() string { return "service" }
 
+func (v *ServiceView) setFocus(left bool) {
+	v.split.SetFocusLeft(left)
+	v.menu = v.menu.SetDim(!left)
+	v.subMenu = v.subMenu.SetDim(!left)
+}
+
 func (v *ServiceView) Init() tea.Cmd {
 	v.step = svcMenuMain
 	v.split.SetFocusLeft(true)
@@ -65,7 +71,7 @@ func (v *ServiceView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, cmd
 	}
 	// In split mode, intercept up/down for menu navigation even when content is showing.
-	if v.split.Enabled() && v.step != svcMenuMain {
+	if v.split.Enabled() && v.step != svcMenuMain && v.split.FocusLeft() {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
 				var cmd tea.Cmd
@@ -87,19 +93,19 @@ func (v *ServiceView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, nil
 	case tui.MenuSelectMsg:
 		if v.step == svcMenuMain {
-			v.split.SetFocusLeft(false)
+			v.setFocus(false)
 			return v, v.triggerMenuAction(msg.ID)
 		}
 		return v.handleMenuSelect(msg)
 
 	case svcActionDoneMsg:
 		v.step = svcResult
-		v.split.SetFocusLeft(false)
+		v.setFocus(false)
 		return v, v.SetInline(components.NewResult(msg.result))
 
 	case tui.ResultDismissedMsg:
 		v.step = svcMenuMain
-		v.split.SetFocusLeft(true)
+		v.setFocus(true)
 		return v, nil
 
 	default:
@@ -150,10 +156,23 @@ func (v *ServiceView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 		switch v.step {
 		case svcMenuIndividual:
 			v.step = svcMenuMain
-			v.split.SetFocusLeft(true)
+			v.setFocus(true)
 			return v, nil
 		default:
 			return v, tui.BackCmd
+		}
+	}
+	// Left/Right arrow toggles sub-split focus.
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		if v.split.Enabled() && v.step != svcMenuMain {
+			if keyMsg.Type == tea.KeyLeft {
+				v.setFocus(true)
+				return v, nil
+			}
+			if keyMsg.Type == tea.KeyRight && v.HasInline() {
+				v.setFocus(false)
+				return v, nil
+			}
 		}
 	}
 	var cmd tea.Cmd
@@ -164,6 +183,10 @@ func (v *ServiceView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.subMenu, cmd = v.subMenu.Update(msg)
 	}
 	return v, cmd
+}
+
+func (v *ServiceView) IsSubSplitRightFocused() bool {
+	return v.split.Enabled() && !v.split.FocusLeft()
 }
 
 func (v *ServiceView) View() string {

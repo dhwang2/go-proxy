@@ -35,6 +35,9 @@ func (m TextInputModel) Init() tea.Cmd {
 	return textinput.Blink
 }
 
+// UsesCursor implements tui.CursorComponent.
+func (m TextInputModel) UsesCursor() bool { return true }
+
 func (m TextInputModel) Update(msg tea.Msg) (tui.OverlayModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:

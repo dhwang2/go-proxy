@@ -268,19 +268,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case BackMsg:
-		// If in right panel and nav depth > 1, go back within sub-view hierarchy.
-		if m.nav.Depth() > 1 {
-			name := m.nav.Pop()
-			if name != m.current {
-				m.current = name
-				if v, ok := m.views[name]; ok {
-					cmd := v.Init()
-					return m, cmd
-				}
-			}
-			return m, nil
-		}
-		// At top level of right panel: close it and return to left panel.
 		m.current = ""
 		m.focus = FocusLeft
 		m.mainMenu = m.mainMenu.SetActiveID("").SetDim(false)
@@ -315,6 +302,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Left/Right arrows toggle focus between panels.
 		if m.splitPanel && m.current != "" {
 			if key.Matches(msg, Keys.Left) && m.focus == FocusRight {
+				// If view has SubSplit with right focus, forward Left to
+				// toggle SubSplit focus (Level 3 → Level 2) instead of
+				// jumping to the main left panel (Level 1).
+				if v, ok := m.views[m.current]; ok {
+					if ssf, ok := v.(SubSplitFocuser); ok && ssf.IsSubSplitRightFocused() {
+						newView, cmd := v.Update(msg)
+						m.views[m.current] = newView
+						return m, cmd
+					}
+				}
 				m.focus = FocusLeft
 				m.mainMenu = m.mainMenu.SetDim(false)
 				return m, nil
@@ -530,7 +527,7 @@ func (m Model) renderWelcome(width int) string {
 		Bold(true).
 		Width(width).
 		Align(lipgloss.Center).
-		Render("go-proxy 一键部署[服务端]")
+		Render("go-proxy 快捷指令：gproxy")
 
 	sub := lipgloss.NewStyle().
 		Foreground(ColorMuted).

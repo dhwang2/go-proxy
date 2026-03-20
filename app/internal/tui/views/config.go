@@ -45,6 +45,11 @@ func NewConfigView(model *tui.Model) *ConfigView {
 
 func (v *ConfigView) Name() string { return "config" }
 
+func (v *ConfigView) setFocus(left bool) {
+	v.split.SetFocusLeft(left)
+	v.menu = v.menu.SetDim(!left)
+}
+
 func (v *ConfigView) Init() tea.Cmd {
 	v.step = configMenu
 	v.ready = false
@@ -75,7 +80,7 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, cmd
 	}
 	// In split mode, intercept up/down for menu navigation even when content is showing.
-	if v.split.Enabled() && v.step != configMenu {
+	if v.split.Enabled() && v.step != configMenu && v.split.FocusLeft() {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
 				var cmd tea.Cmd
@@ -92,7 +97,7 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tui.MenuCursorChangeMsg:
 		return v, v.triggerMenuAction(msg.ID)
 	case tui.MenuSelectMsg:
-		v.split.SetFocusLeft(false)
+		v.setFocus(false)
 		return v, v.triggerMenuAction(msg.ID)
 
 	case configContentMsg:
@@ -112,10 +117,23 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			if v.step == configViewport {
 				v.step = configMenu
 				v.ready = false
-				v.split.SetFocusLeft(true)
+				v.setFocus(true)
 				return v, nil
 			}
 			return v, tui.BackCmd
+		}
+		// Left/Right arrow toggles sub-split focus.
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			if v.split.Enabled() && v.step != configMenu {
+				if keyMsg.Type == tea.KeyLeft {
+					v.setFocus(true)
+					return v, nil
+				}
+				if keyMsg.Type == tea.KeyRight && v.HasInline() {
+					v.setFocus(false)
+					return v, nil
+				}
+			}
 		}
 		if v.step == configMenu {
 			var cmd tea.Cmd
@@ -129,6 +147,10 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 	}
 	return v, inlineCmd
+}
+
+func (v *ConfigView) IsSubSplitRightFocused() bool {
+	return v.split.Enabled() && !v.split.FocusLeft()
 }
 
 func (v *ConfigView) View() string {

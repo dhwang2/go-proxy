@@ -45,6 +45,12 @@ func NewLogsView(model *tui.Model) *LogsView {
 
 func (v *LogsView) Name() string { return "logs" }
 
+func (v *LogsView) setFocus(left bool) {
+	v.split.SetFocusLeft(left)
+	v.menu = v.menu.SetDim(!left)
+	v.serviceMenu = v.serviceMenu.SetDim(!left)
+}
+
 func (v *LogsView) Init() tea.Cmd {
 	v.step = logsMenu
 	v.split.SetFocusLeft(true)
@@ -63,7 +69,7 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, cmd
 	}
 	// In split mode, intercept up/down for menu navigation even when content is showing.
-	if v.split.Enabled() && v.step != logsMenu {
+	if v.split.Enabled() && v.step != logsMenu && v.split.FocusLeft() {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
 				var cmd tea.Cmd
@@ -87,23 +93,23 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		if v.step == logsServiceSelect {
 			svc := msg.ID
 			v.step = logsResult
-			v.split.SetFocusLeft(false)
+			v.setFocus(false)
 			return v, tea.Batch(
 				v.SetInline(components.NewSpinner("加载日志...")),
 				func() tea.Msg { return v.readServiceLog(svc) },
 			)
 		}
-		v.split.SetFocusLeft(false)
+		v.setFocus(false)
 		return v, v.triggerMenuAction(msg.ID)
 
 	case logsActionDoneMsg:
 		v.step = logsResult
-		v.split.SetFocusLeft(false)
+		v.setFocus(false)
 		return v, v.SetInline(components.NewResult(msg.result))
 
 	case tui.ResultDismissedMsg:
 		v.step = logsMenu
-		v.split.SetFocusLeft(true)
+		v.setFocus(true)
 		return v, nil
 
 	default:
@@ -111,10 +117,23 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			switch v.step {
 			case logsServiceSelect:
 				v.step = logsMenu
-				v.split.SetFocusLeft(true)
+				v.setFocus(true)
 				return v, nil
 			default:
 				return v, tui.BackCmd
+			}
+		}
+		// Left/Right arrow toggles sub-split focus.
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			if v.split.Enabled() && v.step != logsMenu {
+				if keyMsg.Type == tea.KeyLeft {
+					v.setFocus(true)
+					return v, nil
+				}
+				if keyMsg.Type == tea.KeyRight && v.HasInline() {
+					v.setFocus(false)
+					return v, nil
+				}
 			}
 		}
 		switch v.step {
@@ -129,6 +148,10 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 	}
 	return v, inlineCmd
+}
+
+func (v *LogsView) IsSubSplitRightFocused() bool {
+	return v.split.Enabled() && !v.split.FocusLeft()
 }
 
 func (v *LogsView) View() string {
@@ -180,7 +203,7 @@ func (v *LogsView) triggerMenuAction(id string) tea.Cmd {
 		)
 	case "service":
 		v.step = logsServiceSelect
-		v.split.SetFocusLeft(true)
+		v.setFocus(true)
 		return nil
 	}
 	return nil

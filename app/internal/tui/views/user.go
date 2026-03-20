@@ -50,6 +50,11 @@ func NewUserView(model *tui.Model) *UserView {
 
 func (v *UserView) Name() string { return "user" }
 
+func (v *UserView) setFocus(left bool) {
+	v.split.SetFocusLeft(left)
+	v.menu = v.menu.SetDim(!left)
+}
+
 func (v *UserView) Init() tea.Cmd {
 	v.step = userMenu
 	v.split.SetFocusLeft(true)
@@ -69,7 +74,7 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	}
 
 	// In split mode, intercept up/down for menu navigation even when content is showing.
-	if v.split.Enabled() && v.step != userMenu {
+	if v.split.Enabled() && v.step != userMenu && v.split.FocusLeft() {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
 				var cmd tea.Cmd
@@ -90,13 +95,13 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, v.triggerMenuAction(msg.ID)
 
 	case tui.MenuSelectMsg:
-		v.split.SetFocusLeft(false)
+		v.setFocus(false)
 		return v, v.triggerMenuAction(msg.ID)
 
 	case tui.InputResultMsg:
 		if msg.Cancelled {
 			v.step = userMenu
-			v.split.SetFocusLeft(true)
+			v.setFocus(true)
 			return v, nil
 		}
 		switch v.step {
@@ -122,7 +127,7 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case tui.ResultDismissedMsg:
 		v.step = userMenu
-		v.split.SetFocusLeft(true)
+		v.setFocus(true)
 		return v, nil
 
 	default:
@@ -130,7 +135,7 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			if keyMsg.Type == tea.KeyEsc {
 				if v.step != userMenu {
 					v.step = userMenu
-					v.split.SetFocusLeft(true)
+					v.setFocus(true)
 					return v, nil
 				}
 				return v, tui.BackCmd
@@ -138,11 +143,11 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			// Left/Right arrow toggles sub-split focus.
 			if v.split.Enabled() && v.step != userMenu {
 				if keyMsg.Type == tea.KeyLeft {
-					v.split.SetFocusLeft(true)
+					v.setFocus(true)
 					return v, nil
 				}
-				if keyMsg.Type == tea.KeyRight {
-					v.split.SetFocusLeft(false)
+				if keyMsg.Type == tea.KeyRight && v.HasInline() {
+					v.setFocus(false)
 					return v, nil
 				}
 			}
@@ -183,6 +188,10 @@ func (v *UserView) triggerMenuAction(id string) tea.Cmd {
 		return v.SetInline(components.NewSelectList("选择要删除的用户:", names))
 	}
 	return nil
+}
+
+func (v *UserView) IsSubSplitRightFocused() bool {
+	return v.split.Enabled() && !v.split.FocusLeft()
 }
 
 func (v *UserView) View() string {

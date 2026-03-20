@@ -38,6 +38,11 @@ func NewProtocolInstallView(model *tui.Model) *ProtocolInstallView {
 
 func (v *ProtocolInstallView) Name() string { return "protocol-install" }
 
+func (v *ProtocolInstallView) setFocus(left bool) {
+	v.split.SetFocusLeft(left)
+	v.menu = v.menu.SetDim(!left)
+}
+
 func (v *ProtocolInstallView) Init() tea.Cmd {
 	v.step = protoInstallMenu
 	v.split.SetFocusLeft(true)
@@ -68,7 +73,7 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, cmd
 	}
 	// In split mode, intercept up/down for menu navigation even when content is showing.
-	if v.split.Enabled() && v.step != protoInstallMenu {
+	if v.split.Enabled() && v.step != protoInstallMenu && v.split.FocusLeft() {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
 				var cmd tea.Cmd
@@ -83,15 +88,16 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	}
 	switch msg := msg.(type) {
 	case tui.MenuCursorChangeMsg:
-		return v, v.triggerMenuAction(msg.ID)
+		// Do not auto-preview — triggerMenuAction starts the install flow.
+		return v, nil
 	case tui.MenuSelectMsg:
-		v.split.SetFocusLeft(false)
+		v.setFocus(false)
 		return v, v.triggerMenuAction(msg.ID)
 
 	case tui.InputResultMsg:
 		if msg.Cancelled {
 			v.step = protoInstallMenu
-			v.split.SetFocusLeft(true)
+			v.setFocus(true)
 			return v, nil
 		}
 		pt := v.pendingType
@@ -139,6 +145,19 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEsc {
 			return v, tui.BackCmd
 		}
+		// Left/Right arrow toggles sub-split focus.
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			if v.split.Enabled() && v.step != protoInstallMenu {
+				if keyMsg.Type == tea.KeyLeft {
+					v.setFocus(true)
+					return v, nil
+				}
+				if keyMsg.Type == tea.KeyRight && v.HasInline() {
+					v.setFocus(false)
+					return v, nil
+				}
+			}
+		}
 		if v.step == protoInstallMenu {
 			var cmd tea.Cmd
 			v.menu, cmd = v.menu.Update(msg)
@@ -146,6 +165,10 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 	}
 	return v, inlineCmd
+}
+
+func (v *ProtocolInstallView) IsSubSplitRightFocused() bool {
+	return v.split.Enabled() && !v.split.FocusLeft()
 }
 
 func (v *ProtocolInstallView) View() string {

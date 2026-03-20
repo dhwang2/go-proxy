@@ -38,6 +38,11 @@ func NewProtocolRemoveView(model *tui.Model) *ProtocolRemoveView {
 
 func (v *ProtocolRemoveView) Name() string { return "protocol-remove" }
 
+func (v *ProtocolRemoveView) setFocus(left bool) {
+	v.split.SetFocusLeft(left)
+	v.menu = v.menu.SetDim(!left)
+}
+
 func (v *ProtocolRemoveView) Init() tea.Cmd {
 	v.step = protoRemoveMenu
 	v.pendingTag = ""
@@ -107,7 +112,7 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, cmd
 	}
 	// In split mode, intercept up/down for menu navigation even when content is showing.
-	if v.split.Enabled() && v.step != protoRemoveMenu {
+	if v.split.Enabled() && v.step != protoRemoveMenu && v.split.FocusLeft() {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
 				var cmd tea.Cmd
@@ -122,15 +127,16 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	}
 	switch msg := msg.(type) {
 	case tui.MenuCursorChangeMsg:
-		return v, v.triggerMenuAction(msg.ID)
+		// Do not auto-preview — triggerMenuAction starts the confirm dialog.
+		return v, nil
 	case tui.MenuSelectMsg:
-		v.split.SetFocusLeft(false)
+		v.setFocus(false)
 		return v, v.triggerMenuAction(msg.ID)
 
 	case tui.ConfirmResultMsg:
 		if !msg.Confirmed {
 			v.step = protoRemoveMenu
-			v.split.SetFocusLeft(true)
+			v.setFocus(true)
 			return v, nil
 		}
 		tag := v.pendingTag
@@ -162,6 +168,19 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEsc {
 			return v, tui.BackCmd
 		}
+		// Left/Right arrow toggles sub-split focus.
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			if v.split.Enabled() && v.step != protoRemoveMenu {
+				if keyMsg.Type == tea.KeyLeft {
+					v.setFocus(true)
+					return v, nil
+				}
+				if keyMsg.Type == tea.KeyRight && v.HasInline() {
+					v.setFocus(false)
+					return v, nil
+				}
+			}
+		}
 		if v.step == protoRemoveMenu {
 			var cmd tea.Cmd
 			v.menu, cmd = v.menu.Update(msg)
@@ -169,6 +188,10 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 	}
 	return v, inlineCmd
+}
+
+func (v *ProtocolRemoveView) IsSubSplitRightFocused() bool {
+	return v.split.Enabled() && !v.split.FocusLeft()
 }
 
 func (v *ProtocolRemoveView) View() string {
