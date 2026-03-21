@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -114,47 +115,80 @@ func checkService(name string) serviceStatusEntry {
 	return entry
 }
 
-// Cached service status to avoid shelling out on every View() call.
-// Separate caches for full and compact formats to prevent layout corruption
-// when both are rendered on the same frame in split-panel mode.
+// Shared async service status cache. Both full and compact renderers
+// read from the same cached entries without blocking.
 var (
-	cachedServiceStatus        string
-	serviceStatusExpiry        time.Time
-	cachedCompactServiceStatus string
-	compactServiceStatusExpiry time.Time
+	svcCacheMu      sync.RWMutex
+	svcCacheEntries  []serviceStatusEntry
+	svcCacheExpiry   time.Time
+	svcRefreshing    bool
 )
 
-const serviceStatusTTL = 5 * time.Second
+const serviceStatusTTL = 10 * time.Second
+
+var dashboardServices = []string{"sing-box", "snell-v5", "shadow-tls", "caddy-sub"}
+
+// Pre-rendered dot styles to avoid per-frame allocation.
+var (
+	dotGreen = lipgloss.NewStyle().Foreground(ColorSuccess).Render("●")
+	dotRed   = lipgloss.NewStyle().Foreground(ColorError).Render("●")
+	dotGray  = lipgloss.NewStyle().Foreground(ColorMuted).Render("●")
+)
+
+func serviceDot(e serviceStatusEntry) string {
+	if !e.exists {
+		return dotGray
+	}
+	if e.running {
+		return dotGreen
+	}
+	return dotRed
+}
+
+// refreshServiceCacheAsync triggers a background refresh if the cache is stale.
+func refreshServiceCacheAsync() {
+	svcCacheMu.Lock()
+	if svcRefreshing || time.Now().Before(svcCacheExpiry) {
+		svcCacheMu.Unlock()
+		return
+	}
+	svcRefreshing = true
+	svcCacheMu.Unlock()
+
+	go func() {
+		entries := make([]serviceStatusEntry, len(dashboardServices))
+		for i, svc := range dashboardServices {
+			entries[i] = checkService(svc)
+		}
+		svcCacheMu.Lock()
+		svcCacheEntries = entries
+		svcCacheExpiry = time.Now().Add(serviceStatusTTL)
+		svcRefreshing = false
+		svcCacheMu.Unlock()
+	}()
+}
+
+// getCachedEntries returns the current cached entries (may be nil on first call).
+func getCachedEntries() []serviceStatusEntry {
+	refreshServiceCacheAsync()
+	svcCacheMu.RLock()
+	defer svcCacheMu.RUnlock()
+	return svcCacheEntries
+}
 
 func renderServiceStatus() string {
-	now := time.Now()
-	if cachedServiceStatus != "" && now.Before(serviceStatusExpiry) {
-		return cachedServiceStatus
-	}
-
-	services := []string{"sing-box", "snell-v5", "shadow-tls", "caddy-sub"}
-
-	greenDot := lipgloss.NewStyle().Foreground(ColorSuccess).Render("●")
-	redDot := lipgloss.NewStyle().Foreground(ColorError).Render("●")
-	grayDot := lipgloss.NewStyle().Foreground(ColorMuted).Render("●")
-
+	entries := getCachedEntries()
 	var parts []string
-	for _, svc := range services {
-		entry := checkService(svc)
-		var dot string
-		if !entry.exists {
-			dot = grayDot
-		} else if entry.running {
-			dot = greenDot
-		} else {
-			dot = redDot
+	if entries == nil {
+		for _, svc := range dashboardServices {
+			parts = append(parts, dotGray+" "+svc)
 		}
-		parts = append(parts, fmt.Sprintf("%s %s", dot, svc))
+	} else {
+		for _, e := range entries {
+			parts = append(parts, serviceDot(e)+" "+e.name)
+		}
 	}
-	result := strings.Join(parts, "  ")
-	cachedServiceStatus = result
-	serviceStatusExpiry = now.Add(serviceStatusTTL)
-	return result
+	return strings.Join(parts, "  ")
 }
 
 // RenderCompactDashboard returns a compact dashboard for the narrow left panel.
@@ -199,45 +233,34 @@ func RenderCompactDashboard(s *store.Store, version string, width int) string {
 
 // renderCompactServiceStatus renders a brief service status for the narrow left panel.
 func renderCompactServiceStatus() string {
-	now := time.Now()
-	if cachedCompactServiceStatus != "" && now.Before(compactServiceStatusExpiry) {
-		return cachedCompactServiceStatus
-	}
+	entries := getCachedEntries()
 
-	services := []string{"sing-box", "snell-v5", "shadow-tls", "caddy-sub"}
-	greenDot := lipgloss.NewStyle().Foreground(ColorSuccess).Render("●")
-	redDot := lipgloss.NewStyle().Foreground(ColorError).Render("●")
-	grayDot := lipgloss.NewStyle().Foreground(ColorMuted).Render("●")
+	abbreviate := func(name string) string {
+		switch name {
+		case "sing-box":
+			return "sbox"
+		case "shadow-tls":
+			return "stls"
+		case "caddy-sub":
+			return "cdy"
+		case "snell-v5":
+			return "snl"
+		default:
+			return name
+		}
+	}
 
 	var parts []string
-	for _, svc := range services {
-		entry := checkService(svc)
-		var dot string
-		if !entry.exists {
-			dot = grayDot
-		} else if entry.running {
-			dot = greenDot
-		} else {
-			dot = redDot
+	if entries == nil {
+		for _, svc := range dashboardServices {
+			parts = append(parts, dotGray+" "+abbreviate(svc))
 		}
-		// Abbreviate service names for compact display.
-		short := svc
-		switch svc {
-		case "sing-box":
-			short = "sbox"
-		case "shadow-tls":
-			short = "stls"
-		case "caddy-sub":
-			short = "cdy"
-		case "snell-v5":
-			short = "snl"
+	} else {
+		for _, e := range entries {
+			parts = append(parts, serviceDot(e)+" "+abbreviate(e.name))
 		}
-		parts = append(parts, dot+" "+short)
 	}
-	result := strings.Join(parts, " ")
-	cachedCompactServiceStatus = result
-	compactServiceStatusExpiry = now.Add(serviceStatusTTL)
-	return result
+	return strings.Join(parts, " ")
 }
 
 func displayArch() string {
