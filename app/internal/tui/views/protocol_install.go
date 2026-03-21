@@ -11,6 +11,7 @@ import (
 	"go-proxy/internal/cert"
 	"go-proxy/internal/derived"
 	"go-proxy/internal/protocol"
+	"go-proxy/internal/service"
 	"go-proxy/internal/tui"
 	"go-proxy/internal/tui/components"
 )
@@ -237,10 +238,51 @@ func (v *ProtocolInstallView) triggerMenuAction(id string) tea.Cmd {
 	}
 	if len(names) == 1 {
 		v.pendingUser = names[0]
-		return v.startPortInput()
+		return v.startInstallOrAddUser()
 	}
 	v.step = protoInstallUser
 	return v.SetInline(components.NewSelectList("选择用户:", names))
+}
+
+// startInstallOrAddUser checks for an existing inbound; if found, adds user directly.
+// Otherwise proceeds to the port input flow.
+func (v *ProtocolInstallView) startInstallOrAddUser() tea.Cmd {
+	pt := v.pendingType
+
+	// Snell is single-user; block duplicate install.
+	if pt == protocol.Snell {
+		if v.model.Store().SnellConf != nil {
+			v.step = protoInstallResult
+			return v.SetInline(components.NewResult("Snell 已安装，不支持多用户"))
+		}
+		return v.startPortInput()
+	}
+
+	existing := protocol.FindExistingInbound(v.model.Store(), pt)
+	if existing != nil {
+		userName := v.pendingUser
+		v.step = protoInstallResult
+		return tea.Batch(
+			v.SetInline(components.NewSpinner("正在添加用户...")),
+			func() tea.Msg {
+				result, err := protocol.AddUserToExisting(v.model.Store(), existing, userName)
+				if err != nil {
+					return protoInstallDoneMsg{result: "添加用户失败: " + err.Error()}
+				}
+				if err := v.model.Store().Apply(); err != nil {
+					return protoInstallDoneMsg{result: "保存失败: " + err.Error()}
+				}
+				// Restart sing-box to load the updated user list.
+				_ = service.Restart(context.Background(), service.SingBox)
+				return protoInstallDoneMsg{
+					result: fmt.Sprintf("✓ 用户添加成功\n✓ 服务已重启\n\n协议: %s  端口: %d\nCredential: %s",
+						pt, result.Port, result.Credential),
+					installResult: result,
+				}
+			},
+		)
+	}
+	return v.startPortInput()
 }
 
 // startPortInput transitions to the port input step.
@@ -250,10 +292,10 @@ func (v *ProtocolInstallView) startPortInput() tea.Cmd {
 	return v.SetInline(components.NewTextInput("端口号:", fmt.Sprintf("%d", defaultPort)))
 }
 
-// handleUserSelect processes the selected user and proceeds to port input.
+// handleUserSelect processes the selected user and decides next step.
 func (v *ProtocolInstallView) handleUserSelect(name string) (tui.View, tea.Cmd) {
 	v.pendingUser = name
-	return v, v.startPortInput()
+	return v, v.startInstallOrAddUser()
 }
 
 // handlePortInput processes the submitted port and decides next step.

@@ -7,6 +7,93 @@ import (
 	"go-proxy/internal/store"
 )
 
+// FindExistingInbound returns the first inbound matching the given protocol type, or nil.
+// It distinguishes Reality vs non-Reality variants of the same sing-box type.
+func FindExistingInbound(s *store.Store, pt Type) *store.Inbound {
+	spec := Specs()[pt]
+	if spec.SingBoxType == "" {
+		return nil
+	}
+	for i := range s.SingBox.Inbounds {
+		ib := &s.SingBox.Inbounds[i]
+		if ib.Type != spec.SingBoxType {
+			continue
+		}
+		ibHasReality := ib.TLS != nil && ib.TLS.Reality != nil && ib.TLS.Reality.Enabled
+		if ibHasReality == spec.UsesReality {
+			return ib
+		}
+	}
+	return nil
+}
+
+// AddUserToExisting adds a new user to an existing inbound, generating appropriate credentials.
+func AddUserToExisting(s *store.Store, ib *store.Inbound, userName string) (*InstallResult, error) {
+	for _, u := range ib.Users {
+		if u.Name == userName {
+			return nil, fmt.Errorf("用户 %q 已存在", userName)
+		}
+	}
+
+	user := store.User{Name: userName}
+
+	switch ib.Type {
+	case "vless":
+		uuid, err := crypto.GenerateUUID()
+		if err != nil {
+			return nil, err
+		}
+		user.UUID = uuid
+		user.Flow = "xtls-rprx-vision"
+		ib.Users = append(ib.Users, user)
+		s.MarkDirty(store.FileSingBox)
+		return &InstallResult{Tag: ib.Tag, Port: ib.ListenPort, Credential: uuid}, nil
+
+	case "trojan", "anytls":
+		password, err := crypto.GeneratePassword(16)
+		if err != nil {
+			return nil, err
+		}
+		user.Password = password
+		ib.Users = append(ib.Users, user)
+		s.MarkDirty(store.FileSingBox)
+		return &InstallResult{Tag: ib.Tag, Port: ib.ListenPort, Credential: password}, nil
+
+	case "tuic":
+		uuid, err := crypto.GenerateUUID()
+		if err != nil {
+			return nil, err
+		}
+		password, err := crypto.GeneratePassword(16)
+		if err != nil {
+			return nil, err
+		}
+		user.UUID = uuid
+		user.Password = password
+		ib.Users = append(ib.Users, user)
+		s.MarkDirty(store.FileSingBox)
+		return &InstallResult{Tag: ib.Tag, Port: ib.ListenPort, Credential: uuid}, nil
+
+	case "shadowsocks":
+		method := ib.Method
+		if method == "" {
+			method = crypto.DefaultSSMethod
+		}
+		keySize := crypto.SSKeySize(method)
+		userKey, err := crypto.GenerateSSKey(keySize)
+		if err != nil {
+			return nil, err
+		}
+		user.Password = userKey
+		ib.Users = append(ib.Users, user)
+		s.MarkDirty(store.FileSingBox)
+		return &InstallResult{Tag: ib.Tag, Port: ib.ListenPort, Credential: userKey}, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported inbound type for adding user: %s", ib.Type)
+	}
+}
+
 // InstallParams holds the parameters needed to install a protocol.
 type InstallParams struct {
 	ProtoType Type

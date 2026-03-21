@@ -238,14 +238,16 @@ func (v *UserView) listUsers() tea.Msg {
 	}
 	nameWidth += 2 // padding
 
+	sb.WriteString("  ")
 	sb.WriteString(labelStyle.Render(fmt.Sprintf("%-*s", nameWidth, "用户列表")))
 	sb.WriteString(labelStyle.Render("协议"))
 	sb.WriteString("\n")
+	sb.WriteString("  ")
 	sb.WriteString(sepStyle.Render(strings.Repeat("─", 42)))
 	sb.WriteString("\n")
 
 	if len(users) == 0 {
-		sb.WriteString("暂无用户\n")
+		sb.WriteString("  暂无用户\n")
 	}
 	for _, u := range users {
 		protoSummary := "(无协议)"
@@ -261,6 +263,7 @@ func (v *UserView) listUsers() tea.Msg {
 			sort.Strings(parts)
 			protoSummary = strings.Join(parts, ", ")
 		}
+		sb.WriteString("  ")
 		sb.WriteString(labelStyle.Render(fmt.Sprintf("%-*s", nameWidth, u.Name)))
 		sb.WriteString(valStyle.Render(protoSummary))
 		sb.WriteString("\n")

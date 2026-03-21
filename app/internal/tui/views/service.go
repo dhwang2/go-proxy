@@ -276,6 +276,7 @@ func (v *ServiceView) doStatusTable() tea.Msg {
 	sb.WriteString("\n")
 
 	// --- Section 2: Service status ---
+	yellowDot := lipgloss.NewStyle().Foreground(lipgloss.Color("#E5C07B")).Render("●")
 	for _, extra := range []struct {
 		name    string
 		svcName service.Name
@@ -289,8 +290,13 @@ func (v *ServiceView) doStatusTable() tea.Msg {
 		st, _ := service.GetStatus(ctx, extra.svcName)
 		var dot, statusText string
 		if st == nil {
-			dot = grayCircle
-			statusText = "未安装"
+			if service.BinaryInstalled(extra.svcName) {
+				dot = yellowDot
+				statusText = "已安装(未运行)"
+			} else {
+				dot = grayCircle
+				statusText = "未安装"
+			}
 		} else if st.Running {
 			dot = greenDot
 			statusText = "运行中"

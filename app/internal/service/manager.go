@@ -3,9 +3,12 @@ package service
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
+
+	"go-proxy/internal/config"
 )
 
 // Name represents a managed service.
@@ -62,6 +65,25 @@ func Disable(ctx context.Context, name Name) error {
 // IsInstalled checks whether a systemd unit file exists for the service.
 func IsInstalled(ctx context.Context, name Name) bool {
 	_, err := systemctlOutput(ctx, "cat", string(name))
+	return err == nil
+}
+
+// BinaryInstalled checks whether the managed binary for a service exists on disk.
+func BinaryInstalled(name Name) bool {
+	var path string
+	switch name {
+	case SingBox:
+		path = config.SingBoxBin
+	case Snell:
+		path = config.SnellBin
+	case ShadowTLS:
+		path = config.ShadowTLSBin
+	case CaddySub:
+		path = config.CaddyBin
+	default:
+		return false
+	}
+	_, err := os.Stat(path)
 	return err == nil
 }
 

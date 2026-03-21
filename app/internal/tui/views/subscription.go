@@ -47,6 +47,9 @@ func (v *SubscriptionView) Init() tea.Cmd {
 	v.viewport = viewport.New(w, h)
 	v.viewport.SetContent(content)
 	v.ready = true
+	if len(v.links) > 0 {
+		v.selectedLink = 0
+	}
 	return nil
 }
 
@@ -76,13 +79,7 @@ func (v *SubscriptionView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyEsc:
 			return v, tui.BackCmd
-		case tea.KeyTab:
-			if len(v.links) > 0 {
-				v.selectedLink = (v.selectedLink + 1) % len(v.links)
-				v.viewport.SetContent(v.renderAllLinks())
-			}
-			return v, nil
-		case tea.KeyShiftTab:
+		case tea.KeyUp:
 			if len(v.links) > 0 {
 				if v.selectedLink <= 0 {
 					v.selectedLink = len(v.links) - 1
@@ -92,39 +89,18 @@ func (v *SubscriptionView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				v.viewport.SetContent(v.renderAllLinks())
 			}
 			return v, nil
-		case tea.KeyEnter:
+		case tea.KeyDown:
+			if len(v.links) > 0 {
+				v.selectedLink = (v.selectedLink + 1) % len(v.links)
+				v.viewport.SetContent(v.renderAllLinks())
+			}
+			return v, nil
+		case tea.KeyCtrlC:
 			if v.selectedLink >= 0 && v.selectedLink < len(v.links) {
 				content := v.links[v.selectedLink]
 				return v, v.doCopy(content)
 			}
 			return v, nil
-		}
-		// 'n' / 'p' / 'c' key shortcuts
-		if msg.Type == tea.KeyRunes {
-			switch msg.String() {
-			case "n":
-				if len(v.links) > 0 {
-					v.selectedLink = (v.selectedLink + 1) % len(v.links)
-					v.viewport.SetContent(v.renderAllLinks())
-				}
-				return v, nil
-			case "p":
-				if len(v.links) > 0 {
-					if v.selectedLink <= 0 {
-						v.selectedLink = len(v.links) - 1
-					} else {
-						v.selectedLink--
-					}
-					v.viewport.SetContent(v.renderAllLinks())
-				}
-				return v, nil
-			case "c":
-				if v.selectedLink >= 0 && v.selectedLink < len(v.links) {
-					content := v.links[v.selectedLink]
-					return v, v.doCopy(content)
-				}
-				return v, nil
-			}
 		}
 	}
 	if v.ready {
@@ -263,9 +239,16 @@ func (v *SubscriptionView) renderAllLinks() string {
 		v.selectedLink = len(v.links) - 1
 	}
 
-	// Footer hint
+	// Footer hint (right-aligned)
 	hintStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
-	sb.WriteString(hintStyle.Render("Tab/n:下一个  Shift+Tab/p:上一个  Enter/c:复制"))
+	hint := hintStyle.Render("选择(上下键) | 复制(ctrl+c)")
+	hintWidth := lipgloss.Width(hint)
+	padding := w - hintWidth
+	if padding < 0 {
+		padding = 0
+	}
+	sb.WriteString(strings.Repeat(" ", padding))
+	sb.WriteString(hint)
 	sb.WriteString("\n")
 
 	return sb.String()

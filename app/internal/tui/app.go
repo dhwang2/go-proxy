@@ -295,7 +295,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
-		if key.Matches(msg, Keys.Quit) {
+		if key.Matches(msg, Keys.Quit) && !(m.current == "subscription" && m.focus == FocusRight) {
 			return m, tea.Quit
 		}
 
