@@ -43,10 +43,17 @@ func WriteDomain(domain string) error {
 	return os.WriteFile(config.DomainFile, []byte(domain+"\n"), 0644)
 }
 
+// DefaultEmail returns the default Let's Encrypt email for a domain,
+// stripping any "www." prefix so the address is valid.
+func DefaultEmail(domain string) string {
+	host := strings.TrimPrefix(domain, "www.")
+	return "admin@" + host
+}
+
 // GenerateCaddyfile creates a Caddyfile for TLS certificate issuance.
 func GenerateCaddyfile(domain, email string) error {
 	if email == "" {
-		email = "admin@" + domain
+		email = DefaultEmail(domain)
 	}
 	content := fmt.Sprintf(`{
     email %s

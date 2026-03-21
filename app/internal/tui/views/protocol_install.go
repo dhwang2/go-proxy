@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"go-proxy/internal/cert"
+	"go-proxy/internal/derived"
 	"go-proxy/internal/protocol"
 	"go-proxy/internal/tui"
 	"go-proxy/internal/tui/components"
@@ -21,6 +22,7 @@ type ProtocolInstallView struct {
 	split         tui.SubSplitModel
 	step          protoInstallStep
 	pendingType   protocol.Type
+	pendingUser   string
 	pendingPort   int
 	pendingDomain string
 	pendingEmail  string
@@ -31,6 +33,7 @@ type protoInstallStep int
 
 const (
 	protoInstallMenu protoInstallStep = iota
+	protoInstallUser
 	protoInstallPort
 	protoInstallDomain
 	protoInstallEmail
@@ -108,6 +111,8 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, nil
 		}
 		switch v.step {
+		case protoInstallUser:
+			return v.handleUserSelect(msg.Value)
 		case protoInstallPort:
 			return v.handlePortInput(msg.Value)
 		case protoInstallDomain:
@@ -219,15 +224,36 @@ func (v *ProtocolInstallView) View() string {
 }
 
 // triggerMenuAction executes the action for the given menu item ID.
-// All protocols go to port input first (shell-proxy order).
+// Selects user first, then port (shell-proxy order).
 func (v *ProtocolInstallView) triggerMenuAction(id string) tea.Cmd {
 	v.pendingType = protocol.Type(id)
+	v.pendingUser = ""
 	v.pendingPort = 0
 	v.pendingDomain = ""
 	v.pendingEmail = ""
+	names := derived.UserNames(v.model.Store())
+	if len(names) == 0 {
+		return v.SetInline(components.NewResult("请先添加用户"))
+	}
+	if len(names) == 1 {
+		v.pendingUser = names[0]
+		return v.startPortInput()
+	}
+	v.step = protoInstallUser
+	return v.SetInline(components.NewSelectList("选择用户:", names))
+}
+
+// startPortInput transitions to the port input step.
+func (v *ProtocolInstallView) startPortInput() tea.Cmd {
 	defaultPort := v.computeDefaultPort(v.pendingType)
 	v.step = protoInstallPort
 	return v.SetInline(components.NewTextInput("端口号:", fmt.Sprintf("%d", defaultPort)))
+}
+
+// handleUserSelect processes the selected user and proceeds to port input.
+func (v *ProtocolInstallView) handleUserSelect(name string) (tui.View, tea.Cmd) {
+	v.pendingUser = name
+	return v, v.startPortInput()
 }
 
 // handlePortInput processes the submitted port and decides next step.
@@ -278,8 +304,7 @@ func (v *ProtocolInstallView) handleDomainInput(domain string) (tui.View, tea.Cm
 	}
 	// Need to issue cert — ask for email first.
 	v.step = protoInstallEmail
-	defaultEmail := "admin@" + domain
-	return v, v.SetInline(components.NewTextInput("邮箱 (用于 Let's Encrypt):", defaultEmail))
+	return v, v.SetInline(components.NewTextInput("邮箱 (用于 Let's Encrypt):", cert.DefaultEmail(domain)))
 }
 
 // handleEmailInput processes the submitted email and starts cert issuance.
@@ -327,7 +352,7 @@ func (v *ProtocolInstallView) doInstallWithPort(pt protocol.Type, port int) tea.
 	params := protocol.InstallParams{
 		ProtoType: pt,
 		Port:      port,
-		UserName:  "user",
+		UserName:  v.pendingUser,
 		Domain:    v.pendingDomain,
 	}
 
@@ -399,7 +424,7 @@ func (v *ProtocolInstallView) doShadowTLSForSnell(snellPort int) tea.Msg {
 	params := protocol.InstallParams{
 		ProtoType: protocol.ShadowTLS,
 		Port:      stPort,
-		UserName:  "user",
+		UserName:  v.pendingUser,
 	}
 
 	ctx := context.Background()
