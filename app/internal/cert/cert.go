@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"go-proxy/internal/config"
+	"go-proxy/internal/core"
+	"go-proxy/internal/service"
 )
 
 var domainRe = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`)
@@ -110,19 +112,76 @@ func RestartCaddySub(ctx context.Context) error {
 }
 
 // EnsureCertificate orchestrates the full certificate issuance flow:
-// check existing -> write domain -> generate Caddyfile -> restart caddy -> wait for cert.
-func EnsureCertificate(ctx context.Context, domain, email string) error {
+// check existing -> ensure caddy binary -> ensure caddy-sub unit -> write domain ->
+// generate Caddyfile -> restart caddy -> wait for cert.
+// The optional progress callback is called with status strings during the flow.
+func EnsureCertificate(ctx context.Context, domain, email string, progress func(string)) error {
 	if CertExists(domain) {
 		return nil
+	}
+
+	// Step 1: Ensure caddy binary exists.
+	if progress != nil {
+		progress("正在检查 caddy...")
+	}
+	if _, err := os.Stat(config.CaddyBin); os.IsNotExist(err) {
+		if progress != nil {
+			progress("正在安装 caddy...")
+		}
+		if err := downloadCaddy(ctx); err != nil {
+			return fmt.Errorf("caddy 安装失败: %w", err)
+		}
+	}
+
+	// Step 2: Ensure caddy-sub systemd unit exists.
+	if _, err := os.Stat(config.CaddySubService); os.IsNotExist(err) {
+		if progress != nil {
+			progress("正在配置 caddy 服务...")
+		}
+		if err := service.ProvisionCaddySub(ctx); err != nil {
+			return fmt.Errorf("caddy 服务配置失败: %w", err)
+		}
+	}
+
+	// Step 3: Write domain file.
+	if progress != nil {
+		progress("正在配置域名...")
 	}
 	if err := WriteDomain(domain); err != nil {
 		return fmt.Errorf("写入域名文件失败: %w", err)
 	}
+
+	// Step 4: Generate Caddyfile.
+	if progress != nil {
+		progress("正在生成证书配置...")
+	}
 	if err := GenerateCaddyfile(domain, email); err != nil {
 		return fmt.Errorf("生成 Caddyfile 失败: %w", err)
+	}
+
+	// Step 5: Restart caddy-sub.
+	if progress != nil {
+		progress("正在启动证书服务...")
 	}
 	if err := RestartCaddySub(ctx); err != nil {
 		return fmt.Errorf("重启 caddy-sub 失败: %w", err)
 	}
+
+	// Step 6: Wait for cert.
+	if progress != nil {
+		progress("等待证书签发...")
+	}
 	return WaitForCert(ctx, domain, 120*time.Second)
+}
+
+// downloadCaddy downloads the caddy binary using the GitHub release mechanism.
+func downloadCaddy(ctx context.Context) error {
+	check, err := core.CheckUpdate(ctx, core.CompCaddy, config.CaddyBin)
+	if err != nil {
+		return fmt.Errorf("check caddy release: %w", err)
+	}
+	if check.DownloadURL == "" {
+		return fmt.Errorf("no download URL found for caddy")
+	}
+	return core.DownloadBinary(ctx, check.DownloadURL, config.CaddyBin)
 }

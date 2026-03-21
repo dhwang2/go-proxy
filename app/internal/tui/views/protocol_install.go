@@ -21,7 +21,9 @@ type ProtocolInstallView struct {
 	split         tui.SubSplitModel
 	step          protoInstallStep
 	pendingType   protocol.Type
+	pendingPort   int
 	pendingDomain string
+	pendingEmail  string
 	lastResult    *protocol.InstallResult
 }
 
@@ -29,9 +31,10 @@ type protoInstallStep int
 
 const (
 	protoInstallMenu protoInstallStep = iota
-	protoInstallDomain
-	protoInstallCert
 	protoInstallPort
+	protoInstallDomain
+	protoInstallEmail
+	protoInstallCert
 	protoInstallResult
 	protoInstallShadowTLSPrompt
 )
@@ -104,26 +107,30 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.setFocus(true)
 			return v, nil
 		}
-		if v.step == protoInstallDomain {
+		switch v.step {
+		case protoInstallPort:
+			return v.handlePortInput(msg.Value)
+		case protoInstallDomain:
 			return v.handleDomainInput(msg.Value)
+		case protoInstallEmail:
+			return v.handleEmailInput(msg.Value)
 		}
-		pt := v.pendingType
-		portStr := msg.Value
-		return v, tea.Batch(
-			v.SetInline(components.NewSpinner("正在安装依赖...")),
-			func() tea.Msg {
-				return v.doInstall(pt, portStr)
-			},
-		)
 
 	case certDoneMsg:
 		if msg.err != nil {
 			v.step = protoInstallResult
 			return v, v.SetInline(components.NewResult("证书申请失败: " + msg.err.Error()))
 		}
-		v.step = protoInstallPort
-		defaultPort := v.computeDefaultPort(v.pendingType)
-		return v, v.SetInline(components.NewTextInput("端口号:", fmt.Sprintf("%d", defaultPort)))
+		// Cert done — proceed to install with cached port.
+		v.step = protoInstallResult
+		port := v.pendingPort
+		pt := v.pendingType
+		return v, tea.Batch(
+			v.SetInline(components.NewSpinner("正在安装依赖...")),
+			func() tea.Msg {
+				return v.doInstallWithPort(pt, port)
+			},
+		)
 
 	case protoInstallDoneMsg:
 		v.step = protoInstallResult
@@ -149,7 +156,8 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 			// User declined; show the original result.
 			v.step = protoInstallResult
-			return v, v.SetInline(components.NewResult(fmt.Sprintf("安装 snell 端口 %d 成功\nPSK: %s",
+			return v, v.SetInline(components.NewResult(fmt.Sprintf(
+				"✓ 依赖安装完成\n✓ 协议配置写入成功\n✓ 服务已重启\n\n协议: snell  端口: %d\nCredential: %s",
 				v.lastResult.Port, v.lastResult.Credential)))
 		}
 
@@ -211,17 +219,43 @@ func (v *ProtocolInstallView) View() string {
 }
 
 // triggerMenuAction executes the action for the given menu item ID.
+// All protocols go to port input first (shell-proxy order).
 func (v *ProtocolInstallView) triggerMenuAction(id string) tea.Cmd {
 	v.pendingType = protocol.Type(id)
-	spec := protocol.Specs()[v.pendingType]
-	if spec.NeedsTLS && !spec.UsesReality {
-		v.step = protoInstallDomain
-		existing := cert.ReadDomain()
-		return v.SetInline(components.NewTextInput("域名 (用于 TLS 证书):", existing))
-	}
+	v.pendingPort = 0
+	v.pendingDomain = ""
+	v.pendingEmail = ""
 	defaultPort := v.computeDefaultPort(v.pendingType)
 	v.step = protoInstallPort
 	return v.SetInline(components.NewTextInput("端口号:", fmt.Sprintf("%d", defaultPort)))
+}
+
+// handlePortInput processes the submitted port and decides next step.
+func (v *ProtocolInstallView) handlePortInput(portStr string) (tui.View, tea.Cmd) {
+	var port int
+	fmt.Sscanf(portStr, "%d", &port)
+	if port <= 0 || port > 65535 {
+		defaultPort := v.computeDefaultPort(v.pendingType)
+		v.step = protoInstallPort
+		return v, v.SetInline(components.NewTextInput("端口号无效，请重新输入:", fmt.Sprintf("%d", defaultPort)))
+	}
+	v.pendingPort = port
+
+	spec := protocol.Specs()[v.pendingType]
+	if spec.NeedsTLS && !spec.UsesReality {
+		// TLS non-Reality: ask for domain next.
+		v.step = protoInstallDomain
+		existing := cert.ReadDomain()
+		return v, v.SetInline(components.NewTextInput("域名 (用于 TLS 证书):", existing))
+	}
+	// Non-TLS or Reality: go straight to install.
+	pt := v.pendingType
+	return v, tea.Batch(
+		v.SetInline(components.NewSpinner("正在安装依赖...")),
+		func() tea.Msg {
+			return v.doInstallWithPort(pt, port)
+		},
+	)
 }
 
 // handleDomainInput processes the submitted domain and decides next step.
@@ -232,16 +266,32 @@ func (v *ProtocolInstallView) handleDomainInput(domain string) (tui.View, tea.Cm
 	}
 	v.pendingDomain = domain
 	if cert.CertExists(domain) {
-		v.step = protoInstallPort
-		defaultPort := v.computeDefaultPort(v.pendingType)
-		return v, v.SetInline(components.NewTextInput("端口号:", fmt.Sprintf("%d", defaultPort)))
+		// Cert already exists — go straight to install.
+		pt := v.pendingType
+		port := v.pendingPort
+		return v, tea.Batch(
+			v.SetInline(components.NewSpinner("正在安装依赖...")),
+			func() tea.Msg {
+				return v.doInstallWithPort(pt, port)
+			},
+		)
 	}
+	// Need to issue cert — ask for email first.
+	v.step = protoInstallEmail
+	defaultEmail := "admin@" + domain
+	return v, v.SetInline(components.NewTextInput("邮箱 (用于 Let's Encrypt):", defaultEmail))
+}
+
+// handleEmailInput processes the submitted email and starts cert issuance.
+func (v *ProtocolInstallView) handleEmailInput(email string) (tui.View, tea.Cmd) {
+	v.pendingEmail = email
 	v.step = protoInstallCert
-	d := domain
+	d := v.pendingDomain
+	e := email
 	return v, tea.Batch(
 		v.SetInline(components.NewSpinner("证书申请中...")),
 		func() tea.Msg {
-			err := cert.EnsureCertificate(context.Background(), d, "")
+			err := cert.EnsureCertificate(context.Background(), d, e, nil)
 			return certDoneMsg{err: err}
 		},
 	)
@@ -273,13 +323,7 @@ func (v *ProtocolInstallView) computeDefaultPort(pt protocol.Type) int {
 	return protocol.DefaultPort(pt, v.collectUsedPorts())
 }
 
-func (v *ProtocolInstallView) doInstall(pt protocol.Type, portStr string) tea.Msg {
-	var port int
-	fmt.Sscanf(portStr, "%d", &port)
-	if port <= 0 || port > 65535 {
-		return protoInstallDoneMsg{result: "端口号无效"}
-	}
-
+func (v *ProtocolInstallView) doInstallWithPort(pt protocol.Type, port int) tea.Msg {
 	params := protocol.InstallParams{
 		ProtoType: pt,
 		Port:      port,
@@ -302,7 +346,7 @@ func (v *ProtocolInstallView) doInstall(pt protocol.Type, portStr string) tea.Ms
 	if err != nil {
 		msg := "协议安装失败: " + err.Error()
 		if depReport != "" {
-			msg = "依赖安装完成\n\n" + depReport + "\n" + msg
+			msg = "✓ 依赖安装完成\n\n" + depReport + "\n" + msg
 		}
 		return protoInstallDoneMsg{result: msg}
 	}
@@ -310,14 +354,28 @@ func (v *ProtocolInstallView) doInstall(pt protocol.Type, portStr string) tea.Ms
 		return protoInstallDoneMsg{result: "保存失败: " + err.Error()}
 	}
 
-	msg := fmt.Sprintf("安装 %s 端口 %d 成功\nTag: %s\nCredential: %s",
-		pt, result.Port, result.Tag, result.Credential)
-	if result.PublicKey != "" {
-		msg += "\nPublic Key: " + result.PublicKey
+	var lines []string
+	if v.pendingDomain != "" {
+		lines = append(lines, "✓ 证书申请成功")
 	}
 	if depReport != "" {
-		msg = "依赖安装\n" + depReport + "\n" + msg
+		lines = append(lines, "✓ 依赖安装完成")
 	}
+	lines = append(lines, "✓ 协议配置写入成功")
+	lines = append(lines, "✓ 服务已重启")
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("协议: %s  端口: %d", pt, result.Port))
+	if result.Credential != "" {
+		lines = append(lines, "Credential: "+result.Credential)
+	}
+	if result.PublicKey != "" {
+		lines = append(lines, "Public Key: "+result.PublicKey)
+	}
+	if depReport != "" {
+		lines = append(lines, "")
+		lines = append(lines, depReport)
+	}
+	msg := strings.Join(lines, "\n")
 	return protoInstallDoneMsg{result: msg, installResult: result}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -23,8 +24,12 @@ type Asset struct {
 }
 
 // FindAssetURL finds the first asset URL matching the given pattern.
+// The pattern supports glob wildcards (e.g., "caddy_*_linux_amd64").
 func (r *Release) FindAssetURL(pattern string) string {
 	for _, a := range r.Assets {
+		if matched, _ := filepath.Match(pattern, a.Name); matched {
+			return a.BrowserDownloadURL
+		}
 		if strings.Contains(a.Name, pattern) {
 			return a.BrowserDownloadURL
 		}
