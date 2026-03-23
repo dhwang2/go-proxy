@@ -8,6 +8,16 @@ import (
 
 // Remove removes a protocol inbound from the store by tag.
 func Remove(s *store.Store, tag string) error {
+	if tag == store.SnellTag {
+		if s.SnellConf == nil {
+			return fmt.Errorf("inbound %q not found", tag)
+		}
+		s.SnellConf = nil
+		s.MarkDirty(store.FileSnellConf)
+		cleanupUserMeta(s, tag)
+		return nil
+	}
+
 	idx := -1
 	for i, ib := range s.SingBox.Inbounds {
 		if ib.Tag == tag {

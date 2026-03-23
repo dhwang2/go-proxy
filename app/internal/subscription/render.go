@@ -37,19 +37,29 @@ func Render(s *store.Store, userName string, format Format, host string) []Link 
 
 	var links []Link
 	for _, entry := range entries {
-		ib := derived.FindInbound(s, entry.Tag)
-		if ib == nil {
-			continue
-		}
 		var content string
-		switch format {
-		case FormatSurge:
-			content = renderSurge(ib, entry, host)
-		case FormatSingBox:
-			content = renderSingBox(ib, entry, host)
-		case FormatURI:
-			content = renderURI(ib, entry, host)
-		default:
+		if entry.Tag == store.SnellTag {
+			if format != FormatSurge || s.SnellConf == nil {
+				continue
+			}
+			content = renderSnellSurge(entry, s.SnellConf, host)
+		} else {
+			ib := derived.FindInbound(s, entry.Tag)
+			if ib == nil {
+				continue
+			}
+			switch format {
+			case FormatSurge:
+				content = renderSurge(ib, entry, host)
+			case FormatSingBox:
+				content = renderSingBox(ib, entry, host)
+			case FormatURI:
+				content = renderURI(ib, entry, host)
+			default:
+				continue
+			}
+		}
+		if content == "" {
 			continue
 		}
 		links = append(links, Link{

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -56,6 +58,8 @@ func main() {
 		fmt.Println("self-update not yet implemented in CLI mode")
 	case "log":
 		cmdLog()
+	case "watchdog":
+		cmdWatchdog()
 	case "init", "setup":
 		cmdInit()
 	case "core":
@@ -494,6 +498,16 @@ func cmdInit() {
 	}
 
 	fmt.Println("initialization complete")
+}
+
+func cmdWatchdog() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := service.RunWatchdog(ctx, service.DefaultWatchdogConfig()); err != nil && err != context.Canceled {
+		fmt.Fprintf(os.Stderr, "watchdog error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func printUsage() {

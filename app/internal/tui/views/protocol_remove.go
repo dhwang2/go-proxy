@@ -9,6 +9,7 @@ import (
 
 	"go-proxy/internal/derived"
 	"go-proxy/internal/protocol"
+	"go-proxy/internal/store"
 	"go-proxy/internal/tui"
 	"go-proxy/internal/tui/components"
 )
@@ -229,7 +230,7 @@ func (v *ProtocolRemoveView) View() string {
 
 // triggerMenuAction executes the action for the given menu item ID.
 func (v *ProtocolRemoveView) triggerMenuAction(id string) tea.Cmd {
-	if derived.FindInbound(v.model.Store(), id) == nil {
+	if id != store.SnellTag && derived.FindInbound(v.model.Store(), id) == nil {
 		return nil
 	}
 	v.pendingTag = id

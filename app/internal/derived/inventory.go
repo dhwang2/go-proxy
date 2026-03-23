@@ -28,6 +28,16 @@ func Inventory(s *store.Store) []ProtocolInfo {
 		}
 		result = append(result, info)
 	}
+	if s.SnellConf != nil {
+		if port := s.SnellConf.Port(); port > 0 {
+			result = append(result, ProtocolInfo{
+				Type:      store.SnellTag,
+				Tag:       store.SnellTag,
+				Port:      port,
+				UserCount: 1,
+			})
+		}
+	}
 	return result
 }
 
@@ -37,6 +47,11 @@ func OccupiedPorts(s *store.Store) map[int]string {
 	for _, ib := range s.SingBox.Inbounds {
 		if ib.ListenPort > 0 {
 			ports[ib.ListenPort] = ib.Tag
+		}
+	}
+	if s.SnellConf != nil {
+		if port := s.SnellConf.Port(); port > 0 {
+			ports[port] = store.SnellTag
 		}
 	}
 	return ports

@@ -44,8 +44,7 @@ func Load() (*Store, error) {
 		return nil, fmt.Errorf("load %s: %w", FileSingBox, err)
 	}
 	s.SingBox = sb
-	s.SingBox.CleanDNSServers()
-	s.SingBox.EnsureDefaultDomainResolver()
+	s.SingBox.Normalize()
 
 	// user-management.json
 	um, err := loadJSON[UserManagement](config.UserMetaFile)
@@ -174,6 +173,7 @@ func (s *Store) Apply() error {
 func (s *Store) saveFile(file string) error {
 	switch file {
 	case FileSingBox:
+		s.SingBox.Normalize()
 		return writeJSON(config.SingBoxConfig, s.SingBox)
 	case FileUserMeta:
 		return writeJSON(config.UserMetaFile, s.UserMeta)
@@ -183,6 +183,9 @@ func (s *Store) saveFile(file string) error {
 		return writeJSON(config.UserTemplateFile, s.UserTemplate)
 	case FileSnellConf:
 		if s.SnellConf == nil {
+			if err := os.Remove(config.SnellConfigFile); err != nil && !os.IsNotExist(err) {
+				return err
+			}
 			return nil
 		}
 		return fileutil.AtomicWrite(config.SnellConfigFile, s.SnellConf.MarshalSnellConfig())

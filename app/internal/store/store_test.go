@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"go-proxy/internal/config"
@@ -125,14 +126,23 @@ func TestSnellRoundtrip(t *testing.T) {
 	if conf.PSK != "testpsk123" {
 		t.Errorf("PSK = %q, want testpsk123", conf.PSK)
 	}
+	if conf.Obfs != "off" {
+		t.Errorf("Obfs = %q, want off", conf.Obfs)
+	}
 
 	output := string(conf.MarshalSnellConfig())
+	if !strings.HasPrefix(output, "[snell-server]\n") {
+		t.Fatalf("MarshalSnellConfig() header = %q, want [snell-server]", output)
+	}
 	conf2, err := ParseSnellConfig(output)
 	if err != nil {
 		t.Fatalf("re-parse error: %v", err)
 	}
 	if conf2.Listen != conf.Listen || conf2.PSK != conf.PSK {
 		t.Error("roundtrip mismatch")
+	}
+	if conf2.Obfs != "off" || conf2.IPv6 || conf2.UDP {
+		t.Fatalf("roundtrip snell defaults mismatch: %+v", conf2)
 	}
 }
 
@@ -141,5 +151,171 @@ func TestUserKey(t *testing.T) {
 	want := "vless|vless_8443|test-uuid"
 	if key != want {
 		t.Errorf("UserKey = %q, want %q", key, want)
+	}
+}
+
+func TestSaveRemovesSnellConfigWhenUnset(t *testing.T) {
+	cleanup := setupTestDir(t)
+	defer cleanup()
+
+	if err := os.WriteFile(config.SnellConfigFile, []byte("[snell server]\nlisten = 0.0.0.0:8448\npsk = testpsk\n"), 0644); err != nil {
+		t.Fatalf("write snell config: %v", err)
+	}
+
+	s, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	s.SnellConf = nil
+	s.MarkDirty(FileSnellConf)
+	if err := s.Save(); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+	if _, err := os.Stat(config.SnellConfigFile); !os.IsNotExist(err) {
+		t.Fatalf("snell config should be removed, stat err = %v", err)
+	}
+}
+
+func TestRoundtripPreservesShellProxyBaselineFields(t *testing.T) {
+	cleanup := setupTestDir(t)
+	defer cleanup()
+
+	raw := []byte(`{
+  "log": {
+    "disabled": false,
+    "level": "error",
+    "output": "/etc/go-proxy/logs/sing-box.log",
+    "timestamp": true
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true
+    }
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "public4",
+        "type": "https",
+        "server": "8.8.8.8",
+        "server_port": 443
+      }
+    ],
+    "rules": [],
+    "final": "public4",
+    "strategy": "prefer_ipv4",
+    "reverse_mapping": true,
+    "independent_cache": true,
+    "cache_capacity": 8192
+  },
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "🐸 direct"
+    }
+  ],
+  "route": {
+    "final": "🐸 direct",
+    "default_domain_resolver": "public4",
+    "rules": [
+      {
+        "action": "sniff",
+        "sniffer": ["http", "tls", "quic", "dns"]
+      },
+      {
+        "ip_is_private": true,
+        "action": "route",
+        "outbound": "🐸 direct"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      }
+    ],
+    "rule_set": []
+  }
+}`)
+	if err := os.WriteFile(config.SingBoxConfig, raw, 0644); err != nil {
+		t.Fatalf("write sing-box config: %v", err)
+	}
+
+	s, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	s.MarkDirty(FileSingBox)
+	if err := s.Save(); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	data, err := os.ReadFile(config.SingBoxConfig)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("unmarshal saved config: %v", err)
+	}
+
+	logMap := parsed["log"].(map[string]any)
+	if _, ok := logMap["disabled"]; !ok {
+		t.Fatal("saved log config is missing disabled")
+	}
+	if got := logMap["output"]; got != "/etc/go-proxy/logs/sing-box.log" {
+		t.Fatalf("log.output = %v, want /etc/go-proxy/logs/sing-box.log", got)
+	}
+
+	dnsMap := parsed["dns"].(map[string]any)
+	if got := dnsMap["reverse_mapping"]; got != true {
+		t.Fatalf("dns.reverse_mapping = %v, want true", got)
+	}
+	if got := dnsMap["independent_cache"]; got != true {
+		t.Fatalf("dns.independent_cache = %v, want true", got)
+	}
+	if got := dnsMap["cache_capacity"]; got != float64(8192) {
+		t.Fatalf("dns.cache_capacity = %v, want 8192", got)
+	}
+
+	routeMap := parsed["route"].(map[string]any)
+	rules := routeMap["rules"].([]any)
+	if len(rules) != 3 {
+		t.Fatalf("route.rules len = %d, want 3", len(rules))
+	}
+	first := rules[0].(map[string]any)
+	if _, ok := first["sniffer"]; !ok {
+		t.Fatal("first route rule is missing sniffer")
+	}
+	second := rules[1].(map[string]any)
+	if got := second["ip_is_private"]; got != true {
+		t.Fatalf("second route rule ip_is_private = %v, want true", got)
+	}
+	third := rules[2].(map[string]any)
+	if got := third["protocol"]; got != "dns" {
+		t.Fatalf("third route rule protocol = %v, want dns", got)
+	}
+}
+
+func TestSaveDeletesSnellConfigWhenUnset(t *testing.T) {
+	cleanup := setupTestDir(t)
+	defer cleanup()
+
+	if err := os.WriteFile(config.SnellConfigFile, []byte("[snell server]\nlisten = 0.0.0.0:8448\npsk = testpsk\n"), 0644); err != nil {
+		t.Fatalf("write snell config: %v", err)
+	}
+
+	s, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	s.SnellConf = nil
+	s.MarkDirty(FileSnellConf)
+
+	if err := s.Save(); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	if _, err := os.Stat(config.SnellConfigFile); !os.IsNotExist(err) {
+		t.Fatalf("snell config still exists after save, err=%v", err)
 	}
 }

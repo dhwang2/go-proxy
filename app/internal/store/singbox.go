@@ -1,6 +1,10 @@
 package store
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"go-proxy/internal/config"
+)
 
 // SingBoxConfig is the top-level sing-box configuration.
 type SingBoxConfig struct {
@@ -37,16 +41,21 @@ func (c *SingBoxConfig) EnsureDefaultDomainResolver() {
 
 // LogConfig configures sing-box logging.
 type LogConfig struct {
+	Disabled  bool   `json:"disabled"`
 	Level     string `json:"level,omitempty"`
+	Output    string `json:"output,omitempty"`
 	Timestamp bool   `json:"timestamp,omitempty"`
 }
 
 // DNSConfig holds sing-box DNS configuration.
 type DNSConfig struct {
-	Servers  []json.RawMessage `json:"servers,omitempty"`
-	Rules    []DNSRule         `json:"rules,omitempty"`
-	Final    string            `json:"final,omitempty"`
-	Strategy string            `json:"strategy,omitempty"`
+	Servers          []json.RawMessage `json:"servers,omitempty"`
+	Rules            []DNSRule         `json:"rules,omitempty"`
+	Final            string            `json:"final,omitempty"`
+	Strategy         string            `json:"strategy,omitempty"`
+	ReverseMapping   bool              `json:"reverse_mapping,omitempty"`
+	IndependentCache bool              `json:"independent_cache,omitempty"`
+	CacheCapacity    int               `json:"cache_capacity,omitempty"`
 }
 
 // dnsServerFieldsToStrip lists fields that sing-box 1.13.x rejects inside
@@ -214,12 +223,225 @@ type RouteConfig struct {
 type RouteRule struct {
 	Action        string   `json:"action,omitempty"`
 	Outbound      string   `json:"outbound,omitempty"`
+	Protocol      string   `json:"protocol,omitempty"`
 	AuthUser      []string `json:"auth_user,omitempty"`
 	Inbound       []string `json:"inbound,omitempty"`
 	RuleSet       []string `json:"rule_set,omitempty"`
+	Sniffer       []string `json:"sniffer,omitempty"`
 	Domain        []string `json:"domain,omitempty"`
 	DomainSuffix  []string `json:"domain_suffix,omitempty"`
 	DomainKeyword []string `json:"domain_keyword,omitempty"`
 	DomainRegex   []string `json:"domain_regex,omitempty"`
 	IPCIDR        []string `json:"ip_cidr,omitempty"`
+	IPIsPrivate   bool     `json:"ip_is_private,omitempty"`
+}
+
+// Normalize fills the shell-proxy baseline sections that go-proxy expects to exist.
+func (c *SingBoxConfig) Normalize() {
+	if c == nil {
+		return
+	}
+
+	if c.Log == nil {
+		c.Log = &LogConfig{
+			Disabled:  false,
+			Level:     "error",
+			Output:    config.SingBoxLog,
+			Timestamp: true,
+		}
+	} else {
+		if c.Log.Level == "" {
+			c.Log.Level = "error"
+		}
+		if c.Log.Output == "" {
+			c.Log.Output = config.SingBoxLog
+		}
+	}
+
+	if len(c.Experimental) == 0 {
+		if raw, err := json.Marshal(config.DefaultExperimentalConfig()); err == nil {
+			c.Experimental = raw
+		}
+	}
+
+	if c.DNS == nil {
+		c.DNS = &DNSConfig{}
+	}
+	defaultServers := rawMessagesFromMaps(config.DefaultDNSServers())
+	if len(c.DNS.Servers) == 0 {
+		c.DNS.Servers = defaultServers
+	} else {
+		c.DNS.Servers = appendMissingTaggedRaw(c.DNS.Servers, defaultServers)
+	}
+	c.CleanDNSServers()
+	if c.DNS.Final == "" || c.DNS.Final == "dns-direct" {
+		c.DNS.Final = "public4"
+	}
+	if c.DNS.Strategy == "" || c.DNS.Strategy == "ipv4_only" {
+		c.DNS.Strategy = "prefer_ipv4"
+	}
+	if c.DNS.CacheCapacity == 0 {
+		c.DNS.CacheCapacity = 8192
+	}
+	if !c.DNS.ReverseMapping {
+		c.DNS.ReverseMapping = true
+	}
+	if !c.DNS.IndependentCache {
+		c.DNS.IndependentCache = true
+	}
+
+	if len(c.Outbounds) == 0 {
+		c.Outbounds = defaultDirectOutbounds()
+	} else {
+		c.Outbounds = normalizeOutbounds(c.Outbounds)
+	}
+
+	if c.Route == nil {
+		c.Route = &RouteConfig{}
+	}
+	if c.Route.Final == "" || c.Route.Final == "direct" {
+		c.Route.Final = "🐸 direct"
+	}
+	defaultRuleSets := rawMessagesFromMaps(config.DefaultRuleSetCatalog())
+	if len(c.Route.RuleSet) == 0 {
+		c.Route.RuleSet = defaultRuleSets
+	} else {
+		c.Route.RuleSet = appendMissingTaggedRaw(normalizeRuleSetCatalog(c.Route.RuleSet), defaultRuleSets)
+	}
+	c.Route.Rules = ensureBaseRouteRules(c.Route.Rules)
+	c.EnsureDefaultDomainResolver()
+}
+
+func rawMessagesFromMaps(items []map[string]any) []json.RawMessage {
+	raws := make([]json.RawMessage, 0, len(items))
+	for _, item := range items {
+		raw, err := json.Marshal(item)
+		if err != nil {
+			continue
+		}
+		raws = append(raws, raw)
+	}
+	return raws
+}
+
+func appendMissingTaggedRaw(existing, defaults []json.RawMessage) []json.RawMessage {
+	seen := make(map[string]bool)
+	for _, raw := range existing {
+		var item struct {
+			Tag string `json:"tag"`
+		}
+		if err := json.Unmarshal(raw, &item); err == nil && item.Tag != "" {
+			seen[item.Tag] = true
+		}
+	}
+	out := append([]json.RawMessage(nil), existing...)
+	for _, raw := range defaults {
+		var item struct {
+			Tag string `json:"tag"`
+		}
+		if err := json.Unmarshal(raw, &item); err != nil || item.Tag == "" || seen[item.Tag] {
+			continue
+		}
+		out = append(out, raw)
+		seen[item.Tag] = true
+	}
+	return out
+}
+
+func defaultDirectOutbounds() []json.RawMessage {
+	raw, err := json.Marshal(map[string]any{
+		"type": "direct",
+		"tag":  "🐸 direct",
+	})
+	if err != nil {
+		return nil
+	}
+	return []json.RawMessage{raw}
+}
+
+func normalizeOutbounds(outbounds []json.RawMessage) []json.RawMessage {
+	hasDirect := false
+	for i, raw := range outbounds {
+		var item map[string]any
+		if err := json.Unmarshal(raw, &item); err != nil {
+			continue
+		}
+		if tag, _ := item["tag"].(string); tag == "direct" {
+			item["tag"] = "🐸 direct"
+			if normalized, err := json.Marshal(item); err == nil {
+				outbounds[i] = normalized
+			}
+			hasDirect = true
+			continue
+		}
+		if tag, _ := item["tag"].(string); tag == "🐸 direct" {
+			hasDirect = true
+		}
+	}
+	if hasDirect {
+		return outbounds
+	}
+	return append(outbounds, defaultDirectOutbounds()...)
+}
+
+func normalizeRuleSetCatalog(ruleSets []json.RawMessage) []json.RawMessage {
+	for i, raw := range ruleSets {
+		var item map[string]any
+		if err := json.Unmarshal(raw, &item); err != nil {
+			continue
+		}
+		if detour, _ := item["download_detour"].(string); detour == "direct" {
+			item["download_detour"] = "🐸 direct"
+			if normalized, err := json.Marshal(item); err == nil {
+				ruleSets[i] = normalized
+			}
+		}
+	}
+	return ruleSets
+}
+
+func ensureBaseRouteRules(rules []RouteRule) []RouteRule {
+	hasSniff := false
+	hasHijackDNS := false
+	hasPrivateDirect := false
+
+	for i := range rules {
+		if rules[i].Outbound == "direct" {
+			rules[i].Outbound = "🐸 direct"
+		}
+		if rules[i].Action == "sniff" {
+			hasSniff = true
+		}
+		if rules[i].Action == "hijack-dns" && rules[i].Protocol == "dns" {
+			hasHijackDNS = true
+		}
+		if rules[i].Action == "route" && rules[i].IPIsPrivate && rules[i].Outbound == "🐸 direct" {
+			hasPrivateDirect = true
+		}
+	}
+
+	var base []RouteRule
+	if !hasSniff {
+		base = append(base, RouteRule{
+			Action:  "sniff",
+			Sniffer: []string{"http", "tls", "quic", "dns"},
+		})
+	}
+	if !hasHijackDNS {
+		base = append(base, RouteRule{
+			Protocol: "dns",
+			Action:   "hijack-dns",
+		})
+	}
+	if !hasPrivateDirect {
+		base = append(base, RouteRule{
+			Action:      "route",
+			Outbound:    "🐸 direct",
+			IPIsPrivate: true,
+		})
+	}
+	if len(base) == 0 {
+		return rules
+	}
+	return append(base, rules...)
 }

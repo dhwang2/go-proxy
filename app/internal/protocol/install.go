@@ -204,6 +204,7 @@ func Install(s *store.Store, params InstallParams) (*InstallResult, error) {
 			return nil, err
 		}
 		s.SnellConf = conf
+		recordInstalledUserMeta(s, params.ProtoType, store.SnellTag, psk, params.UserName)
 		s.MarkDirty(store.FileSnellConf)
 		result.Credential = psk
 		return &result, nil
@@ -217,8 +218,28 @@ func Install(s *store.Store, params InstallParams) (*InstallResult, error) {
 		return nil, fmt.Errorf("protocol %s not implemented", spec.DisplayName)
 	}
 
+	recordInstalledUserMeta(s, params.ProtoType, tag, result.Credential, params.UserName)
 	s.MarkDirty(store.FileSingBox)
 	return &result, nil
+}
+
+func recordInstalledUserMeta(s *store.Store, pt Type, tag, credential, userName string) {
+	if s == nil || tag == "" || credential == "" || userName == "" {
+		return
+	}
+	if s.UserMeta == nil {
+		s.UserMeta = store.NewUserManagement()
+	}
+	if s.UserMeta.Name == nil {
+		s.UserMeta.Name = make(map[string]string)
+	}
+
+	metaProto := Specs()[pt].SingBoxType
+	if metaProto == "" {
+		metaProto = string(pt)
+	}
+	s.UserMeta.Name[store.UserKey(metaProto, tag, credential)] = userName
+	s.MarkDirty(store.FileUserMeta)
 }
 
 func buildVLESSInbound(tag string, p InstallParams) (*store.Inbound, string, error) {

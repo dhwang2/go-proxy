@@ -78,8 +78,15 @@ func SyncRouteRules(s *store.Store) {
 // buildOutboundToDNS creates a mapping from outbound tags to DNS server tags.
 // Chain proxy outbounds (res-socks*) map to their corresponding DNS tags (res-proxy*).
 func buildOutboundToDNS(s *store.Store) map[string]string {
+	directDNS := "public4"
+	if s.SingBox.Route != nil && s.SingBox.Route.DefaultDomainResolver != "" {
+		directDNS = s.SingBox.Route.DefaultDomainResolver
+	} else if s.SingBox.DNS != nil && s.SingBox.DNS.Final != "" {
+		directDNS = s.SingBox.DNS.Final
+	}
 	m := map[string]string{
-		"direct": "dns-direct",
+		"direct":   directDNS,
+		"🐸 direct": directDNS,
 	}
 	for _, raw := range s.SingBox.Outbounds {
 		h, _ := store.ParseOutboundHeader(raw)

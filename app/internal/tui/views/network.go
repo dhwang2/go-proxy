@@ -230,14 +230,6 @@ func (v *NetworkView) doFirewall() tea.Msg {
 		}
 	}
 
-	// snell port
-	if s.SnellConf != nil {
-		port := s.SnellConf.Port()
-		if port > 0 {
-			addPort(port, "tcp", "snell")
-		}
-	}
-
 	// System ports: SSH (22), HTTP (80), HTTPS (443)
 	addPort(22, "tcp", "ssh")
 	addPort(80, "tcp", "caddy")

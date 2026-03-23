@@ -53,6 +53,20 @@ func Delete(s *store.Store, name string) error {
 		}
 	}
 
+	// Remove metadata entries that still resolve to this user name
+	// (for example standalone Snell mappings).
+	for key, mappedName := range s.UserMeta.Name {
+		if mappedName != name {
+			continue
+		}
+		delete(s.UserMeta.Disabled, key)
+		delete(s.UserMeta.Expiry, key)
+		delete(s.UserMeta.Route, key)
+		delete(s.UserMeta.Template, key)
+		delete(s.UserMeta.Name, key)
+		found = true
+	}
+
 	if !found {
 		return fmt.Errorf("user %q not found", name)
 	}
