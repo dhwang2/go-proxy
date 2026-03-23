@@ -181,6 +181,7 @@ func (m MenuModel) cursorRow() int {
 func (m MenuModel) Update(msg tea.Msg) (MenuModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		oldCursor := m.cursor
 		switch {
 		case key.Matches(msg, Keys.Up):
 			if m.columns <= 1 {
@@ -204,6 +205,9 @@ func (m MenuModel) Update(msg tea.Msg) (MenuModel, tea.Cmd) {
 					m.cursor = last
 				}
 			}
+			if m.cursor != oldCursor && len(m.items) > 0 {
+				return m, cursorChangeItem(m.items[m.cursor], m.cursor)
+			}
 		case key.Matches(msg, Keys.Down):
 			if m.columns <= 1 {
 				if m.cursor < len(m.items)-1 {
@@ -222,6 +226,9 @@ func (m MenuModel) Update(msg tea.Msg) (MenuModel, tea.Cmd) {
 					// Wrap to first row in this column.
 					m.cursor = col * rows
 				}
+			}
+			if m.cursor != oldCursor && len(m.items) > 0 {
+				return m, cursorChangeItem(m.items[m.cursor], m.cursor)
 			}
 		case key.Matches(msg, Keys.Left):
 			if m.columns > 1 {
