@@ -85,7 +85,7 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	}
 	switch msg := msg.(type) {
 	case tui.MenuCursorChangeMsg:
-		return v, v.triggerMenuAction(msg.ID)
+		return v, nil
 	case tui.MenuSelectMsg:
 		v.setFocus(false)
 		return v, v.triggerMenuAction(msg.ID)

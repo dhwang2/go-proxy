@@ -125,14 +125,14 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case certDoneMsg:
 		if msg.err != nil {
 			v.step = protoInstallResult
-			return v, v.SetInline(components.NewResult("证书申请失败: " + msg.err.Error()))
+			return v, v.SetInline(components.NewResult("证书失败: " + msg.err.Error()))
 		}
 		// Cert done — proceed to install with cached port.
 		v.step = protoInstallResult
 		port := v.pendingPort
 		pt := v.pendingType
 		return v, tea.Batch(
-			v.SetInline(components.NewSpinner("正在安装依赖...")),
+			v.SetInline(components.NewSpinner("安装中...")),
 			func() tea.Msg {
 				return v.doInstallWithPort(pt, port)
 			},
@@ -154,7 +154,7 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			if msg.Confirmed && v.lastResult != nil {
 				snellPort := v.lastResult.Port
 				return v, tea.Batch(
-					v.SetInline(components.NewSpinner("正在配置 shadow-tls...")),
+					v.SetInline(components.NewSpinner("配置 shadow-tls...")),
 					func() tea.Msg {
 						return v.doShadowTLSForSnell(snellPort)
 					},
@@ -162,9 +162,7 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 			// User declined; show the original result.
 			v.step = protoInstallResult
-			return v, v.SetInline(components.NewResult(fmt.Sprintf(
-				"✓ 依赖安装完成\n✓ 协议配置写入成功\n✓ 服务已重启\n\n协议: snell  端口: %d\nCredential: %s",
-				v.lastResult.Port, v.lastResult.Credential)))
+			return v, v.SetInline(components.NewResult(formatInstallSuccess(v.pendingType, v.lastResult, v.pendingDomain != "")))
 		}
 
 	case tui.ResultDismissedMsg:
@@ -263,11 +261,11 @@ func (v *ProtocolInstallView) startInstallOrAddUser() tea.Cmd {
 		userName := v.pendingUser
 		v.step = protoInstallResult
 		return tea.Batch(
-			v.SetInline(components.NewSpinner("正在添加用户...")),
+			v.SetInline(components.NewSpinner("添加用户...")),
 			func() tea.Msg {
 				result, err := protocol.AddUserToExisting(v.model.Store(), existing, userName)
 				if err != nil {
-					return protoInstallDoneMsg{result: "添加用户失败: " + err.Error()}
+					return protoInstallDoneMsg{result: "添加失败: " + err.Error()}
 				}
 				if err := v.model.Store().Apply(); err != nil {
 					return protoInstallDoneMsg{result: "保存失败: " + err.Error()}
@@ -275,8 +273,7 @@ func (v *ProtocolInstallView) startInstallOrAddUser() tea.Cmd {
 				// Restart sing-box to load the updated user list.
 				_ = service.Restart(context.Background(), service.SingBox)
 				return protoInstallDoneMsg{
-					result: fmt.Sprintf("✓ 用户添加成功\n✓ 服务已重启\n\n协议: %s  端口: %d\nCredential: %s",
-						pt, result.Port, result.Credential),
+					result:        formatAddUserSuccess(pt, result),
 					installResult: result,
 				}
 			},
@@ -319,7 +316,7 @@ func (v *ProtocolInstallView) handlePortInput(portStr string) (tui.View, tea.Cmd
 	// Non-TLS or Reality: go straight to install.
 	pt := v.pendingType
 	return v, tea.Batch(
-		v.SetInline(components.NewSpinner("正在安装依赖...")),
+		v.SetInline(components.NewSpinner("安装中...")),
 		func() tea.Msg {
 			return v.doInstallWithPort(pt, port)
 		},
@@ -338,7 +335,7 @@ func (v *ProtocolInstallView) handleDomainInput(domain string) (tui.View, tea.Cm
 		pt := v.pendingType
 		port := v.pendingPort
 		return v, tea.Batch(
-			v.SetInline(components.NewSpinner("正在安装依赖...")),
+			v.SetInline(components.NewSpinner("安装中...")),
 			func() tea.Msg {
 				return v.doInstallWithPort(pt, port)
 			},
@@ -356,7 +353,7 @@ func (v *ProtocolInstallView) handleEmailInput(email string) (tui.View, tea.Cmd)
 	d := v.pendingDomain
 	e := email
 	return v, tea.Batch(
-		v.SetInline(components.NewSpinner("证书申请中...")),
+		v.SetInline(components.NewTimedSpinner("等待证书签发...", 120)),
 		func() tea.Msg {
 			err := cert.EnsureCertificate(context.Background(), d, e, nil)
 			return certDoneMsg{err: err}
@@ -404,46 +401,26 @@ func (v *ProtocolInstallView) doInstallWithPort(pt protocol.Type, port int) tea.
 	depReport := protocol.FormatDepSteps(depSteps)
 
 	if protocol.HasDepError(depSteps) {
-		msg := "依赖安装失败\n\n" + depReport
+		msg := "依赖失败\n\n" + depReport
 		return protoInstallDoneMsg{result: msg}
 	}
 
 	// Install protocol configuration.
 	result, err := protocol.Install(v.model.Store(), params)
 	if err != nil {
-		msg := "协议安装失败: " + err.Error()
+		msg := "安装失败: " + err.Error()
 		if depReport != "" {
-			msg = "✓ 依赖安装完成\n\n" + depReport + "\n" + msg
+			msg = depReport + "\n" + msg
 		}
 		return protoInstallDoneMsg{result: msg}
 	}
 	if err := v.model.Store().Apply(); err != nil {
 		return protoInstallDoneMsg{result: "保存失败: " + err.Error()}
 	}
-
-	var lines []string
-	if v.pendingDomain != "" {
-		lines = append(lines, "✓ 证书申请成功")
+	return protoInstallDoneMsg{
+		result:        formatInstallSuccess(pt, result, v.pendingDomain != ""),
+		installResult: result,
 	}
-	if depReport != "" {
-		lines = append(lines, "✓ 依赖安装完成")
-	}
-	lines = append(lines, "✓ 协议配置写入成功")
-	lines = append(lines, "✓ 服务已重启")
-	lines = append(lines, "")
-	lines = append(lines, fmt.Sprintf("协议: %s  端口: %d", pt, result.Port))
-	if result.Credential != "" {
-		lines = append(lines, "Credential: "+result.Credential)
-	}
-	if result.PublicKey != "" {
-		lines = append(lines, "Public Key: "+result.PublicKey)
-	}
-	if depReport != "" {
-		lines = append(lines, "")
-		lines = append(lines, depReport)
-	}
-	msg := strings.Join(lines, "\n")
-	return protoInstallDoneMsg{result: msg, installResult: result}
 }
 
 func (v *ProtocolInstallView) doShadowTLSForSnell(snellPort int) tea.Msg {
@@ -479,16 +456,55 @@ func (v *ProtocolInstallView) doShadowTLSForSnell(snellPort int) tea.Msg {
 			stSteps = append(stSteps, s)
 		}
 	}
-	depReport := protocol.FormatDepSteps(stSteps)
 
 	if protocol.HasDepError(depSteps) {
 		return protoInstallDoneMsg{result: "shadow-tls 依赖安装失败\n\n" + protocol.FormatDepSteps(depSteps)}
 	}
 
-	msg := fmt.Sprintf("snell+shadow-tls 配置完成\nShadowTLS 监听: %d -> Snell 后端: %d",
-		stPort, snellPort)
-	if depReport != "" {
-		msg += "\n" + depReport
-	}
+	msg := fmt.Sprintf("shadow-tls 已配置\n监听: %d\n后端: %d", stPort, snellPort)
 	return protoInstallDoneMsg{result: msg}
+}
+
+func formatInstallSuccess(pt protocol.Type, result *protocol.InstallResult, withCert bool) string {
+	if result == nil {
+		return "安装完成"
+	}
+	label := string(pt)
+	if spec, ok := protocol.Specs()[pt]; ok && spec.DisplayName != "" {
+		label = spec.DisplayName
+	}
+	lines := []string{
+		"安装完成",
+		"协议: " + label,
+		fmt.Sprintf("端口: %d", result.Port),
+	}
+	if withCert {
+		lines = append(lines, "证书: ok")
+	}
+	if result.Credential != "" {
+		lines = append(lines, "凭据: "+result.Credential)
+	}
+	if result.PublicKey != "" {
+		lines = append(lines, "公钥: "+result.PublicKey)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func formatAddUserSuccess(pt protocol.Type, result *protocol.InstallResult) string {
+	if result == nil {
+		return "添加完成"
+	}
+	label := string(pt)
+	if spec, ok := protocol.Specs()[pt]; ok && spec.DisplayName != "" {
+		label = spec.DisplayName
+	}
+	lines := []string{
+		"添加完成",
+		"协议: " + label,
+		fmt.Sprintf("端口: %d", result.Port),
+	}
+	if result.Credential != "" {
+		lines = append(lines, "凭据: "+result.Credential)
+	}
+	return strings.Join(lines, "\n")
 }

@@ -101,10 +101,6 @@ func (v *RoutingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	}
 	switch msg := msg.(type) {
 	case tui.MenuCursorChangeMsg:
-		// Auto-preview for top-level menu items only.
-		if v.step == routingMenu {
-			return v, v.triggerMenuAction(msg.ID)
-		}
 		return v, nil
 	case tui.MenuSelectMsg:
 		if v.step == routingMenu {

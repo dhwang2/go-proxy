@@ -91,8 +91,7 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tui.MenuCursorChangeMsg:
-		// Auto-preview: trigger action without changing focus.
-		return v, v.triggerMenuAction(msg.ID)
+		return v, nil
 
 	case tui.MenuSelectMsg:
 		v.setFocus(false)

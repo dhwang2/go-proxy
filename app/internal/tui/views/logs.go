@@ -84,10 +84,6 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	}
 	switch msg := msg.(type) {
 	case tui.MenuCursorChangeMsg:
-		// Auto-preview for top-level menu items only.
-		if v.step != logsServiceSelect {
-			return v, v.triggerMenuAction(msg.ID)
-		}
 		return v, nil
 	case tui.MenuSelectMsg:
 		if v.step == logsServiceSelect {
