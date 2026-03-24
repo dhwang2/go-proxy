@@ -23,7 +23,7 @@ type SubSplitFocuser interface {
 const (
 	subSplitMinLeft    = 20
 	subSplitMinRight   = 20
-	subSplitMinTotal   = 50
+	subSplitMinTotal   = subSplitMinLeft + subSplitMinRight + 1
 	subSplitDividerHit = 2 // mouse hit-test range ±N columns around divider
 )
 
@@ -37,6 +37,7 @@ type SubSplitModel struct {
 	enabled     bool
 	minLeft     int
 	minRight    int
+	autoFit     bool
 }
 
 // NewSubSplit creates a SubSplitModel with default proportions.
@@ -45,6 +46,7 @@ func NewSubSplit(totalWidth, totalHeight int) SubSplitModel {
 		minLeft:   subSplitMinLeft,
 		minRight:  subSplitMinRight,
 		focusLeft: true,
+		autoFit:   true,
 	}
 	m.setSize(totalWidth, totalHeight)
 	return m
@@ -73,6 +75,21 @@ func (m *SubSplitModel) clampLeftWidth() {
 	}
 	if m.leftWidth > max {
 		m.leftWidth = max
+	}
+}
+
+// SetMinWidths overrides the minimum widths required for the left and right panes.
+func (m *SubSplitModel) SetMinWidths(left, right int) {
+	if left < 1 {
+		left = 1
+	}
+	if right < 1 {
+		right = 1
+	}
+	m.minLeft = left
+	m.minRight = right
+	if m.totalWidth > 0 {
+		m.setSize(m.totalWidth, m.totalHeight)
 	}
 }
 
@@ -139,6 +156,7 @@ func (m SubSplitModel) Update(msg tea.Msg) (SubSplitModel, tea.Cmd) {
 		if mouseMsg.Button == tea.MouseButtonLeft {
 			divX := m.leftWidth
 			if mouseMsg.X >= divX-subSplitDividerHit && mouseMsg.X <= divX+subSplitDividerHit {
+				m.autoFit = false
 				m.dragging = true
 			}
 		}
@@ -155,9 +173,12 @@ func (m SubSplitModel) Update(msg tea.Msg) (SubSplitModel, tea.Cmd) {
 
 // View renders leftContent and rightContent side-by-side with a divider.
 // When disabled, only leftContent is returned.
-func (m SubSplitModel) View(leftContent, rightContent string) string {
+func (m *SubSplitModel) View(leftContent, rightContent string) string {
 	if !m.enabled {
 		return leftContent
+	}
+	if m.autoFit && !m.dragging {
+		m.fitLeftWidth(leftContent)
 	}
 
 	lw := m.leftWidth
@@ -181,4 +202,22 @@ func (m SubSplitModel) View(leftContent, rightContent string) string {
 	divider := divStyle.Render(strings.Repeat("┃\n", h-1) + "┃")
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, divider, right)
+}
+
+func (m *SubSplitModel) fitLeftWidth(leftContent string) {
+	required := m.minLeft
+	for _, line := range strings.Split(leftContent, "\n") {
+		width := lipgloss.Width(strings.TrimRight(line, " \r"))
+		if width > required {
+			required = width
+		}
+	}
+	max := m.totalWidth - 1 - m.minRight
+	if required > max {
+		required = max
+	}
+	if required < m.minLeft {
+		required = m.minLeft
+	}
+	m.leftWidth = required
 }

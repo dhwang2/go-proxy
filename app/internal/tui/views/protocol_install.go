@@ -12,6 +12,7 @@ import (
 	"go-proxy/internal/derived"
 	"go-proxy/internal/protocol"
 	"go-proxy/internal/service"
+	"go-proxy/internal/store"
 	"go-proxy/internal/tui"
 	"go-proxy/internal/tui/components"
 )
@@ -55,21 +56,7 @@ func (v *ProtocolInstallView) setFocus(left bool) {
 }
 
 func (v *ProtocolInstallView) Init() tea.Cmd {
-	v.step = protoInstallMenu
-	v.split.SetFocusLeft(true)
-	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-5)
-	types := protocol.InstallableTypes()
-	specs := protocol.Specs()
-	items := make([]tui.MenuItem, 0, len(types)+1)
-	for i, t := range types {
-		k := rune('1' + i)
-		items = append(items, tui.MenuItem{
-			Key:   k,
-			Label: specs[t].DisplayName,
-			ID:    string(t),
-		})
-	}
-	v.menu = v.menu.SetItems(items)
+	v.resetMenuState(v.model.ContentWidth(), v.model.Height()-5)
 	return nil
 }
 
@@ -166,8 +153,8 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 
 	case tui.ResultDismissedMsg:
-		cmd := v.Init()
-		return v, cmd
+		v.resetMenuState(v.split.TotalWidth(), v.split.TotalHeight())
+		return v, nil
 
 	default:
 		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEsc {
@@ -242,14 +229,54 @@ func (v *ProtocolInstallView) triggerMenuAction(id string) tea.Cmd {
 	return v.SetInline(components.NewSelectList("选择用户:", names))
 }
 
+func (v *ProtocolInstallView) resetMenuState(contentWidth, contentHeight int) {
+	v.step = protoInstallMenu
+	v.pendingType = ""
+	v.pendingUser = ""
+	v.pendingPort = 0
+	v.pendingDomain = ""
+	v.pendingEmail = ""
+	v.lastResult = nil
+	v.setFocus(true)
+	// Protocol install needs a narrower third-level split so the user picker
+	// still renders beside the protocol list on common terminal widths and
+	// long protocol labels do not wrap.
+	v.split.SetMinWidths(14, 10)
+	if contentWidth <= 0 {
+		contentWidth = v.model.ContentWidth()
+	}
+	if contentHeight <= 0 {
+		contentHeight = v.model.Height() - 5
+	}
+	v.split.SetSize(contentWidth, contentHeight)
+
+	types := protocol.InstallableTypes()
+	specs := protocol.Specs()
+	items := make([]tui.MenuItem, 0, len(types)+1)
+	for i, t := range types {
+		k := rune('1' + i)
+		items = append(items, tui.MenuItem{
+			Key:   k,
+			Label: specs[t].DisplayName,
+			ID:    string(t),
+		})
+	}
+	v.menu = v.menu.SetItems(items)
+}
+
 // startInstallOrAddUser checks for an existing inbound; if found, adds user directly.
 // Otherwise proceeds to the port input flow.
 func (v *ProtocolInstallView) startInstallOrAddUser() tea.Cmd {
 	pt := v.pendingType
+	userName := v.pendingUser
 
 	// Snell is single-user; block duplicate install.
 	if pt == protocol.Snell {
 		if v.model.Store().SnellConf != nil {
+			if userHasSelectedProtocol(v.model.Store(), pt, userName) {
+				v.step = protoInstallResult
+				return v.SetInline(components.NewResult(formatAlreadyInstalled(pt, userName)))
+			}
 			v.step = protoInstallResult
 			return v.SetInline(components.NewResult("Snell 已安装，不支持多用户"))
 		}
@@ -258,7 +285,10 @@ func (v *ProtocolInstallView) startInstallOrAddUser() tea.Cmd {
 
 	existing := protocol.FindExistingInbound(v.model.Store(), pt)
 	if existing != nil {
-		userName := v.pendingUser
+		if userHasSelectedProtocol(v.model.Store(), pt, userName) {
+			v.step = protoInstallResult
+			return v.SetInline(components.NewResult(formatAlreadyInstalled(pt, userName)))
+		}
 		v.step = protoInstallResult
 		return tea.Batch(
 			v.SetInline(components.NewSpinner("添加用户...")),
@@ -507,4 +537,47 @@ func formatAddUserSuccess(pt protocol.Type, result *protocol.InstallResult) stri
 		lines = append(lines, "凭据: "+result.Credential)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func formatAlreadyInstalled(pt protocol.Type, userName string) string {
+	label := string(pt)
+	if spec, ok := protocol.Specs()[pt]; ok && spec.DisplayName != "" {
+		label = spec.DisplayName
+	}
+	return fmt.Sprintf("无需重复安装\n用户: %s\n协议: %s", userName, label)
+}
+
+func userHasSelectedProtocol(s *store.Store, pt protocol.Type, userName string) bool {
+	if s == nil || userName == "" {
+		return false
+	}
+	if pt == protocol.Snell {
+		return s.SnellConf != nil && derived.Membership(s)[userName] != nil && hasProtocolMembership(derived.Membership(s)[userName], store.SnellTag)
+	}
+	spec, ok := protocol.Specs()[pt]
+	if !ok || spec.SingBoxType == "" {
+		return false
+	}
+	for _, ib := range s.SingBox.Inbounds {
+		if ib.Type != spec.SingBoxType {
+			continue
+		}
+		ibHasReality := ib.TLS != nil && ib.TLS.Reality != nil && ib.TLS.Reality.Enabled
+		if ibHasReality != spec.UsesReality {
+			continue
+		}
+		if ib.FindUser(userName) != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func hasProtocolMembership(entries []derived.MembershipEntry, proto string) bool {
+	for _, entry := range entries {
+		if entry.Proto == proto || entry.Tag == proto {
+			return true
+		}
+	}
+	return false
 }
