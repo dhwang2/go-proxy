@@ -141,6 +141,12 @@ func (m MenuModel) SetItems(items []MenuItem) MenuModel {
 	return m
 }
 
+// Cursor returns the current cursor index.
+func (m MenuModel) Cursor() int { return m.cursor }
+
+// IsDimmed reports whether the menu is currently rendered dimmed.
+func (m MenuModel) IsDimmed() bool { return m.dim }
+
 // Init satisfies tea.Model.
 func (m MenuModel) Init() tea.Cmd { return nil }
 

@@ -203,7 +203,7 @@ func TestRoundtripPreservesShellProxyBaselineFields(t *testing.T) {
     ],
     "rules": [],
     "final": "public4",
-    "strategy": "prefer_ipv4",
+    "strategy": "ipv4_only",
     "reverse_mapping": true,
     "independent_cache": true,
     "cache_capacity": 8192

@@ -193,7 +193,7 @@ func (v *SubscriptionView) renderAllLinks() string {
 
 	headerStyle := lipgloss.NewStyle().Foreground(tui.ColorPrimary).Bold(true)
 	userStyle := lipgloss.NewStyle().Foreground(tui.ColorAccent).Bold(true)
-	highlightStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("117")).Bold(true)
+	highlightStyle := lipgloss.NewStyle().Foreground(tui.ColorFooterKey).Bold(true)
 
 	var sb strings.Builder
 
@@ -212,7 +212,7 @@ func (v *SubscriptionView) renderAllLinks() string {
 			hasLinks = true
 			sb.WriteString(userStyle.Render(name))
 			sb.WriteString("\n")
-			for _, l := range links {
+			for i, l := range links {
 				idx := len(v.links)
 				v.links = append(v.links, l.Content)
 				content := wrapLine(l.Content, w-4)
@@ -222,6 +222,9 @@ func (v *SubscriptionView) renderAllLinks() string {
 					sb.WriteString("\n")
 				} else {
 					sb.WriteString(fmt.Sprintf("  %s\n", content))
+				}
+				if i < len(links)-1 {
+					sb.WriteString("\n")
 				}
 			}
 		}

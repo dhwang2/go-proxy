@@ -21,6 +21,7 @@ type UserView struct {
 	split   tui.SubSplitModel
 	step    userStep
 	oldName string // for rename: stores the old username
+	rows    []userListRow
 }
 
 type userStep int
@@ -34,6 +35,11 @@ const (
 	userDelete
 	userResult
 )
+
+type userListRow struct {
+	Name     string
+	Protocol string
+}
 
 func NewUserView(model *tui.Model) *UserView {
 	v := &UserView{model: model}
@@ -211,9 +217,13 @@ func (v *UserView) View() string {
 		detailContent = v.ViewInline()
 		tui.InSplitPanel = false
 	} else {
-		detailContent = lipgloss.NewStyle().
-			Foreground(tui.ColorMuted).
-			Render("加载中...")
+		if v.step == userList {
+			detailContent = v.renderUserListTable()
+		} else {
+			detailContent = lipgloss.NewStyle().
+				Foreground(tui.ColorMuted).
+				Render("加载中...")
+		}
 	}
 
 	return v.split.View(menuContent, detailContent)
@@ -223,51 +233,33 @@ type userActionDoneMsg struct{ result string }
 
 func (v *UserView) listUsers() tea.Msg {
 	users := user.List(v.model.Store())
-	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
-	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
-	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
-
-	var sb strings.Builder
-	// Find max name width for alignment.
-	nameWidth := 8 // minimum
+	v.rows = nil
+	nameWidth := lipgloss.Width("用户列表")
 	for _, u := range users {
 		if w := lipgloss.Width(u.Name); w > nameWidth {
 			nameWidth = w
 		}
 	}
-	nameWidth += 2 // padding
-
-	sb.WriteString("  ")
-	sb.WriteString(labelStyle.Render(fmt.Sprintf("%-*s", nameWidth, "用户列表")))
-	sb.WriteString(labelStyle.Render("协议"))
-	sb.WriteString("\n")
-	sb.WriteString("  ")
-	sb.WriteString(sepStyle.Render(strings.Repeat("─", 42)))
-	sb.WriteString("\n")
-
-	if len(users) == 0 {
-		sb.WriteString("  暂无用户\n")
-	}
 	for _, u := range users {
 		protoSummary := "(无协议)"
 		if len(u.Memberships) > 0 {
-			counts := make(map[string]int)
+			seen := make(map[string]bool)
 			for _, m := range u.Memberships {
-				counts[m.Proto]++
+				seen[m.Proto] = true
 			}
 			var parts []string
-			for proto, count := range counts {
-				parts = append(parts, fmt.Sprintf("%s x%d", proto, count))
+			for proto := range seen {
+				parts = append(parts, proto)
 			}
 			sort.Strings(parts)
 			protoSummary = strings.Join(parts, ", ")
 		}
-		sb.WriteString("  ")
-		sb.WriteString(labelStyle.Render(fmt.Sprintf("%-*s", nameWidth, u.Name)))
-		sb.WriteString(valStyle.Render(protoSummary))
-		sb.WriteString("\n")
+		v.rows = append(v.rows, userListRow{
+			Name:     u.Name,
+			Protocol: protoSummary,
+		})
 	}
-	return userActionDoneMsg{result: sb.String()}
+	return userActionDoneMsg{result: v.renderUserListTable()}
 }
 
 func (v *UserView) doAdd(name string) tea.Msg {
@@ -298,4 +290,48 @@ func (v *UserView) doDelete(name string) tea.Msg {
 		return userActionDoneMsg{result: "失败: " + err.Error()}
 	}
 	return userActionDoneMsg{result: "已删除用户: " + name}
+}
+
+func padDisplayCell(text string, width int) string {
+	padding := width - lipgloss.Width(text)
+	if padding < 0 {
+		padding = 0
+	}
+	return text + strings.Repeat(" ", padding)
+}
+
+func (v *UserView) renderUserListTable() string {
+	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
+	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
+	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
+
+	nameWidth := lipgloss.Width("用户列表")
+	for _, row := range v.rows {
+		if w := lipgloss.Width(row.Name); w > nameWidth {
+			nameWidth = w
+		}
+	}
+	nameWidth += 4
+
+	var sb strings.Builder
+	sb.WriteString("  ")
+	sb.WriteString(labelStyle.Render(padDisplayCell("用户列表", nameWidth)))
+	sb.WriteString(labelStyle.Render("协议"))
+	sb.WriteString("\n")
+	sb.WriteString("  ")
+	sb.WriteString(sepStyle.Render(strings.Repeat("─", nameWidth+18)))
+	sb.WriteString("\n")
+
+	if len(v.rows) == 0 {
+		sb.WriteString("  暂无用户\n")
+		return sb.String()
+	}
+
+	for _, row := range v.rows {
+		sb.WriteString("  ")
+		sb.WriteString(labelStyle.Render(padDisplayCell(row.Name, nameWidth)))
+		sb.WriteString(valStyle.Render(row.Protocol))
+		sb.WriteString("\n")
+	}
+	return sb.String()
 }

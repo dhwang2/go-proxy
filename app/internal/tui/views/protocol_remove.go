@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -23,6 +24,7 @@ type ProtocolRemoveView struct {
 	pendingTag  string
 	tableHeader string
 	emptyResult bool
+	rows        []protocolRemoveRow
 }
 
 type protoRemoveStep int
@@ -32,6 +34,14 @@ const (
 	protoRemoveConfirm
 	protoRemoveResult
 )
+
+type protocolRemoveRow struct {
+	Key      rune
+	ID       string
+	Protocol string
+	Port     string
+	User     string
+}
 
 func NewProtocolRemoveView(model *tui.Model) *ProtocolRemoveView {
 	return &ProtocolRemoveView{model: model}
@@ -77,6 +87,7 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 	sep := "  " + strings.Repeat("─", 50)
 	v.tableHeader = header + "\n" + sep
 
+	v.rows = nil
 	items := make([]tui.MenuItem, 0, len(inv)+1)
 	for i, info := range inv {
 		k := rune('1' + i)
@@ -89,12 +100,16 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 			userNames = "—"
 		}
 
-		label := fmt.Sprintf("%-14s %-8d %s",
-			info.Type, info.Port, userNames)
-
+		v.rows = append(v.rows, protocolRemoveRow{
+			Key:      k,
+			ID:       info.Tag,
+			Protocol: info.Type,
+			Port:     strconv.Itoa(info.Port),
+			User:     userNames,
+		})
 		items = append(items, tui.MenuItem{
 			Key:   k,
-			Label: label,
+			Label: info.Type,
 			ID:    info.Tag,
 		})
 	}
@@ -201,7 +216,7 @@ func (v *ProtocolRemoveView) View() string {
 			return v.ViewInline()
 		}
 		if v.step == protoRemoveMenu && v.tableHeader != "" {
-			content := v.tableHeader + "\n" + v.menu.View()
+			content := v.renderRemoveTable()
 			return tui.RenderSubMenuBody(content, v.model.ContentWidth())
 		}
 		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
@@ -209,7 +224,7 @@ func (v *ProtocolRemoveView) View() string {
 
 	var menuContent string
 	if v.tableHeader != "" {
-		menuContent = v.tableHeader + "\n" + v.menu.View()
+		menuContent = v.renderRemoveTable()
 	} else {
 		menuContent = v.menu.View()
 	}
@@ -249,4 +264,60 @@ func (v *ProtocolRemoveView) doRemove(tag string) error {
 		return err
 	}
 	return v.model.Store().Apply()
+}
+
+func padProtocolRemoveCell(text string, width int) string {
+	padding := width - lipgloss.Width(text)
+	if padding < 0 {
+		padding = 0
+	}
+	return text + strings.Repeat(" ", padding)
+}
+
+func (v *ProtocolRemoveView) renderRemoveTable() string {
+	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
+	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
+	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
+	selectedStyle := lipgloss.NewStyle().
+		Background(tui.ColorAccent).
+		Foreground(tui.ColorAccentFg).
+		Bold(true)
+
+	protocolWidth := lipgloss.Width("协议")
+	portWidth := lipgloss.Width("端口")
+	for _, row := range v.rows {
+		if w := lipgloss.Width(row.Protocol); w > protocolWidth {
+			protocolWidth = w
+		}
+		if w := lipgloss.Width(row.Port); w > portWidth {
+			portWidth = w
+		}
+	}
+	protocolWidth += 4
+	portWidth += 4
+
+	var sb strings.Builder
+	sb.WriteString("  ")
+	sb.WriteString(labelStyle.Render("#  "))
+	sb.WriteString(labelStyle.Render(padProtocolRemoveCell("协议", protocolWidth)))
+	sb.WriteString(labelStyle.Render(padProtocolRemoveCell("端口", portWidth)))
+	sb.WriteString(labelStyle.Render("用户"))
+	sb.WriteString("\n")
+	sb.WriteString("  ")
+	sb.WriteString(sepStyle.Render(strings.Repeat("─", protocolWidth+portWidth+18)))
+	sb.WriteString("\n")
+
+	for i, row := range v.rows {
+		line := "  " + string(row.Key) + ". " +
+			padProtocolRemoveCell(row.Protocol, protocolWidth) +
+			padProtocolRemoveCell(row.Port, portWidth) +
+			row.User
+		if i == v.menu.Cursor() && !v.menu.IsDimmed() {
+			sb.WriteString(selectedStyle.Render(line))
+		} else {
+			sb.WriteString(valStyle.Render(line))
+		}
+		sb.WriteString("\n")
+	}
+	return sb.String()
 }

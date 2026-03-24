@@ -325,9 +325,15 @@ func (v *RoutingView) View() string {
 		detailContent = v.ViewInline()
 		tui.InSplitPanel = false
 	} else {
-		detailContent = lipgloss.NewStyle().
-			Foreground(tui.ColorMuted).
-			Render("加载中...")
+		switch v.step {
+		case routingChainMenu, routingConfigUser, routingConfigPreset,
+			routingConfigOutbound, routingDirect, routingTestUser:
+			detailContent = ""
+		default:
+			detailContent = lipgloss.NewStyle().
+				Foreground(tui.ColorMuted).
+				Render("加载中...")
+		}
 	}
 
 	return v.split.View(menuContent, detailContent)

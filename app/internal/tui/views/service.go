@@ -36,11 +36,10 @@ type ServiceView struct {
 func NewServiceView(model *tui.Model) *ServiceView {
 	v := &ServiceView{model: model}
 	v.menu = tui.NewMenu("", []tui.MenuItem{
-		{Key: '1', Label: "󰋼 查看服务状态", ID: "status"},
-		{Key: '2', Label: "󰑓 重启所有服务", ID: "restart-all"},
-		{Key: '3', Label: "󰓛 停止所有服务", ID: "stop-all"},
-		{Key: '4', Label: "󰐊 启动所有服务", ID: "start-all"},
-		{Key: '5', Label: "󰒓 管理单个服务", ID: "individual"},
+		{Key: '1', Label: "󰑓 重启所有服务", ID: "restart-all"},
+		{Key: '2', Label: "󰓛 停止所有服务", ID: "stop-all"},
+		{Key: '3', Label: "󰐊 启动所有服务", ID: "start-all"},
+		{Key: '4', Label: "󰋼 查看服务状态", ID: "status"},
 	})
 	return v
 }

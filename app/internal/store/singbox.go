@@ -277,8 +277,8 @@ func (c *SingBoxConfig) Normalize() {
 	if c.DNS.Final == "" || c.DNS.Final == "dns-direct" {
 		c.DNS.Final = "public4"
 	}
-	if c.DNS.Strategy == "" || c.DNS.Strategy == "ipv4_only" {
-		c.DNS.Strategy = "prefer_ipv4"
+	if c.DNS.Strategy == "" || c.DNS.Strategy == "prefer_ipv4" {
+		c.DNS.Strategy = "ipv4_only"
 	}
 	if c.DNS.CacheCapacity == 0 {
 		c.DNS.CacheCapacity = 8192
