@@ -55,14 +55,24 @@ func NewSubSplit(totalWidth, totalHeight int) SubSplitModel {
 func (m *SubSplitModel) setSize(w, h int) {
 	m.totalWidth = w
 	m.totalHeight = h
-	if w < subSplitMinTotal {
+	// Apply default minimums for zero-value structs (not created via NewSubSplit).
+	if m.minLeft == 0 {
+		m.minLeft = subSplitMinLeft
+	}
+	if m.minRight == 0 {
+		m.minRight = subSplitMinRight
+	}
+	if w < m.minLeft+m.minRight+1 {
 		m.enabled = false
 		return
 	}
 	m.enabled = true
-	// Default: left gets 28% of width (close to menu text + 4 char padding).
+	// First initialisation: seed width at 28% and enable auto-fit so
+	// fitLeftWidth adjusts the pane on every render.  This covers views
+	// that use a zero-value SubSplitModel instead of NewSubSplit().
 	if m.leftWidth == 0 {
 		m.leftWidth = w * 28 / 100
+		m.autoFit = true
 	}
 	m.clampLeftWidth()
 }
@@ -190,6 +200,8 @@ func (m *SubSplitModel) View(leftContent, rightContent string) string {
 		h = 1
 	}
 
+	// Truncate lines that exceed left panel width to prevent wrapping.
+	leftContent = truncateLines(leftContent, lw)
 	left := lipgloss.NewStyle().Width(lw).Height(h).Render(leftContent)
 	right := lipgloss.NewStyle().Width(rw).Height(h).Render(rightContent)
 
@@ -204,6 +216,27 @@ func (m *SubSplitModel) View(leftContent, rightContent string) string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, divider, right)
 }
 
+// truncateLines truncates each line to maxWidth display columns using
+// lipgloss.NewStyle().MaxWidth(), preserving ANSI styling.
+func truncateLines(content string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+	truncator := lipgloss.NewStyle().MaxWidth(maxWidth)
+	changed := false
+	for i, line := range lines {
+		if lipgloss.Width(line) > maxWidth {
+			lines[i] = truncator.Render(line)
+			changed = true
+		}
+	}
+	if !changed {
+		return content
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (m *SubSplitModel) fitLeftWidth(leftContent string) {
 	required := m.minLeft
 	for _, line := range strings.Split(leftContent, "\n") {
@@ -212,6 +245,9 @@ func (m *SubSplitModel) fitLeftWidth(leftContent string) {
 			required = width
 		}
 	}
+	// Add padding to prevent tight fits where Unicode characters render
+	// wider than measured (e.g., ▶ in some terminals).
+	required += 2
 	max := m.totalWidth - 1 - m.minRight
 	if required > max {
 		required = max

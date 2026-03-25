@@ -59,6 +59,7 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 	v.pendingTag = ""
 	v.emptyResult = false
 	v.split.SetFocusLeft(true)
+	v.split.SetMinWidths(14, 10)
 	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-5)
 	// Reload store from disk to pick up changes from protocol install.
 	v.model.Store().Reload()
