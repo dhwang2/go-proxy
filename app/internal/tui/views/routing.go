@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"go-proxy/internal/derived"
 	"go-proxy/internal/routing"
@@ -65,12 +64,14 @@ func (v *RoutingView) Name() string { return "routing" }
 func (v *RoutingView) setFocus(left bool) {
 	v.split.SetFocusLeft(left)
 	v.menu = v.menu.SetDim(!left)
-	v.subMenu = v.subMenu.SetDim(!left)
+	v.subMenu = v.subMenu.SetDim(left) // right panel: dim when left focused
 }
 
 func (v *RoutingView) Init() tea.Cmd {
 	v.step = routingMenu
+	v.menu = v.menu.SetActiveID("")
 	v.split.SetFocusLeft(true)
+	v.split.SetMinWidths(14, 10)
 	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-5)
 	return nil
 }
@@ -90,7 +91,7 @@ func (v *RoutingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
 				var cmd tea.Cmd
-				v.subMenu, cmd = v.subMenu.Update(msg)
+				v.menu, cmd = v.menu.Update(msg)
 				return v, cmd
 			}
 		}
@@ -103,7 +104,7 @@ func (v *RoutingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tui.MenuCursorChangeMsg:
 		return v, nil
 	case tui.MenuSelectMsg:
-		if v.step == routingMenu {
+		if v.step == routingMenu || (v.split.Enabled() && v.split.FocusLeft()) {
 			v.setFocus(false)
 			return v, v.triggerMenuAction(msg.ID)
 		}
@@ -119,6 +120,7 @@ func (v *RoutingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case tui.ResultDismissedMsg:
 		v.step = routingMenu
+		v.menu = v.menu.SetActiveID("")
 		v.setFocus(true)
 		return v, nil
 
@@ -129,6 +131,7 @@ func (v *RoutingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 // triggerMenuAction executes the action for the given top-level menu item ID.
 func (v *RoutingView) triggerMenuAction(id string) tea.Cmd {
+	v.menu = v.menu.SetActiveID(id)
 	switch id {
 	case "chain":
 		v.step = routingChainMenu
@@ -210,11 +213,9 @@ func (v *RoutingView) handleInput(msg tui.InputResultMsg) (tui.View, tea.Cmd) {
 		switch v.step {
 		case routingChainAddInput:
 			v.step = routingChainMenu
-		case routingTestDomain:
-			v.step = routingMenu
-			v.setFocus(true)
 		default:
 			v.step = routingMenu
+			v.menu = v.menu.SetActiveID("")
 			v.setFocus(true)
 		}
 		return v, nil
@@ -243,6 +244,7 @@ func (v *RoutingView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 		switch v.step {
 		case routingChainMenu:
 			v.step = routingMenu
+			v.menu = v.menu.SetActiveID("")
 			v.setFocus(true)
 			return v, nil
 		case routingChainDeleteSelect:
@@ -250,6 +252,7 @@ func (v *RoutingView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, nil
 		case routingConfigUser:
 			v.step = routingMenu
+			v.menu = v.menu.SetActiveID("")
 			v.setFocus(true)
 			return v, nil
 		case routingConfigPreset:
@@ -258,10 +261,12 @@ func (v *RoutingView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, v.showPresetMenu()
 		case routingDirect:
 			v.step = routingMenu
+			v.menu = v.menu.SetActiveID("")
 			v.setFocus(true)
 			return v, nil
 		case routingTestUser:
 			v.step = routingMenu
+			v.menu = v.menu.SetActiveID("")
 			v.setFocus(true)
 			return v, nil
 		default:
@@ -285,9 +290,12 @@ func (v *RoutingView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch v.step {
 	case routingMenu:
 		v.menu, cmd = v.menu.Update(msg)
-	case routingChainMenu, routingChainDeleteSelect, routingConfigUser,
-		routingConfigPreset, routingConfigOutbound, routingDirect, routingTestUser:
-		v.subMenu, cmd = v.subMenu.Update(msg)
+	default:
+		if v.split.Enabled() && v.split.FocusLeft() {
+			v.menu, cmd = v.menu.Update(msg)
+		} else {
+			v.subMenu, cmd = v.subMenu.Update(msg)
+		}
 	}
 	return v, cmd
 }
@@ -297,7 +305,8 @@ func (v *RoutingView) IsSubSplitRightFocused() bool {
 }
 
 func (v *RoutingView) View() string {
-	if v.step == routingMenu || !v.split.Enabled() {
+	// Non-split fallback.
+	if !v.split.Enabled() {
 		if v.HasInline() {
 			return v.ViewInline()
 		}
@@ -310,15 +319,15 @@ func (v *RoutingView) View() string {
 		}
 	}
 
-	var menuContent string
-	switch v.step {
-	case routingChainMenu, routingChainDeleteSelect, routingConfigUser,
-		routingConfigPreset, routingConfigOutbound, routingDirect, routingTestUser:
-		menuContent = v.subMenu.View()
-	default:
-		menuContent = v.menu.View()
+	// Split mode: main menu step has no split content.
+	if v.step == routingMenu {
+		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
 	}
 
+	// LEFT: always main menu.
+	menuContent := v.menu.View()
+
+	// RIGHT: inline content or sub-menu.
 	var detailContent string
 	if v.HasInline() {
 		tui.InSplitPanel = true
@@ -326,13 +335,11 @@ func (v *RoutingView) View() string {
 		tui.InSplitPanel = false
 	} else {
 		switch v.step {
-		case routingChainMenu, routingConfigUser, routingConfigPreset,
-			routingConfigOutbound, routingDirect, routingTestUser:
-			detailContent = ""
+		case routingChainMenu, routingChainDeleteSelect, routingConfigUser,
+			routingConfigPreset, routingConfigOutbound, routingDirect, routingTestUser:
+			detailContent = v.subMenu.View()
 		default:
-			detailContent = lipgloss.NewStyle().
-				Foreground(tui.ColorMuted).
-				Render("加载中...")
+			detailContent = ""
 		}
 	}
 

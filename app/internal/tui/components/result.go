@@ -38,13 +38,14 @@ func (m ResultModel) Update(msg tea.Msg) (tui.OverlayModel, tea.Cmd) {
 }
 
 func (m ResultModel) View() string {
+	if tui.InSplitPanel {
+		// Skip wrapping — SubSplit truncates overflow.
+		return m.message
+	}
+
 	// Wrap message text to prevent dialog overflow.
 	maxWidth := 70
 	msg := wrapText(m.message, maxWidth)
-
-	if tui.InSplitPanel {
-		return msg
-	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		"",

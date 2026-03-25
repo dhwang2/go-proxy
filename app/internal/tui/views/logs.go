@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"go-proxy/internal/config"
 	"go-proxy/internal/derived"
@@ -48,12 +47,14 @@ func (v *LogsView) Name() string { return "logs" }
 func (v *LogsView) setFocus(left bool) {
 	v.split.SetFocusLeft(left)
 	v.menu = v.menu.SetDim(!left)
-	v.serviceMenu = v.serviceMenu.SetDim(!left)
+	v.serviceMenu = v.serviceMenu.SetDim(left) // right panel: dim when left focused
 }
 
 func (v *LogsView) Init() tea.Cmd {
 	v.step = logsMenu
+	v.menu = v.menu.SetActiveID("")
 	v.split.SetFocusLeft(true)
+	v.split.SetMinWidths(14, 10)
 	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-5)
 	return nil
 }
@@ -86,7 +87,7 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tui.MenuCursorChangeMsg:
 		return v, nil
 	case tui.MenuSelectMsg:
-		if v.step == logsServiceSelect {
+		if v.step == logsServiceSelect && !(v.split.Enabled() && v.split.FocusLeft()) {
 			svc := msg.ID
 			v.step = logsResult
 			v.setFocus(false)
@@ -105,6 +106,7 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case tui.ResultDismissedMsg:
 		v.step = logsMenu
+		v.menu = v.menu.SetActiveID("")
 		v.setFocus(true)
 		return v, nil
 
@@ -113,6 +115,7 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			switch v.step {
 			case logsServiceSelect:
 				v.step = logsMenu
+				v.menu = v.menu.SetActiveID("")
 				v.setFocus(true)
 				return v, nil
 			default:
@@ -139,7 +142,11 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, cmd
 		case logsServiceSelect:
 			var cmd tea.Cmd
-			v.serviceMenu, cmd = v.serviceMenu.Update(msg)
+			if v.split.Enabled() && v.split.FocusLeft() {
+				v.menu, cmd = v.menu.Update(msg)
+			} else {
+				v.serviceMenu, cmd = v.serviceMenu.Update(msg)
+			}
 			return v, cmd
 		}
 	}
@@ -151,7 +158,8 @@ func (v *LogsView) IsSubSplitRightFocused() bool {
 }
 
 func (v *LogsView) View() string {
-	if v.step == logsMenu || !v.split.Enabled() {
+	// Non-split fallback.
+	if !v.split.Enabled() {
 		if v.HasInline() {
 			return v.ViewInline()
 		}
@@ -161,22 +169,24 @@ func (v *LogsView) View() string {
 		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
 	}
 
-	var menuContent string
-	if v.step == logsServiceSelect {
-		menuContent = v.serviceMenu.View()
-	} else {
-		menuContent = v.menu.View()
+	// Split mode: main menu step has no split content.
+	if v.step == logsMenu {
+		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
 	}
 
+	// LEFT: always main menu.
+	menuContent := v.menu.View()
+
+	// RIGHT: inline content, service sub-menu, or empty.
 	var detailContent string
 	if v.HasInline() {
 		tui.InSplitPanel = true
 		detailContent = v.ViewInline()
 		tui.InSplitPanel = false
+	} else if v.step == logsServiceSelect {
+		detailContent = v.serviceMenu.View()
 	} else {
-		detailContent = lipgloss.NewStyle().
-			Foreground(tui.ColorMuted).
-			Render("加载中...")
+		detailContent = ""
 	}
 
 	return v.split.View(menuContent, detailContent)
@@ -184,6 +194,7 @@ func (v *LogsView) View() string {
 
 // triggerMenuAction executes the action for the given main menu item ID.
 func (v *LogsView) triggerMenuAction(id string) tea.Cmd {
+	v.menu = v.menu.SetActiveID(id)
 	switch id {
 	case "script":
 		v.step = logsResult
@@ -199,7 +210,8 @@ func (v *LogsView) triggerMenuAction(id string) tea.Cmd {
 		)
 	case "service":
 		v.step = logsServiceSelect
-		v.setFocus(true)
+		v.serviceMenu = v.buildServiceMenu()
+		// Focus stays on right (set by caller)
 		return nil
 	}
 	return nil
