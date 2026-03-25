@@ -129,6 +129,10 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, v.triggerMenuAction(msg.ID)
 
 	case logsContentMsg:
+		// Discard stale result if user already navigated away.
+		if v.step == logsMenu {
+			return v, nil
+		}
 		w := v.model.ContentWidth()
 		h := v.model.Height() - 5
 		if v.split.Enabled() {
