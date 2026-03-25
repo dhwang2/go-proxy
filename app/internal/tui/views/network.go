@@ -24,10 +24,12 @@ const (
 
 type NetworkView struct {
 	tui.InlineState
-	model *tui.Model
-	menu  tui.MenuModel
-	split tui.SubSplitModel
-	step  networkStep
+	model         *tui.Model
+	menu          tui.MenuModel
+	split         tui.SubSplitModel
+	step          networkStep
+	pendingAction string
+	fail2banState string
 }
 
 func NewNetworkView(model *tui.Model) *NetworkView {
@@ -35,6 +37,7 @@ func NewNetworkView(model *tui.Model) *NetworkView {
 	v.menu = tui.NewMenu("", []tui.MenuItem{
 		{Key: '1', Label: "󰓅 BBR 网络优化", ID: "bbr"},
 		{Key: '2', Label: "󰒃 服务器防火墙收敛", ID: "firewall"},
+		{Key: '3', Label: "󰒃 fail2ban 防护", ID: "fail2ban"},
 	})
 	return v
 }
@@ -86,6 +89,9 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case networkActionDoneMsg:
 		v.setFocus(false)
+		if msg.state != "" {
+			v.fail2banState = msg.state // copy synchronously from message
+		}
 		if msg.needConfirm {
 			v.step = networkConfirm
 			return v, v.SetInline(components.NewConfirm(msg.result))
@@ -95,7 +101,12 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case tui.ConfirmResultMsg:
 		if msg.Confirmed {
-			return v, v.doEnableBBR
+			switch v.pendingAction {
+			case "fail2ban":
+				return v, v.doFail2BanAction
+			default:
+				return v, v.doEnableBBR
+			}
 		}
 		v.step = networkMenu
 		v.setFocus(true)
@@ -161,11 +172,14 @@ func (v *NetworkView) View() string {
 
 // triggerMenuAction executes the action for the given menu item ID.
 func (v *NetworkView) triggerMenuAction(id string) tea.Cmd {
+	v.pendingAction = id // set synchronously before goroutine
 	switch id {
 	case "bbr":
 		return v.doBBRStatus
 	case "firewall":
 		return v.doFirewall
+	case "fail2ban":
+		return v.doFail2BanStatus
 	}
 	return nil
 }
@@ -173,6 +187,7 @@ func (v *NetworkView) triggerMenuAction(id string) tea.Cmd {
 type networkActionDoneMsg struct {
 	result      string
 	needConfirm bool
+	state       string // for fail2ban: "install", "enable", "disable"
 }
 
 func (v *NetworkView) doBBRStatus() tea.Msg {
@@ -187,6 +202,56 @@ func (v *NetworkView) doBBRStatus() tea.Msg {
 		result:      fmt.Sprintf("当前拥塞控制: %s\nBBR 未启用，是否启用？", current),
 		needConfirm: true,
 	}
+}
+
+func (v *NetworkView) doFail2BanStatus() tea.Msg {
+	installed, running, err := network.Fail2BanStatus()
+	if err != nil {
+		return networkActionDoneMsg{result: fmt.Sprintf("fail2ban 状态\n\n读取失败: %s", err)}
+	}
+	if !installed {
+		return networkActionDoneMsg{
+			result:      "fail2ban 未安装，是否安装并启用？",
+			needConfirm: true,
+			state:       "install",
+		}
+	}
+	if !running {
+		return networkActionDoneMsg{
+			result:      "fail2ban 已安装但未运行，是否启用？",
+			needConfirm: true,
+			state:       "enable",
+		}
+	}
+	return networkActionDoneMsg{
+		result:      "fail2ban 正在运行，是否停止并禁用？",
+		needConfirm: true,
+		state:       "disable",
+	}
+}
+
+func (v *NetworkView) doFail2BanAction() tea.Msg {
+	switch v.fail2banState {
+	case "install":
+		if err := network.Fail2BanInstall(); err != nil {
+			return networkActionDoneMsg{result: "安装 fail2ban 失败: " + err.Error()}
+		}
+		if err := network.Fail2BanEnable(); err != nil {
+			return networkActionDoneMsg{result: "启用 fail2ban 失败: " + err.Error()}
+		}
+		return networkActionDoneMsg{result: "fail2ban 已安装并启用"}
+	case "enable":
+		if err := network.Fail2BanEnable(); err != nil {
+			return networkActionDoneMsg{result: "启用 fail2ban 失败: " + err.Error()}
+		}
+		return networkActionDoneMsg{result: "fail2ban 已启用"}
+	case "disable":
+		if err := network.Fail2BanDisable(); err != nil {
+			return networkActionDoneMsg{result: "禁用 fail2ban 失败: " + err.Error()}
+		}
+		return networkActionDoneMsg{result: "fail2ban 已停止并禁用"}
+	}
+	return networkActionDoneMsg{result: "未知操作"}
 }
 
 func (v *NetworkView) doEnableBBR() tea.Msg {

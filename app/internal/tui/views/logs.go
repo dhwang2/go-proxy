@@ -6,7 +6,9 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"go-proxy/internal/config"
 	"go-proxy/internal/derived"
@@ -25,11 +27,14 @@ const (
 
 type LogsView struct {
 	tui.InlineState
-	model       *tui.Model
-	menu        tui.MenuModel
-	serviceMenu tui.MenuModel
-	split       tui.SubSplitModel
-	step        logsStep
+	model         *tui.Model
+	menu          tui.MenuModel
+	serviceMenu   tui.MenuModel
+	split         tui.SubSplitModel
+	viewport      viewport.Model
+	viewportReady bool
+	rawContent    string // original unwrapped content for re-wrap on resize
+	step          logsStep
 }
 
 func NewLogsView(model *tui.Model) *LogsView {
@@ -53,6 +58,7 @@ func (v *LogsView) setFocus(left bool) {
 func (v *LogsView) Init() tea.Cmd {
 	v.step = logsMenu
 	v.menu = v.menu.SetActiveID("")
+	v.viewportReady = false
 	v.split.SetFocusLeft(true)
 	v.split.SetMinWidths(14, 10)
 	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-5)
@@ -63,16 +69,39 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.ViewResizeMsg:
 		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-5)
+		if v.viewportReady {
+			w := msg.ContentWidth
+			h := msg.ContentHeight - 5
+			if v.split.Enabled() {
+				w = v.split.RightWidth()
+				h = v.split.TotalHeight()
+			}
+			v.viewport.Width = w
+			v.viewport.Height = h
+			v.viewport.SetContent(wrapContent(v.rawContent, w))
+		}
 		return v, nil
 	case tui.SubSplitMouseMsg:
+		// Handle mouse wheel scrolling for viewport
+		if v.step == logsResult && v.viewportReady {
+			if msg.Button == tea.MouseButtonWheelUp {
+				v.viewport.LineUp(3)
+				return v, nil
+			}
+			if msg.Button == tea.MouseButtonWheelDown {
+				v.viewport.LineDown(3)
+				return v, nil
+			}
+		}
 		var cmd tea.Cmd
 		v.split, cmd = v.split.Update(msg.MouseMsg)
 		return v, cmd
 	}
-	// In split mode, intercept up/down for menu navigation even when content is showing.
+	// In split mode, route keys to main menu when left-focused and not on menu step.
 	if v.split.Enabled() && v.step != logsMenu && v.split.FocusLeft() {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
+			switch keyMsg.Type {
+			case tea.KeyUp, tea.KeyDown, tea.KeyEnter:
 				var cmd tea.Cmd
 				v.menu, cmd = v.menu.Update(msg)
 				return v, cmd
@@ -99,10 +128,21 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.setFocus(false)
 		return v, v.triggerMenuAction(msg.ID)
 
-	case logsActionDoneMsg:
+	case logsContentMsg:
+		w := v.model.ContentWidth()
+		h := v.model.Height() - 5
+		if v.split.Enabled() {
+			w = v.split.RightWidth()
+			h = v.split.TotalHeight()
+		}
+		v.rawContent = msg.content
+		v.viewport = viewport.New(w, h)
+		v.viewport.SetContent(wrapContent(v.rawContent, w))
+		v.viewportReady = true
+		v.ClearInline()
 		v.step = logsResult
 		v.setFocus(false)
-		return v, v.SetInline(components.NewResult(msg.result))
+		return v, nil
 
 	case tui.ResultDismissedMsg:
 		v.step = logsMenu
@@ -118,6 +158,12 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				v.menu = v.menu.SetActiveID("")
 				v.setFocus(true)
 				return v, nil
+			case logsResult:
+				v.step = logsMenu
+				v.menu = v.menu.SetActiveID("")
+				v.viewportReady = false
+				v.setFocus(true)
+				return v, nil
 			default:
 				return v, tui.BackCmd
 			}
@@ -129,7 +175,7 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 					v.setFocus(true)
 					return v, nil
 				}
-				if keyMsg.Type == tea.KeyRight && v.HasInline() {
+				if keyMsg.Type == tea.KeyRight && (v.HasInline() || v.viewportReady) {
 					v.setFocus(false)
 					return v, nil
 				}
@@ -148,6 +194,12 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				v.serviceMenu, cmd = v.serviceMenu.Update(msg)
 			}
 			return v, cmd
+		case logsResult:
+			if v.viewportReady && !v.split.FocusLeft() {
+				var cmd tea.Cmd
+				v.viewport, cmd = v.viewport.Update(msg)
+				return v, cmd
+			}
 		}
 	}
 	return v, inlineCmd
@@ -166,6 +218,9 @@ func (v *LogsView) View() string {
 		if v.step == logsServiceSelect {
 			return tui.RenderSubMenuBody(v.serviceMenu.View(), v.model.ContentWidth())
 		}
+		if v.step == logsResult && v.viewportReady {
+			return v.renderViewport()
+		}
 		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
 	}
 
@@ -177,9 +232,11 @@ func (v *LogsView) View() string {
 	// LEFT: always main menu.
 	menuContent := v.menu.View()
 
-	// RIGHT: inline content, service sub-menu, or empty.
+	// RIGHT: viewport content, spinner, service sub-menu, or empty.
 	var detailContent string
-	if v.HasInline() {
+	if v.step == logsResult && v.viewportReady {
+		detailContent = v.renderViewport()
+	} else if v.HasInline() {
 		tui.InSplitPanel = true
 		detailContent = v.ViewInline()
 		tui.InSplitPanel = false
@@ -192,18 +249,27 @@ func (v *LogsView) View() string {
 	return v.split.View(menuContent, detailContent)
 }
 
+func (v *LogsView) renderViewport() string {
+	if !v.viewportReady {
+		return "加载中..."
+	}
+	return v.viewport.View()
+}
+
 // triggerMenuAction executes the action for the given main menu item ID.
 func (v *LogsView) triggerMenuAction(id string) tea.Cmd {
 	v.menu = v.menu.SetActiveID(id)
 	switch id {
 	case "script":
 		v.step = logsResult
+		v.viewportReady = false
 		return tea.Batch(
 			v.SetInline(components.NewSpinner("加载日志...")),
 			func() tea.Msg { return v.readScriptLog() },
 		)
 	case "watchdog":
 		v.step = logsResult
+		v.viewportReady = false
 		return tea.Batch(
 			v.SetInline(components.NewSpinner("加载日志...")),
 			func() tea.Msg { return v.readWatchdogLog() },
@@ -217,7 +283,7 @@ func (v *LogsView) triggerMenuAction(id string) tea.Cmd {
 	return nil
 }
 
-type logsActionDoneMsg struct{ result string }
+type logsContentMsg struct{ content string }
 
 func (v *LogsView) buildServiceMenu() tui.MenuModel {
 	// Map protocol types to systemd service names.
@@ -281,7 +347,7 @@ func (v *LogsView) readScriptLog() tea.Msg {
 	if source != "" {
 		title += " (" + source + ")"
 	}
-	return logsActionDoneMsg{result: title + "\n\n" + colorizeLogOutput(content)}
+	return logsContentMsg{content: title + "\n\n" + colorizeLogOutput(content)}
 }
 
 // readWatchdogLog reads watchdog log from file or journalctl.
@@ -291,7 +357,7 @@ func (v *LogsView) readWatchdogLog() tea.Msg {
 	if source != "" {
 		title += " (" + source + ")"
 	}
-	return logsActionDoneMsg{result: title + "\n\n" + colorizeLogOutput(content)}
+	return logsContentMsg{content: title + "\n\n" + colorizeLogOutput(content)}
 }
 
 // readServiceLog reads a service log with file/journalctl fallback.
@@ -302,7 +368,7 @@ func (v *LogsView) readServiceLog(svc string) tea.Msg {
 	if source != "" {
 		title += " (" + source + ")"
 	}
-	return logsActionDoneMsg{result: title + "\n\n" + colorizeLogOutput(content)}
+	return logsContentMsg{content: title + "\n\n" + colorizeLogOutput(content)}
 }
 
 // serviceLogSource returns the log file path and systemd unit for a service.
@@ -387,4 +453,12 @@ func colorizeLine(line string) string {
 	default:
 		return line
 	}
+}
+
+// wrapContent wraps each line to fit within the given width using lipgloss.
+func wrapContent(content string, width int) string {
+	if width <= 0 {
+		return content
+	}
+	return lipgloss.NewStyle().Width(width).Render(content)
 }
