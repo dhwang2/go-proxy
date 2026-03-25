@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"go-proxy/internal/derived"
 	"go-proxy/internal/store"
 )
 
@@ -54,6 +55,7 @@ type Model struct {
 	current      string     // name of the active sub-view ("" = none)
 	focus        FocusPanel // which panel has keyboard focus
 	mainMenu     MenuModel
+	dashCache    derived.DashCache
 	splitPanel   bool // true when terminal >= 80 cols
 	leftWidth    int  // left panel width
 	rightWidth   int  // right panel width
@@ -404,7 +406,7 @@ func (m Model) viewSinglePanel() string {
 	if m.current == "" {
 		// Show full-screen main menu with dashboard.
 		w := m.width
-		dashboard := RenderDashboard(m.store, m.version, w)
+		dashboard := RenderDashboard(m.dashCache.Get(m.store), m.version, w)
 		sepWidth := m.contentWidth
 		sep := SeparatorDouble(sepWidth)
 		hint := RenderFooterHint("退出(esc) | 选择(↑↓) | 确认(enter)", sepWidth)
@@ -437,7 +439,7 @@ func (m Model) renderLeftPanel() string {
 		innerH = 0
 	}
 
-	dashboard := RenderCompactDashboard(m.store, m.version, innerW)
+	dashboard := RenderCompactDashboard(m.dashCache.Get(m.store), m.version, innerW)
 
 	menuView := m.mainMenu.SetWidth(innerW).View()
 

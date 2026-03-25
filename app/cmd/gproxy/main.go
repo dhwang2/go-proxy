@@ -54,18 +54,12 @@ func main() {
 		cmdRouting()
 	case "sub":
 		cmdSub()
-	case "update":
-		fmt.Println("self-update not yet implemented in CLI mode")
 	case "log":
 		cmdLog()
 	case "watchdog":
 		cmdWatchdog()
 	case "init", "setup":
 		cmdInit()
-	case "core":
-		fmt.Println("core management not yet implemented in CLI mode")
-	case "network":
-		fmt.Println("network management not yet implemented in CLI mode")
 	case "help", "--help", "-h":
 		printUsage()
 	default:
@@ -192,7 +186,7 @@ func cmdConfig() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
-		if err := s.Apply(); err != nil {
+		if err := s.Validate(); err != nil {
 			fmt.Fprintf(os.Stderr, "validation failed: %v\n", err)
 			os.Exit(1)
 		}
@@ -522,12 +516,9 @@ func printUsage() {
 	fmt.Println("  stop        Stop services")
 	fmt.Println("  restart     Restart services")
 	fmt.Println("  log         Show logs")
-	fmt.Println("  update      Self-update")
 	fmt.Println("  config      Configuration management")
 	fmt.Println("  user        User management")
 	fmt.Println("  protocol    Protocol management")
-	fmt.Println("  network     Network management")
-	fmt.Println("  core        Core binary management")
 	fmt.Println("  routing     Routing management")
 	fmt.Println("  sub         Subscription management")
 }

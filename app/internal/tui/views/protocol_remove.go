@@ -16,10 +16,7 @@ import (
 )
 
 type ProtocolRemoveView struct {
-	tui.InlineState
-	model       *tui.Model
-	menu        tui.MenuModel
-	split       tui.SubSplitModel
+	tui.SplitViewBase
 	step        protoRemoveStep
 	pendingTag  string
 	tableHeader string
@@ -44,26 +41,22 @@ type protocolRemoveRow struct {
 }
 
 func NewProtocolRemoveView(model *tui.Model) *ProtocolRemoveView {
-	return &ProtocolRemoveView{model: model}
+	v := &ProtocolRemoveView{}
+	v.Model = model
+	return v
 }
 
 func (v *ProtocolRemoveView) Name() string { return "protocol-remove" }
-
-func (v *ProtocolRemoveView) setFocus(left bool) {
-	v.split.SetFocusLeft(left)
-	v.menu = v.menu.SetDim(!left)
-}
 
 func (v *ProtocolRemoveView) Init() tea.Cmd {
 	v.step = protoRemoveMenu
 	v.pendingTag = ""
 	v.emptyResult = false
-	v.split.SetFocusLeft(true)
-	v.split.SetMinWidths(14, 10)
-	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-5)
+	v.InitSplit()
+	v.Split.SetMinWidths(14, 10)
 	// Reload store from disk to pick up changes from protocol install.
-	v.model.Store().Reload()
-	inv := derived.Inventory(v.model.Store())
+	v.Model.Store().Reload()
+	inv := derived.Inventory(v.Model.Store())
 
 	if len(inv) == 0 {
 		v.step = protoRemoveResult
@@ -71,7 +64,7 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 		return v.SetInline(components.NewResult("没有已安装的协议"))
 	}
 
-	membership := derived.Membership(v.model.Store())
+	membership := derived.Membership(v.Model.Store())
 
 	// Build a reverse map: tag -> list of user names.
 	tagUsers := make(map[string][]string)
@@ -114,29 +107,21 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 			ID:    info.Tag,
 		})
 	}
-	v.menu = v.menu.SetItems(items)
+	v.Menu = v.Menu.SetItems(items)
 	return nil
 }
 
 func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.ViewResizeMsg:
-		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-5)
+		v.HandleResize(msg)
 		return v, nil
 	case tui.SubSplitMouseMsg:
-		var cmd tea.Cmd
-		v.split, cmd = v.split.Update(msg.MouseMsg)
-		return v, cmd
+		return v, v.HandleMouse(msg)
 	}
 	// In split mode, intercept up/down for menu navigation even when content is showing.
-	if v.split.Enabled() && v.step != protoRemoveMenu && v.split.FocusLeft() {
-		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
-				var cmd tea.Cmd
-				v.menu, cmd = v.menu.Update(msg)
-				return v, cmd
-			}
-		}
+	if cmd, handled := v.HandleMenuNav(msg, v.step == protoRemoveMenu, false); handled {
+		return v, cmd
 	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
@@ -147,13 +132,13 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		// Do not auto-preview — triggerMenuAction starts the confirm dialog.
 		return v, nil
 	case tui.MenuSelectMsg:
-		v.setFocus(false)
+		v.SetFocus(false)
 		return v, v.triggerMenuAction(msg.ID)
 
 	case tui.ConfirmResultMsg:
 		if !msg.Confirmed {
 			v.step = protoRemoveMenu
-			v.setFocus(true)
+			v.SetFocus(true)
 			return v, nil
 		}
 		tag := v.pendingTag
@@ -187,47 +172,36 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		// Left/Right arrow toggles sub-split focus.
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			if v.split.Enabled() && v.step != protoRemoveMenu {
-				if keyMsg.Type == tea.KeyLeft {
-					v.setFocus(true)
-					return v, nil
-				}
-				if keyMsg.Type == tea.KeyRight && v.HasInline() {
-					v.setFocus(false)
-					return v, nil
-				}
+			if v.HandleSplitArrows(keyMsg, v.step == protoRemoveMenu, v.HasInline()) {
+				return v, nil
 			}
 		}
 		if v.step == protoRemoveMenu {
 			var cmd tea.Cmd
-			v.menu, cmd = v.menu.Update(msg)
+			v.Menu, cmd = v.Menu.Update(msg)
 			return v, cmd
 		}
 	}
 	return v, inlineCmd
 }
 
-func (v *ProtocolRemoveView) IsSubSplitRightFocused() bool {
-	return v.split.Enabled() && !v.split.FocusLeft()
-}
-
 func (v *ProtocolRemoveView) View() string {
-	if v.step == protoRemoveMenu || !v.split.Enabled() {
+	if v.step == protoRemoveMenu || !v.Split.Enabled() {
 		if v.HasInline() {
 			return v.ViewInline()
 		}
 		if v.step == protoRemoveMenu && v.tableHeader != "" {
 			content := v.renderRemoveTable()
-			return tui.RenderSubMenuBody(content, v.model.ContentWidth())
+			return tui.RenderSubMenuBody(content, v.Model.ContentWidth())
 		}
-		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
+		return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
 	}
 
 	var menuContent string
 	if v.tableHeader != "" {
 		menuContent = v.renderRemoveTable()
 	} else {
-		menuContent = v.menu.View()
+		menuContent = v.Menu.View()
 	}
 
 	var detailContent string
@@ -241,12 +215,12 @@ func (v *ProtocolRemoveView) View() string {
 			Render("加载中...")
 	}
 
-	return v.split.View(menuContent, detailContent)
+	return v.Split.View(menuContent, detailContent)
 }
 
 // triggerMenuAction executes the action for the given menu item ID.
 func (v *ProtocolRemoveView) triggerMenuAction(id string) tea.Cmd {
-	if id != store.SnellTag && derived.FindInbound(v.model.Store(), id) == nil {
+	if id != store.SnellTag && derived.FindInbound(v.Model.Store(), id) == nil {
 		return nil
 	}
 	v.pendingTag = id
@@ -261,10 +235,10 @@ type protoRemoveDoneMsg struct {
 }
 
 func (v *ProtocolRemoveView) doRemove(tag string) error {
-	if err := protocol.Remove(v.model.Store(), tag); err != nil {
+	if err := protocol.Remove(v.Model.Store(), tag); err != nil {
 		return err
 	}
-	return v.model.Store().Apply()
+	return v.Model.Store().Apply()
 }
 
 func padProtocolRemoveCell(text string, width int) string {
@@ -313,7 +287,7 @@ func (v *ProtocolRemoveView) renderRemoveTable() string {
 			padProtocolRemoveCell(row.Protocol, protocolWidth) +
 			padProtocolRemoveCell(row.Port, portWidth) +
 			row.User
-		if i == v.menu.Cursor() && !v.menu.IsDimmed() {
+		if i == v.Menu.Cursor() && !v.Menu.IsDimmed() {
 			sb.WriteString(selectedStyle.Render(line))
 		} else {
 			sb.WriteString(valStyle.Render(line))

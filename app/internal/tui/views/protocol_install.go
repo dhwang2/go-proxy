@@ -18,10 +18,7 @@ import (
 )
 
 type ProtocolInstallView struct {
-	tui.InlineState
-	model         *tui.Model
-	menu          tui.MenuModel
-	split         tui.SubSplitModel
+	tui.SplitViewBase
 	step          protoInstallStep
 	pendingType   protocol.Type
 	pendingUser   string
@@ -45,40 +42,33 @@ const (
 )
 
 func NewProtocolInstallView(model *tui.Model) *ProtocolInstallView {
-	return &ProtocolInstallView{model: model}
+	v := &ProtocolInstallView{}
+	v.Model = model
+	return v
 }
 
 func (v *ProtocolInstallView) Name() string { return "protocol-install" }
 
 func (v *ProtocolInstallView) setFocus(left bool) {
-	v.split.SetFocusLeft(left)
-	v.menu = v.menu.SetDim(!left)
+	v.SetFocus(left)
 }
 
 func (v *ProtocolInstallView) Init() tea.Cmd {
-	v.resetMenuState(v.model.ContentWidth(), v.model.Height()-5)
+	v.resetMenuState(v.Model.ContentWidth(), v.Model.Height()-5)
 	return nil
 }
 
 func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.ViewResizeMsg:
-		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-5)
+		v.HandleResize(msg)
 		return v, nil
 	case tui.SubSplitMouseMsg:
-		var cmd tea.Cmd
-		v.split, cmd = v.split.Update(msg.MouseMsg)
-		return v, cmd
+		return v, v.HandleMouse(msg)
 	}
 	// In split mode, intercept up/down for menu navigation even when content is showing.
-	if v.split.Enabled() && v.step != protoInstallMenu && v.split.FocusLeft() {
-		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
-				var cmd tea.Cmd
-				v.menu, cmd = v.menu.Update(msg)
-				return v, cmd
-			}
-		}
+	if cmd, handled := v.HandleMenuNav(msg, v.step == protoInstallMenu, false); handled {
+		return v, cmd
 	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
@@ -89,13 +79,13 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		// Do not auto-preview — triggerMenuAction starts the install flow.
 		return v, nil
 	case tui.MenuSelectMsg:
-		v.setFocus(false)
+		v.SetFocus(false)
 		return v, v.triggerMenuAction(msg.ID)
 
 	case tui.InputResultMsg:
 		if msg.Cancelled {
 			v.step = protoInstallMenu
-			v.setFocus(true)
+			v.SetFocus(true)
 			return v, nil
 		}
 		switch v.step {
@@ -153,7 +143,7 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 
 	case tui.ResultDismissedMsg:
-		v.resetMenuState(v.split.TotalWidth(), v.split.TotalHeight())
+		v.resetMenuState(v.Split.TotalWidth(), v.Split.TotalHeight())
 		return v, nil
 
 	default:
@@ -162,39 +152,28 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		// Left/Right arrow toggles sub-split focus.
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			if v.split.Enabled() && v.step != protoInstallMenu {
-				if keyMsg.Type == tea.KeyLeft {
-					v.setFocus(true)
-					return v, nil
-				}
-				if keyMsg.Type == tea.KeyRight && v.HasInline() {
-					v.setFocus(false)
-					return v, nil
-				}
+			if v.HandleSplitArrows(keyMsg, v.step == protoInstallMenu, v.HasInline()) {
+				return v, nil
 			}
 		}
 		if v.step == protoInstallMenu {
 			var cmd tea.Cmd
-			v.menu, cmd = v.menu.Update(msg)
+			v.Menu, cmd = v.Menu.Update(msg)
 			return v, cmd
 		}
 	}
 	return v, inlineCmd
 }
 
-func (v *ProtocolInstallView) IsSubSplitRightFocused() bool {
-	return v.split.Enabled() && !v.split.FocusLeft()
-}
-
 func (v *ProtocolInstallView) View() string {
-	if v.step == protoInstallMenu || !v.split.Enabled() {
+	if v.step == protoInstallMenu || !v.Split.Enabled() {
 		if v.HasInline() {
 			return v.ViewInline()
 		}
-		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
+		return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
 	}
 
-	menuContent := v.menu.View()
+	menuContent := v.Menu.View()
 	var detailContent string
 	if v.HasInline() {
 		tui.InSplitPanel = true
@@ -206,7 +185,7 @@ func (v *ProtocolInstallView) View() string {
 			Render("加载中...")
 	}
 
-	return v.split.View(menuContent, detailContent)
+	return v.Split.View(menuContent, detailContent)
 }
 
 // triggerMenuAction executes the action for the given menu item ID.
@@ -217,7 +196,7 @@ func (v *ProtocolInstallView) triggerMenuAction(id string) tea.Cmd {
 	v.pendingPort = 0
 	v.pendingDomain = ""
 	v.pendingEmail = ""
-	names := derived.UserNames(v.model.Store())
+	names := derived.UserNames(v.Model.Store())
 	if len(names) == 0 {
 		return v.SetInline(components.NewResult("请先添加用户"))
 	}
@@ -237,18 +216,18 @@ func (v *ProtocolInstallView) resetMenuState(contentWidth, contentHeight int) {
 	v.pendingDomain = ""
 	v.pendingEmail = ""
 	v.lastResult = nil
-	v.setFocus(true)
+	v.SetFocus(true)
 	// Protocol install needs a narrower third-level split so the user picker
 	// still renders beside the protocol list on common terminal widths and
 	// long protocol labels do not wrap.
-	v.split.SetMinWidths(14, 10)
+	v.Split.SetMinWidths(14, 10)
 	if contentWidth <= 0 {
-		contentWidth = v.model.ContentWidth()
+		contentWidth = v.Model.ContentWidth()
 	}
 	if contentHeight <= 0 {
-		contentHeight = v.model.Height() - 5
+		contentHeight = v.Model.Height() - 5
 	}
-	v.split.SetSize(contentWidth, contentHeight)
+	v.Split.SetSize(contentWidth, contentHeight)
 
 	types := protocol.InstallableTypes()
 	specs := protocol.Specs()
@@ -261,7 +240,7 @@ func (v *ProtocolInstallView) resetMenuState(contentWidth, contentHeight int) {
 			ID:    string(t),
 		})
 	}
-	v.menu = v.menu.SetItems(items)
+	v.Menu = v.Menu.SetItems(items)
 }
 
 // startInstallOrAddUser checks for an existing inbound; if found, adds user directly.
@@ -272,8 +251,8 @@ func (v *ProtocolInstallView) startInstallOrAddUser() tea.Cmd {
 
 	// Snell is single-user; block duplicate install.
 	if pt == protocol.Snell {
-		if v.model.Store().SnellConf != nil {
-			if userHasSelectedProtocol(v.model.Store(), pt, userName) {
+		if v.Model.Store().SnellConf != nil {
+			if userHasSelectedProtocol(v.Model.Store(), pt, userName) {
 				v.step = protoInstallResult
 				return v.SetInline(components.NewResult(formatAlreadyInstalled(pt, userName)))
 			}
@@ -283,9 +262,9 @@ func (v *ProtocolInstallView) startInstallOrAddUser() tea.Cmd {
 		return v.startPortInput()
 	}
 
-	existing := protocol.FindExistingInbound(v.model.Store(), pt)
+	existing := protocol.FindExistingInbound(v.Model.Store(), pt)
 	if existing != nil {
-		if userHasSelectedProtocol(v.model.Store(), pt, userName) {
+		if userHasSelectedProtocol(v.Model.Store(), pt, userName) {
 			v.step = protoInstallResult
 			return v.SetInline(components.NewResult(formatAlreadyInstalled(pt, userName)))
 		}
@@ -293,11 +272,11 @@ func (v *ProtocolInstallView) startInstallOrAddUser() tea.Cmd {
 		return tea.Batch(
 			v.SetInline(components.NewSpinner("添加用户...")),
 			func() tea.Msg {
-				result, err := protocol.AddUserToExisting(v.model.Store(), existing, userName)
+				result, err := protocol.AddUserToExisting(v.Model.Store(), existing, userName)
 				if err != nil {
 					return protoInstallDoneMsg{result: "添加失败: " + err.Error()}
 				}
-				if err := v.model.Store().Apply(); err != nil {
+				if err := v.Model.Store().Apply(); err != nil {
 					return protoInstallDoneMsg{result: "保存失败: " + err.Error()}
 				}
 				// Restart sing-box to load the updated user list.
@@ -402,11 +381,11 @@ type protoInstallDoneMsg struct {
 
 func (v *ProtocolInstallView) collectUsedPorts() map[int]bool {
 	var ports []int
-	for _, ib := range v.model.Store().SingBox.Inbounds {
+	for _, ib := range v.Model.Store().SingBox.Inbounds {
 		ports = append(ports, ib.ListenPort)
 	}
-	if v.model.Store().SnellConf != nil {
-		if p := v.model.Store().SnellConf.Port(); p > 0 {
+	if v.Model.Store().SnellConf != nil {
+		if p := v.Model.Store().SnellConf.Port(); p > 0 {
 			ports = append(ports, p)
 		}
 	}
@@ -436,7 +415,7 @@ func (v *ProtocolInstallView) doInstallWithPort(pt protocol.Type, port int) tea.
 	}
 
 	// Install protocol configuration.
-	result, err := protocol.Install(v.model.Store(), params)
+	result, err := protocol.Install(v.Model.Store(), params)
 	if err != nil {
 		msg := "安装失败: " + err.Error()
 		if depReport != "" {
@@ -444,7 +423,7 @@ func (v *ProtocolInstallView) doInstallWithPort(pt protocol.Type, port int) tea.
 		}
 		return protoInstallDoneMsg{result: msg}
 	}
-	if err := v.model.Store().Apply(); err != nil {
+	if err := v.Model.Store().Apply(); err != nil {
 		return protoInstallDoneMsg{result: "保存失败: " + err.Error()}
 	}
 	return protoInstallDoneMsg{

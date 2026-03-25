@@ -47,14 +47,14 @@ func TestResetMenuStateRestoresMenuFocus(t *testing.T) {
 		UserTemplate: &store.UserRouteTemplates{Templates: map[string][]store.TemplateRule{}},
 	}, "dev")
 	view := NewProtocolInstallView(&model)
-	view.menu = view.menu.SetDim(true)
+	view.Menu = view.Menu.SetDim(true)
 
 	view.resetMenuState(44, 20)
 
-	if view.menu.IsDimmed() {
+	if view.Menu.IsDimmed() {
 		t.Fatal("menu should not remain dimmed after resetMenuState")
 	}
-	if !view.split.FocusLeft() {
+	if !view.Split.FocusLeft() {
 		t.Fatal("split should return focus to the left menu after resetMenuState")
 	}
 }

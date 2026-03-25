@@ -12,12 +12,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"go-proxy/internal/derived"
-	"go-proxy/internal/store"
 )
 
 // RenderDashboard returns a lipgloss-styled dashboard string.
-func RenderDashboard(s *store.Store, version string, width int) string {
-	stats := derived.Dashboard(s)
+func RenderDashboard(stats derived.DashboardStats, version string, width int) string {
 
 	if width < 40 {
 		width = 40
@@ -119,9 +117,9 @@ func checkService(name string) serviceStatusEntry {
 // read from the same cached entries without blocking.
 var (
 	svcCacheMu      sync.RWMutex
-	svcCacheEntries  []serviceStatusEntry
-	svcCacheExpiry   time.Time
-	svcRefreshing    bool
+	svcCacheEntries []serviceStatusEntry
+	svcCacheExpiry  time.Time
+	svcRefreshing   bool
 )
 
 const serviceStatusTTL = 10 * time.Second
@@ -192,8 +190,7 @@ func renderServiceStatus() string {
 }
 
 // RenderCompactDashboard returns a compact dashboard for the narrow left panel.
-func RenderCompactDashboard(s *store.Store, version string, width int) string {
-	stats := derived.Dashboard(s)
+func RenderCompactDashboard(stats derived.DashboardStats, version string, width int) string {
 
 	title := HeaderTitleStyle.Width(width).Render("go-proxy")
 	sub := HeaderSubStyle.Width(width).Render("作者: dhwang2  版本号: " + version)

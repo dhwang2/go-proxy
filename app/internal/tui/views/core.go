@@ -26,17 +26,15 @@ const (
 )
 
 type CoreView struct {
-	tui.InlineState
-	model   *tui.Model
-	menu    tui.MenuModel
-	split   tui.SubSplitModel
+	tui.SplitViewBase
 	step    coreStep
 	pending []core.UpdateCheck
 }
 
 func NewCoreView(model *tui.Model) *CoreView {
-	v := &CoreView{model: model}
-	v.menu = tui.NewMenu("", []tui.MenuItem{
+	v := &CoreView{}
+	v.Model = model
+	v.Menu = tui.NewMenu("", []tui.MenuItem{
 		{Key: '1', Label: "󰋼 查看版本", ID: "versions"},
 		{Key: '2', Label: "󰁪 检查更新", ID: "check"},
 		{Key: '3', Label: "󰏗 执行更新", ID: "update"},
@@ -46,38 +44,24 @@ func NewCoreView(model *tui.Model) *CoreView {
 
 func (v *CoreView) Name() string { return "core" }
 
-func (v *CoreView) setFocus(left bool) {
-	v.split.SetFocusLeft(left)
-	v.menu = v.menu.SetDim(!left)
-}
-
 func (v *CoreView) Init() tea.Cmd {
 	v.step = coreMenu
 	v.pending = nil
-	v.split.SetFocusLeft(true)
-	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-5)
+	v.InitSplit()
 	return nil
 }
 
 func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.ViewResizeMsg:
-		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-5)
+		v.HandleResize(msg)
 		return v, nil
 	case tui.SubSplitMouseMsg:
-		var cmd tea.Cmd
-		v.split, cmd = v.split.Update(msg.MouseMsg)
-		return v, cmd
+		return v, v.HandleMouse(msg)
 	}
 	// In split mode, intercept up/down for menu navigation even when content is showing.
-	if v.split.Enabled() && v.step != coreMenu && v.split.FocusLeft() {
-		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
-				var cmd tea.Cmd
-				v.menu, cmd = v.menu.Update(msg)
-				return v, cmd
-			}
-		}
+	if cmd, handled := v.HandleMenuNav(msg, v.step == coreMenu, false); handled {
+		return v, cmd
 	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
@@ -87,7 +71,7 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tui.MenuCursorChangeMsg:
 		return v, nil
 	case tui.MenuSelectMsg:
-		v.setFocus(false)
+		v.SetFocus(false)
 		return v, v.triggerMenuAction(msg.ID)
 
 	case coreVersionsDoneMsg:
@@ -114,7 +98,7 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			)
 		}
 		v.step = coreMenu
-		v.setFocus(true)
+		v.SetFocus(true)
 		return v, nil
 
 	case coreUpdateDoneMsg:
@@ -123,7 +107,7 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case tui.ResultDismissedMsg:
 		v.step = coreMenu
-		v.setFocus(true)
+		v.SetFocus(true)
 		return v, nil
 
 	default:
@@ -132,39 +116,28 @@ func (v *CoreView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		// Left/Right arrow toggles sub-split focus.
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			if v.split.Enabled() && v.step != coreMenu {
-				if keyMsg.Type == tea.KeyLeft {
-					v.setFocus(true)
-					return v, nil
-				}
-				if keyMsg.Type == tea.KeyRight && v.HasInline() {
-					v.setFocus(false)
-					return v, nil
-				}
+			if v.HandleSplitArrows(keyMsg, v.step == coreMenu, v.HasInline()) {
+				return v, nil
 			}
 		}
 		if v.step == coreMenu {
 			var cmd tea.Cmd
-			v.menu, cmd = v.menu.Update(msg)
+			v.Menu, cmd = v.Menu.Update(msg)
 			return v, cmd
 		}
 	}
 	return v, inlineCmd
 }
 
-func (v *CoreView) IsSubSplitRightFocused() bool {
-	return v.split.Enabled() && !v.split.FocusLeft()
-}
-
 func (v *CoreView) View() string {
-	if v.step == coreMenu || !v.split.Enabled() {
+	if v.step == coreMenu || !v.Split.Enabled() {
 		if v.HasInline() {
 			return v.ViewInline()
 		}
-		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
+		return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
 	}
 
-	menuContent := v.menu.View()
+	menuContent := v.Menu.View()
 	var detailContent string
 	if v.HasInline() {
 		tui.InSplitPanel = true
@@ -176,7 +149,7 @@ func (v *CoreView) View() string {
 			Render("加载中...")
 	}
 
-	return v.split.View(menuContent, detailContent)
+	return v.Split.View(menuContent, detailContent)
 }
 
 // triggerMenuAction executes the action for the given menu item ID.

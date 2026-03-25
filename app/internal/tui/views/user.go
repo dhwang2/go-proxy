@@ -15,10 +15,7 @@ import (
 )
 
 type UserView struct {
-	tui.InlineState
-	model   *tui.Model
-	menu    tui.MenuModel
-	split   tui.SubSplitModel
+	tui.SplitViewBase
 	step    userStep
 	oldName string // for rename: stores the old username
 	rows    []userListRow
@@ -42,52 +39,40 @@ type userListRow struct {
 }
 
 func NewUserView(model *tui.Model) *UserView {
-	v := &UserView{model: model}
-	v.menu = tui.NewMenu("", []tui.MenuItem{
+	v := &UserView{}
+	v.Model = model
+	v.Menu = tui.NewMenu("", []tui.MenuItem{
 		{Key: '1', Label: "󰋼 用户列表", ID: "list"},
 		{Key: '2', Label: "󰐕 添加用户", ID: "add"},
 		{Key: '3', Label: "󰑕 重置用户", ID: "rename"},
 		{Key: '4', Label: "󰍷 删除用户", ID: "delete"},
 	})
 	cw := model.ContentWidth()
-	v.split = tui.NewSubSplit(cw, model.Height()-5)
+	v.Split = tui.NewSubSplit(cw, model.Height()-5)
 	return v
 }
 
 func (v *UserView) Name() string { return "user" }
 
-func (v *UserView) setFocus(left bool) {
-	v.split.SetFocusLeft(left)
-	v.menu = v.menu.SetDim(!left)
-}
-
 func (v *UserView) Init() tea.Cmd {
 	v.step = userMenu
-	v.split.SetFocusLeft(true)
+	v.Split.SetFocusLeft(true)
 	return nil
 }
 
 func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.ViewResizeMsg:
-		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-5)
+		v.HandleResize(msg)
 		return v, nil
 
 	case tui.SubSplitMouseMsg:
-		var cmd tea.Cmd
-		v.split, cmd = v.split.Update(msg.MouseMsg)
-		return v, cmd
+		return v, v.HandleMouse(msg)
 	}
 
 	// In split mode, intercept up/down for menu navigation even when content is showing.
-	if v.split.Enabled() && v.step != userMenu && v.split.FocusLeft() {
-		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
-				var cmd tea.Cmd
-				v.menu, cmd = v.menu.Update(msg)
-				return v, cmd
-			}
-		}
+	if cmd, handled := v.HandleMenuNav(msg, v.step == userMenu, false); handled {
+		return v, cmd
 	}
 
 	inlineCmd, handled := v.UpdateInline(msg)
@@ -100,13 +85,13 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, nil
 
 	case tui.MenuSelectMsg:
-		v.setFocus(false)
+		v.SetFocus(false)
 		return v, v.triggerMenuAction(msg.ID)
 
 	case tui.InputResultMsg:
 		if msg.Cancelled {
 			v.step = userMenu
-			v.setFocus(true)
+			v.SetFocus(true)
 			return v, nil
 		}
 		switch v.step {
@@ -132,7 +117,7 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case tui.ResultDismissedMsg:
 		v.step = userMenu
-		v.setFocus(true)
+		v.SetFocus(true)
 		return v, nil
 
 	default:
@@ -140,26 +125,19 @@ func (v *UserView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			if keyMsg.Type == tea.KeyEsc {
 				if v.step != userMenu {
 					v.step = userMenu
-					v.setFocus(true)
+					v.SetFocus(true)
 					return v, nil
 				}
 				return v, tui.BackCmd
 			}
 			// Left/Right arrow toggles sub-split focus.
-			if v.split.Enabled() && v.step != userMenu {
-				if keyMsg.Type == tea.KeyLeft {
-					v.setFocus(true)
-					return v, nil
-				}
-				if keyMsg.Type == tea.KeyRight && v.HasInline() {
-					v.setFocus(false)
-					return v, nil
-				}
+			if v.HandleSplitArrows(keyMsg, v.step == userMenu, v.HasInline()) {
+				return v, nil
 			}
 		}
 		if v.step == userMenu {
 			var cmd tea.Cmd
-			v.menu, cmd = v.menu.Update(msg)
+			v.Menu, cmd = v.Menu.Update(msg)
 			return v, cmd
 		}
 	}
@@ -176,7 +154,7 @@ func (v *UserView) triggerMenuAction(id string) tea.Cmd {
 		v.step = userAdd
 		return v.SetInline(components.NewTextInput("输入用户名:", ""))
 	case "rename":
-		names := derived.UserNames(v.model.Store())
+		names := derived.UserNames(v.Model.Store())
 		if len(names) == 0 {
 			v.step = userResult
 			return v.SetInline(components.NewResult("暂无用户"))
@@ -184,7 +162,7 @@ func (v *UserView) triggerMenuAction(id string) tea.Cmd {
 		v.step = userRenameOld
 		return v.SetInline(components.NewSelectList("选择要重命名的用户:", names))
 	case "delete":
-		names := derived.UserNames(v.model.Store())
+		names := derived.UserNames(v.Model.Store())
 		if len(names) == 0 {
 			v.step = userResult
 			return v.SetInline(components.NewResult("暂无用户"))
@@ -195,21 +173,17 @@ func (v *UserView) triggerMenuAction(id string) tea.Cmd {
 	return nil
 }
 
-func (v *UserView) IsSubSplitRightFocused() bool {
-	return v.split.Enabled() && !v.split.FocusLeft()
-}
-
 func (v *UserView) View() string {
 	// 未选操作或分栏不可用：保持原行为
-	if v.step == userMenu || !v.split.Enabled() {
+	if v.step == userMenu || !v.Split.Enabled() {
 		if v.HasInline() {
 			return v.ViewInline()
 		}
-		return tui.RenderSubMenuBody(v.menu.View(), v.split.TotalWidth())
+		return tui.RenderSubMenuBody(v.Menu.View(), v.Split.TotalWidth())
 	}
 
 	// Sub-split: left = menu, right = inline component or hint.
-	menuContent := v.menu.View()
+	menuContent := v.Menu.View()
 
 	var detailContent string
 	if v.HasInline() {
@@ -226,13 +200,13 @@ func (v *UserView) View() string {
 		}
 	}
 
-	return v.split.View(menuContent, detailContent)
+	return v.Split.View(menuContent, detailContent)
 }
 
 type userActionDoneMsg struct{ result string }
 
 func (v *UserView) listUsers() tea.Msg {
-	users := user.List(v.model.Store())
+	users := user.List(v.Model.Store())
 	v.rows = nil
 	nameWidth := lipgloss.Width("用户列表")
 	for _, u := range users {
@@ -263,30 +237,30 @@ func (v *UserView) listUsers() tea.Msg {
 }
 
 func (v *UserView) doAdd(name string) tea.Msg {
-	if err := user.Add(v.model.Store(), name); err != nil {
+	if err := user.Add(v.Model.Store(), name); err != nil {
 		return userActionDoneMsg{result: "失败: " + err.Error()}
 	}
-	if err := v.model.Store().Apply(); err != nil {
+	if err := v.Model.Store().Apply(); err != nil {
 		return userActionDoneMsg{result: "失败: " + err.Error()}
 	}
 	return userActionDoneMsg{result: "已添加用户: " + name}
 }
 
 func (v *UserView) doRename(oldName, newName string) tea.Msg {
-	if err := user.Rename(v.model.Store(), oldName, newName); err != nil {
+	if err := user.Rename(v.Model.Store(), oldName, newName); err != nil {
 		return userActionDoneMsg{result: "失败: " + err.Error()}
 	}
-	if err := v.model.Store().Apply(); err != nil {
+	if err := v.Model.Store().Apply(); err != nil {
 		return userActionDoneMsg{result: "失败: " + err.Error()}
 	}
 	return userActionDoneMsg{result: fmt.Sprintf("已重置 %s → %s", oldName, newName)}
 }
 
 func (v *UserView) doDelete(name string) tea.Msg {
-	if err := user.Delete(v.model.Store(), name); err != nil {
+	if err := user.Delete(v.Model.Store(), name); err != nil {
 		return userActionDoneMsg{result: "失败: " + err.Error()}
 	}
-	if err := v.model.Store().Apply(); err != nil {
+	if err := v.Model.Store().Apply(); err != nil {
 		return userActionDoneMsg{result: "失败: " + err.Error()}
 	}
 	return userActionDoneMsg{result: "已删除用户: " + name}

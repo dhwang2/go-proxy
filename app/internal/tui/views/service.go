@@ -24,18 +24,16 @@ const (
 )
 
 type ServiceView struct {
-	tui.InlineState
-	model   *tui.Model
-	menu    tui.MenuModel
+	tui.SplitViewBase
 	subMenu tui.MenuModel
-	split   tui.SubSplitModel
 	step    svcStep
 	target  service.Name // selected individual service
 }
 
 func NewServiceView(model *tui.Model) *ServiceView {
-	v := &ServiceView{model: model}
-	v.menu = tui.NewMenu("", []tui.MenuItem{
+	v := &ServiceView{}
+	v.Model = model
+	v.Menu = tui.NewMenu("", []tui.MenuItem{
 		{Key: '1', Label: "󰑓 重启所有服务", ID: "restart-all"},
 		{Key: '2', Label: "󰓛 停止所有服务", ID: "stop-all"},
 		{Key: '3', Label: "󰐊 启动所有服务", ID: "start-all"},
@@ -47,37 +45,26 @@ func NewServiceView(model *tui.Model) *ServiceView {
 func (v *ServiceView) Name() string { return "service" }
 
 func (v *ServiceView) setFocus(left bool) {
-	v.split.SetFocusLeft(left)
-	v.menu = v.menu.SetDim(!left)
-	v.subMenu = v.subMenu.SetDim(!left)
+	v.SetFocus(left, func(l bool) { v.subMenu = v.subMenu.SetDim(!l) })
 }
 
 func (v *ServiceView) Init() tea.Cmd {
 	v.step = svcMenuMain
-	v.split.SetFocusLeft(true)
-	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-5)
+	v.InitSplit()
 	return nil
 }
 
 func (v *ServiceView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.ViewResizeMsg:
-		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-5)
+		v.HandleResize(msg)
 		return v, nil
 	case tui.SubSplitMouseMsg:
-		var cmd tea.Cmd
-		v.split, cmd = v.split.Update(msg.MouseMsg)
-		return v, cmd
+		return v, v.HandleMouse(msg)
 	}
 	// In split mode, intercept up/down for menu navigation even when content is showing.
-	if v.split.Enabled() && v.step != svcMenuMain && v.split.FocusLeft() {
-		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
-				var cmd tea.Cmd
-				v.menu, cmd = v.menu.Update(msg)
-				return v, cmd
-			}
-		}
+	if cmd, ok := v.HandleMenuNav(msg, v.step == svcMenuMain, false); ok {
+		return v, cmd
 	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
@@ -157,9 +144,9 @@ func (v *ServiceView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, tui.BackCmd
 		}
 	}
-	// Left/Right arrow toggles sub-split focus.
+	// Left/Right arrow toggles sub-split focus (use local setFocus to also dim subMenu).
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
-		if v.split.Enabled() && v.step != svcMenuMain {
+		if v.Split.Enabled() && v.step != svcMenuMain {
 			if keyMsg.Type == tea.KeyLeft {
 				v.setFocus(true)
 				return v, nil
@@ -173,33 +160,29 @@ func (v *ServiceView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 	var cmd tea.Cmd
 	switch v.step {
 	case svcMenuMain:
-		v.menu, cmd = v.menu.Update(msg)
+		v.Menu, cmd = v.Menu.Update(msg)
 	case svcMenuIndividual:
 		v.subMenu, cmd = v.subMenu.Update(msg)
 	}
 	return v, cmd
 }
 
-func (v *ServiceView) IsSubSplitRightFocused() bool {
-	return v.split.Enabled() && !v.split.FocusLeft()
-}
-
 func (v *ServiceView) View() string {
-	if v.step == svcMenuMain || !v.split.Enabled() {
+	if v.step == svcMenuMain || !v.Split.Enabled() {
 		if v.HasInline() {
 			return v.ViewInline()
 		}
 		if v.step == svcMenuIndividual {
-			return tui.RenderSubMenuBody(v.subMenu.View(), v.model.ContentWidth())
+			return tui.RenderSubMenuBody(v.subMenu.View(), v.Model.ContentWidth())
 		}
-		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
+		return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
 	}
 
 	var menuContent string
 	if v.step == svcMenuIndividual {
 		menuContent = v.subMenu.View()
 	} else {
-		menuContent = v.menu.View()
+		menuContent = v.Menu.View()
 	}
 
 	var detailContent string
@@ -213,7 +196,7 @@ func (v *ServiceView) View() string {
 			Render("加载中...")
 	}
 
-	return v.split.View(menuContent, detailContent)
+	return v.Split.View(menuContent, detailContent)
 }
 
 type svcActionDoneMsg struct{ result string }
@@ -221,7 +204,7 @@ type svcActionDoneMsg struct{ result string }
 // doStatusTable renders a shell-proxy style protocol overview and service status.
 func (v *ServiceView) doStatusTable() tea.Msg {
 	ctx := context.Background()
-	s := v.model.Store()
+	s := v.Model.Store()
 
 	userStyle := lipgloss.NewStyle().Foreground(tui.ColorAccent).Bold(true)
 	protoStyle := lipgloss.NewStyle().Foreground(tui.ColorSuccess)

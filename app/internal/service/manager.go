@@ -29,12 +29,9 @@ func AllServices() []Name {
 
 // Status holds the status of a systemd service.
 type Status struct {
-	Name      Name
-	Running   bool
-	Enabled   bool
-	ExitCode  string
-	MainPID   int
-	StartedAt string
+	Name    Name
+	Running bool
+	Enabled bool
 }
 
 // Start starts a systemd service.

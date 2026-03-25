@@ -19,7 +19,8 @@ type Store struct {
 	SnellConf    *SnellConfig // nil if snell is not installed
 
 	dirty   map[string]bool
-	applied bool // true after Apply() writes to disk — signals that Reload() should refresh
+	applied bool  // true after Apply() writes to disk — signals that Reload() should refresh
+	version int64 // incremented on each MarkDirty or successful Reload
 }
 
 // File keys for MarkDirty/Apply.
@@ -95,13 +96,21 @@ func (s *Store) Reload() error {
 	if err != nil {
 		return err
 	}
+	prev := s.version
 	*s = *fresh
+	s.version = prev + 1
 	return nil
+}
+
+// Version returns the store's change counter, incremented on each MarkDirty or Reload.
+func (s *Store) Version() int64 {
+	return s.version
 }
 
 // MarkDirty flags a config file for saving on the next Apply() call.
 func (s *Store) MarkDirty(file string) {
 	s.dirty[file] = true
+	s.version++
 }
 
 // IsDirty returns whether any files are flagged for saving.
@@ -209,6 +218,11 @@ func (s *Store) filePath(file string) string {
 	default:
 		return ""
 	}
+}
+
+// Validate checks the current sing-box configuration without saving.
+func (s *Store) Validate() error {
+	return s.validateSingBox()
 }
 
 func (s *Store) validateSingBox() error {

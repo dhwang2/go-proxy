@@ -24,18 +24,16 @@ const (
 )
 
 type ConfigView struct {
-	tui.InlineState
-	model    *tui.Model
-	menu     tui.MenuModel
-	split    tui.SubSplitModel
+	tui.SplitViewBase
 	viewport viewport.Model
 	step     configStep
 	ready    bool
 }
 
 func NewConfigView(model *tui.Model) *ConfigView {
-	v := &ConfigView{model: model}
-	v.menu = tui.NewMenu("", []tui.MenuItem{
+	v := &ConfigView{}
+	v.Model = model
+	v.Menu = tui.NewMenu("", []tui.MenuItem{
 		{Key: '1', Label: "󰈔 sing-box", ID: "singbox"},
 		{Key: '2', Label: "󰈔 snell-v5", ID: "snell"},
 		{Key: '3', Label: "󰈔 shadow-tls", ID: "shadowtls"},
@@ -45,26 +43,20 @@ func NewConfigView(model *tui.Model) *ConfigView {
 
 func (v *ConfigView) Name() string { return "config" }
 
-func (v *ConfigView) setFocus(left bool) {
-	v.split.SetFocusLeft(left)
-	v.menu = v.menu.SetDim(!left)
-}
-
 func (v *ConfigView) Init() tea.Cmd {
 	v.step = configMenu
 	v.ready = false
-	v.split.SetFocusLeft(true)
-	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-5)
+	v.InitSplit()
 	return nil
 }
 
 func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.ViewResizeMsg:
-		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-5)
+		v.HandleResize(msg)
 		return v, nil
 	case tui.SubSplitMouseMsg:
-		// Handle mouse wheel scrolling for viewport
+		// Handle mouse wheel scrolling for viewport before delegating to split.
 		if v.step == configViewport && v.ready {
 			if msg.Button == tea.MouseButtonWheelUp {
 				v.viewport.LineUp(3)
@@ -75,19 +67,11 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				return v, nil
 			}
 		}
-		var cmd tea.Cmd
-		v.split, cmd = v.split.Update(msg.MouseMsg)
-		return v, cmd
+		return v, v.HandleMouse(msg)
 	}
 	// In split mode, intercept up/down for menu navigation even when content is showing.
-	if v.split.Enabled() && v.step != configMenu && v.split.FocusLeft() {
-		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			if keyMsg.Type == tea.KeyUp || keyMsg.Type == tea.KeyDown {
-				var cmd tea.Cmd
-				v.menu, cmd = v.menu.Update(msg)
-				return v, cmd
-			}
-		}
+	if cmd, ok := v.HandleMenuNav(msg, v.step == configMenu, false); ok {
+		return v, cmd
 	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
@@ -97,15 +81,15 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tui.MenuCursorChangeMsg:
 		return v, nil
 	case tui.MenuSelectMsg:
-		v.setFocus(false)
+		v.SetFocus(false)
 		return v, v.triggerMenuAction(msg.ID)
 
 	case configContentMsg:
-		w := v.model.ContentWidth()
-		h := v.model.Height() - 5
-		if v.split.Enabled() {
-			w = v.split.RightWidth()
-			h = v.split.TotalHeight()
+		w := v.Model.ContentWidth()
+		h := v.Model.Height() - 5
+		if v.Split.Enabled() {
+			w = v.Split.RightWidth()
+			h = v.Split.TotalHeight()
 		}
 		v.viewport = viewport.New(w, h)
 		v.viewport.SetContent(msg.content)
@@ -117,27 +101,20 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			if v.step == configViewport {
 				v.step = configMenu
 				v.ready = false
-				v.setFocus(true)
+				v.SetFocus(true)
 				return v, nil
 			}
 			return v, tui.BackCmd
 		}
 		// Left/Right arrow toggles sub-split focus.
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			if v.split.Enabled() && v.step != configMenu {
-				if keyMsg.Type == tea.KeyLeft {
-					v.setFocus(true)
-					return v, nil
-				}
-				if keyMsg.Type == tea.KeyRight && v.HasInline() {
-					v.setFocus(false)
-					return v, nil
-				}
+			if v.HandleSplitArrows(keyMsg, v.step == configMenu, v.HasInline()) {
+				return v, nil
 			}
 		}
 		if v.step == configMenu {
 			var cmd tea.Cmd
-			v.menu, cmd = v.menu.Update(msg)
+			v.Menu, cmd = v.Menu.Update(msg)
 			return v, cmd
 		}
 		if v.step == configViewport && v.ready {
@@ -149,25 +126,21 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	return v, inlineCmd
 }
 
-func (v *ConfigView) IsSubSplitRightFocused() bool {
-	return v.split.Enabled() && !v.split.FocusLeft()
-}
-
 func (v *ConfigView) View() string {
-	if v.step == configMenu || !v.split.Enabled() {
+	if v.step == configMenu || !v.Split.Enabled() {
 		if v.HasInline() {
 			return v.ViewInline()
 		}
 		if v.step == configMenu {
-			return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
+			return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
 		}
 		return v.renderViewport()
 	}
 
-	menuContent := v.menu.View()
+	menuContent := v.Menu.View()
 	detailContent := v.renderViewport()
 
-	return v.split.View(menuContent, detailContent)
+	return v.Split.View(menuContent, detailContent)
 }
 
 func (v *ConfigView) renderViewport() string {
@@ -202,7 +175,7 @@ func (v *ConfigView) triggerMenuAction(id string) tea.Cmd {
 type configContentMsg struct{ content string }
 
 func (v *ConfigView) renderSingBox() string {
-	s := v.model.Store()
+	s := v.Model.Store()
 	var sb strings.Builder
 
 	titleStyle := lipgloss.NewStyle().Foreground(tui.ColorPrimary).Bold(true)
@@ -289,7 +262,7 @@ func renderOrderedSingBoxJSON(c *store.SingBoxConfig) string {
 }
 
 func (v *ConfigView) renderSnell() string {
-	conf := v.model.Store().SnellConf
+	conf := v.Model.Store().SnellConf
 	if conf == nil {
 		return "  snell-v5 未安装\n\n  配置文件: " + config.SnellConfigFile
 	}
@@ -343,7 +316,7 @@ func (v *ConfigView) renderShadowTLS() string {
 	sb.WriteString("\n\n")
 	found := false
 
-	for _, raw := range v.model.Store().SingBox.Outbounds {
+	for _, raw := range v.Model.Store().SingBox.Outbounds {
 		h, err := store.ParseOutboundHeader(raw)
 		if err != nil || h.Type != "shadowtls" {
 			continue

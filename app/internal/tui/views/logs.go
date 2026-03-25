@@ -26,11 +26,8 @@ const (
 )
 
 type LogsView struct {
-	tui.InlineState
-	model         *tui.Model
-	menu          tui.MenuModel
+	tui.SplitViewBase
 	serviceMenu   tui.MenuModel
-	split         tui.SubSplitModel
 	viewport      viewport.Model
 	viewportReady bool
 	rawContent    string // original unwrapped content for re-wrap on resize
@@ -38,8 +35,9 @@ type LogsView struct {
 }
 
 func NewLogsView(model *tui.Model) *LogsView {
-	v := &LogsView{model: model}
-	v.menu = tui.NewMenu("", []tui.MenuItem{
+	v := &LogsView{}
+	v.Model = model
+	v.Menu = tui.NewMenu("", []tui.MenuItem{
 		{Key: '1', Label: "󰌱 查看脚本日志", ID: "script"},
 		{Key: '2', Label: "󰌱 查看 Watchdog 日志", ID: "watchdog"},
 		{Key: '3', Label: "󰌱 查看服务日志", ID: "service"},
@@ -50,31 +48,30 @@ func NewLogsView(model *tui.Model) *LogsView {
 func (v *LogsView) Name() string { return "logs" }
 
 func (v *LogsView) setFocus(left bool) {
-	v.split.SetFocusLeft(left)
-	v.menu = v.menu.SetDim(!left)
-	v.serviceMenu = v.serviceMenu.SetDim(left) // right panel: dim when left focused
+	v.SetFocus(left, func(l bool) {
+		v.serviceMenu = v.serviceMenu.SetDim(l) // right panel: dim when left focused
+	})
 }
 
 func (v *LogsView) Init() tea.Cmd {
 	v.step = logsMenu
-	v.menu = v.menu.SetActiveID("")
+	v.Menu = v.Menu.SetActiveID("")
 	v.viewportReady = false
-	v.split.SetFocusLeft(true)
-	v.split.SetMinWidths(14, 10)
-	v.split.SetSize(v.model.ContentWidth(), v.model.Height()-5)
+	v.InitSplit()
+	v.Split.SetMinWidths(14, 10)
 	return nil
 }
 
 func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.ViewResizeMsg:
-		v.split.SetSize(msg.ContentWidth, msg.ContentHeight-5)
+		v.HandleResize(msg)
 		if v.viewportReady {
 			w := msg.ContentWidth
 			h := msg.ContentHeight - 5
-			if v.split.Enabled() {
-				w = v.split.RightWidth()
-				h = v.split.TotalHeight()
+			if v.Split.Enabled() {
+				w = v.Split.RightWidth()
+				h = v.Split.TotalHeight()
 			}
 			v.viewport.Width = w
 			v.viewport.Height = h
@@ -93,20 +90,11 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				return v, nil
 			}
 		}
-		var cmd tea.Cmd
-		v.split, cmd = v.split.Update(msg.MouseMsg)
-		return v, cmd
+		return v, v.HandleMouse(msg)
 	}
 	// In split mode, route keys to main menu when left-focused and not on menu step.
-	if v.split.Enabled() && v.step != logsMenu && v.split.FocusLeft() {
-		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			switch keyMsg.Type {
-			case tea.KeyUp, tea.KeyDown, tea.KeyEnter:
-				var cmd tea.Cmd
-				v.menu, cmd = v.menu.Update(msg)
-				return v, cmd
-			}
-		}
+	if cmd, handled := v.HandleMenuNav(msg, v.step == logsMenu, true); handled {
+		return v, cmd
 	}
 	inlineCmd, handled := v.UpdateInline(msg)
 	if handled {
@@ -116,7 +104,7 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tui.MenuCursorChangeMsg:
 		return v, nil
 	case tui.MenuSelectMsg:
-		if v.step == logsServiceSelect && !(v.split.Enabled() && v.split.FocusLeft()) {
+		if v.step == logsServiceSelect && !(v.Split.Enabled() && v.Split.FocusLeft()) {
 			svc := msg.ID
 			v.step = logsResult
 			v.setFocus(false)
@@ -133,11 +121,11 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		if v.step == logsMenu {
 			return v, nil
 		}
-		w := v.model.ContentWidth()
-		h := v.model.Height() - 5
-		if v.split.Enabled() {
-			w = v.split.RightWidth()
-			h = v.split.TotalHeight()
+		w := v.Model.ContentWidth()
+		h := v.Model.Height() - 5
+		if v.Split.Enabled() {
+			w = v.Split.RightWidth()
+			h = v.Split.TotalHeight()
 		}
 		v.rawContent = msg.content
 		v.viewport = viewport.New(w, h)
@@ -150,7 +138,7 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case tui.ResultDismissedMsg:
 		v.step = logsMenu
-		v.menu = v.menu.SetActiveID("")
+		v.Menu = v.Menu.SetActiveID("")
 		v.setFocus(true)
 		return v, nil
 
@@ -159,12 +147,12 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			switch v.step {
 			case logsServiceSelect:
 				v.step = logsMenu
-				v.menu = v.menu.SetActiveID("")
+				v.Menu = v.Menu.SetActiveID("")
 				v.setFocus(true)
 				return v, nil
 			case logsResult:
 				v.step = logsMenu
-				v.menu = v.menu.SetActiveID("")
+				v.Menu = v.Menu.SetActiveID("")
 				v.viewportReady = false
 				v.setFocus(true)
 				return v, nil
@@ -174,7 +162,7 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		// Left/Right arrow toggles sub-split focus.
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			if v.split.Enabled() && v.step != logsMenu {
+			if v.Split.Enabled() && v.step != logsMenu {
 				if keyMsg.Type == tea.KeyLeft {
 					v.setFocus(true)
 					return v, nil
@@ -188,18 +176,18 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		switch v.step {
 		case logsMenu:
 			var cmd tea.Cmd
-			v.menu, cmd = v.menu.Update(msg)
+			v.Menu, cmd = v.Menu.Update(msg)
 			return v, cmd
 		case logsServiceSelect:
 			var cmd tea.Cmd
-			if v.split.Enabled() && v.split.FocusLeft() {
-				v.menu, cmd = v.menu.Update(msg)
+			if v.Split.Enabled() && v.Split.FocusLeft() {
+				v.Menu, cmd = v.Menu.Update(msg)
 			} else {
 				v.serviceMenu, cmd = v.serviceMenu.Update(msg)
 			}
 			return v, cmd
 		case logsResult:
-			if v.viewportReady && !v.split.FocusLeft() {
+			if v.viewportReady && !v.Split.FocusLeft() {
 				var cmd tea.Cmd
 				v.viewport, cmd = v.viewport.Update(msg)
 				return v, cmd
@@ -209,32 +197,28 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	return v, inlineCmd
 }
 
-func (v *LogsView) IsSubSplitRightFocused() bool {
-	return v.split.Enabled() && !v.split.FocusLeft()
-}
-
 func (v *LogsView) View() string {
 	// Non-split fallback.
-	if !v.split.Enabled() {
+	if !v.Split.Enabled() {
 		if v.HasInline() {
 			return v.ViewInline()
 		}
 		if v.step == logsServiceSelect {
-			return tui.RenderSubMenuBody(v.serviceMenu.View(), v.model.ContentWidth())
+			return tui.RenderSubMenuBody(v.serviceMenu.View(), v.Model.ContentWidth())
 		}
 		if v.step == logsResult && v.viewportReady {
 			return v.renderViewport()
 		}
-		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
+		return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
 	}
 
 	// Split mode: main menu step has no split content.
 	if v.step == logsMenu {
-		return tui.RenderSubMenuBody(v.menu.View(), v.model.ContentWidth())
+		return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
 	}
 
 	// LEFT: always main menu.
-	menuContent := v.menu.View()
+	menuContent := v.Menu.View()
 
 	// RIGHT: viewport content, spinner, service sub-menu, or empty.
 	var detailContent string
@@ -250,7 +234,7 @@ func (v *LogsView) View() string {
 		detailContent = ""
 	}
 
-	return v.split.View(menuContent, detailContent)
+	return v.Split.View(menuContent, detailContent)
 }
 
 func (v *LogsView) renderViewport() string {
@@ -262,7 +246,7 @@ func (v *LogsView) renderViewport() string {
 
 // triggerMenuAction executes the action for the given main menu item ID.
 func (v *LogsView) triggerMenuAction(id string) tea.Cmd {
-	v.menu = v.menu.SetActiveID(id)
+	v.Menu = v.Menu.SetActiveID(id)
 	switch id {
 	case "script":
 		v.step = logsResult
@@ -304,7 +288,7 @@ func (v *LogsView) buildServiceMenu() tui.MenuModel {
 	key := '1'
 
 	// Always include sing-box if any inbound exists.
-	inv := derived.Inventory(v.model.Store())
+	inv := derived.Inventory(v.Model.Store())
 	for _, p := range inv {
 		svc := serviceMap[p.Type]
 		if svc == "" {
@@ -319,13 +303,13 @@ func (v *LogsView) buildServiceMenu() tui.MenuModel {
 	}
 
 	// Add snell-v5 if config exists.
-	if v.model.Store().SnellConf != nil && !seen["snell-v5"] {
+	if v.Model.Store().SnellConf != nil && !seen["snell-v5"] {
 		items = append(items, tui.MenuItem{Key: key, Label: "snell-v5", ID: "snell-v5"})
 		key++
 	}
 
 	// Add shadow-tls if outbound exists.
-	for _, raw := range v.model.Store().SingBox.Outbounds {
+	for _, raw := range v.Model.Store().SingBox.Outbounds {
 		h, err := store.ParseOutboundHeader(raw)
 		if err == nil && h.Type == "shadowtls" && !seen["shadow-tls"] {
 			items = append(items, tui.MenuItem{Key: key, Label: "shadow-tls", ID: "shadow-tls"})
