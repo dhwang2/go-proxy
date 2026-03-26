@@ -21,6 +21,16 @@ import (
 // clearCopyNoticeMsg is sent after the copy feedback timer expires.
 type clearCopyNoticeMsg struct{}
 
+// userNameColors cycles through One Dark palette colors for per-user name display.
+var userNameColors = []lipgloss.Color{
+	tui.ColorBlue,       // #61AFEF
+	tui.ColorError,      // #E06C75
+	tui.ColorSuccess,    // #98C379
+	tui.ColorDragBorder, // #E5C07B
+	lipgloss.Color("#C678DD"),
+	lipgloss.Color("#56B6C2"),
+}
+
 type SubscriptionView struct {
 	model        *tui.Model
 	viewport     viewport.Model
@@ -43,7 +53,7 @@ func (v *SubscriptionView) Init() tea.Cmd {
 	v.width = v.model.ContentWidth()
 	content := v.renderAllLinks()
 	w := v.width
-	h := v.model.Height() - 5
+	h := v.model.Height() - 7
 	v.viewport = viewport.New(w, h)
 	v.viewport.SetContent(content)
 	v.ready = true
@@ -192,8 +202,12 @@ func (v *SubscriptionView) renderAllLinks() string {
 	divider := strings.Repeat("─", w-2)
 
 	headerStyle := lipgloss.NewStyle().Foreground(tui.ColorPrimary).Bold(true)
-	userStyle := lipgloss.NewStyle().Foreground(tui.ColorBlack).Bold(true)
 	highlightStyle := lipgloss.NewStyle().Foreground(tui.ColorFooterKey).Bold(true)
+
+	userColorMap := make(map[string]lipgloss.Color, len(names))
+	for i, name := range names {
+		userColorMap[name] = userNameColors[i%len(userNameColors)]
+	}
 
 	var sb strings.Builder
 
@@ -210,7 +224,8 @@ func (v *SubscriptionView) renderAllLinks() string {
 				continue
 			}
 			hasLinks = true
-			sb.WriteString(userStyle.Render(name))
+			uStyle := lipgloss.NewStyle().Foreground(userColorMap[name]).Bold(true)
+			sb.WriteString(uStyle.Render(name + ":"))
 			sb.WriteString("\n")
 			for i, l := range links {
 				idx := len(v.links)

@@ -183,7 +183,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Forward resize to current sub-view with actual dimensions.
 		if m.current != "" {
 			if v, ok := m.views[m.current]; ok {
-				resizeMsg := ViewResizeMsg{ContentWidth: m.contentWidth, ContentHeight: m.height}
+				resizeMsg := ViewResizeMsg{ContentWidth: m.contentWidth, ContentHeight: m.height - 2}
 				newView, cmd := v.Update(resizeMsg)
 				m.views[m.current] = newView
 				return m, cmd
@@ -262,7 +262,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if v, ok := m.views[msg.Name]; ok {
 			initCmd := v.Init()
 			// Send actual content dimensions since views' *Model pointer is stale.
-			resizeMsg := ViewResizeMsg{ContentWidth: m.contentWidth, ContentHeight: m.height}
+			resizeMsg := ViewResizeMsg{ContentWidth: m.contentWidth, ContentHeight: m.height - 2}
 			newView, resizeCmd := v.Update(resizeMsg)
 			m.views[msg.Name] = newView
 			return m, tea.Batch(initCmd, resizeCmd)
@@ -393,8 +393,8 @@ func (m Model) viewSplitPanel() string {
 		rightStyle = rightStyle.BorderForeground(ColorDragBorder)
 	}
 
-	leftPanel := leftStyle.Width(m.leftWidth).Height(m.height).Render(leftContent)
-	rightPanel := rightStyle.Width(m.rightWidth).Height(m.height).Render(rightContent)
+	leftPanel := leftStyle.Width(m.leftWidth - 2).Height(m.height - 2).Render(leftContent)
+	rightPanel := rightStyle.Width(m.rightWidth - 2).Height(m.height - 2).Render(rightContent)
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 }

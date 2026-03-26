@@ -30,7 +30,7 @@ func (b *SplitViewBase) InitSplit() {
 
 // HandleResize updates split dimensions on ViewResizeMsg.
 func (b *SplitViewBase) HandleResize(msg ViewResizeMsg) {
-	b.Split.SetSize(msg.ContentWidth, msg.ContentHeight-5)
+	b.Split.SetSize(msg.ContentWidth, msg.ContentHeight-3)
 }
 
 // HandleMouse delegates mouse events to the split model. Returns the tea.Cmd.
