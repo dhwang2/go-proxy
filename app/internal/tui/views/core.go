@@ -3,7 +3,6 @@ package views
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 
 	"go-proxy/internal/config"
 	"go-proxy/internal/core"
+	"go-proxy/internal/service"
 	"go-proxy/internal/tui"
 	"go-proxy/internal/tui/components"
 )
@@ -296,7 +296,7 @@ func (v *CoreView) doUpdate(updates []core.UpdateCheck) tea.Msg {
 			u.Component, u.CurrentVersion, u.LatestVersion))
 		svc := componentService(u.Component)
 		if svc != "" {
-			exec.Command("systemctl", "restart", svc).Run()
+			service.Restart(ctx, service.Name(svc))
 		}
 	}
 	return coreUpdateDoneMsg{result: sb.String()}

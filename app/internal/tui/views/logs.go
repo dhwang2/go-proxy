@@ -1,9 +1,6 @@
 package views
 
 import (
-	"fmt"
-	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -12,6 +9,7 @@ import (
 
 	"go-proxy/internal/config"
 	"go-proxy/internal/derived"
+	"go-proxy/internal/logs"
 	"go-proxy/internal/store"
 	"go-proxy/internal/tui"
 	"go-proxy/internal/tui/components"
@@ -330,7 +328,7 @@ func (v *LogsView) buildServiceMenu() tui.MenuModel {
 
 // readScriptLog reads the script log file directly.
 func (v *LogsView) readScriptLog() tea.Msg {
-	content, source := readLogFileOrJournalctl(config.ScriptLog, "proxy-script", 30)
+	content, source := logs.ReadLog(config.ScriptLog, "proxy-script", 30)
 	title := "脚本日志"
 	if source != "" {
 		title += " (" + source + ")"
@@ -340,7 +338,7 @@ func (v *LogsView) readScriptLog() tea.Msg {
 
 // readWatchdogLog reads watchdog log from file or journalctl.
 func (v *LogsView) readWatchdogLog() tea.Msg {
-	content, source := readLogFileOrJournalctl(config.WatchdogLog, "proxy-watchdog", 30)
+	content, source := logs.ReadLog(config.WatchdogLog, "proxy-watchdog", 30)
 	title := "Watchdog 日志"
 	if source != "" {
 		title += " (" + source + ")"
@@ -350,65 +348,13 @@ func (v *LogsView) readWatchdogLog() tea.Msg {
 
 // readServiceLog reads a service log with file/journalctl fallback.
 func (v *LogsView) readServiceLog(svc string) tea.Msg {
-	logFile, unit := serviceLogSource(svc)
-	content, source := readLogFileOrJournalctl(logFile, unit, 30)
+	logFile, unit := logs.ServiceLogSource(svc)
+	content, source := logs.ReadLog(logFile, unit, 30)
 	title := svc + " 日志"
 	if source != "" {
 		title += " (" + source + ")"
 	}
 	return logsContentMsg{content: title + "\n\n" + colorizeLogOutput(content)}
-}
-
-// serviceLogSource returns the log file path and systemd unit for a service.
-func serviceLogSource(svc string) (logFile, unit string) {
-	switch svc {
-	case "sing-box":
-		return config.SingBoxLog, "sing-box"
-	case "snell-v5":
-		return config.SnellLog, "snell-v5"
-	case "shadow-tls":
-		return config.ShadowTLSLog, "shadow-tls"
-	case "caddy-sub":
-		return config.CaddySubLog, "caddy-sub"
-	default:
-		return "", svc
-	}
-}
-
-// readLogFileOrJournalctl tries to read a log file, falls back to journalctl.
-// Returns (content, source_note).
-func readLogFileOrJournalctl(logFile, unit string, lines int) (string, string) {
-	// Try log file first.
-	if logFile != "" {
-		if info, err := os.Stat(logFile); err == nil && info.Size() > 0 {
-			content := tailFile(logFile, lines)
-			if content != "" {
-				return content, logFile
-			}
-		}
-	}
-
-	// Fall back to journalctl.
-	if unit != "" {
-		out, err := exec.Command("journalctl", "-u", unit, "-n", fmt.Sprintf("%d", lines), "--no-pager").CombinedOutput()
-		if err == nil {
-			result := strings.TrimSpace(string(out))
-			if result != "" {
-				return result, "journalctl -u " + unit
-			}
-		}
-	}
-
-	return "暂无日志", ""
-}
-
-// tailFile reads the last N lines of a file.
-func tailFile(path string, n int) string {
-	out, err := exec.Command("tail", "-n", fmt.Sprintf("%d", n), path).Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
 }
 
 // colorizeLogOutput adds ANSI color codes to log output for display.
