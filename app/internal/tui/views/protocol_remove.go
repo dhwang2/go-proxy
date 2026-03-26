@@ -19,15 +19,19 @@ type ProtocolRemoveView struct {
 	tui.SplitViewBase
 	step        protoRemoveStep
 	pendingTag  string
+	pendingUser string // specific user to remove (empty = remove all)
+	tagUsers    map[string][]string
 	tableHeader string
 	emptyResult bool
 	rows        []protocolRemoveRow
+	userMenu    tui.MenuModel
 }
 
 type protoRemoveStep int
 
 const (
 	protoRemoveMenu protoRemoveStep = iota
+	protoRemoveUserSelect
 	protoRemoveConfirm
 	protoRemoveResult
 )
@@ -48,13 +52,20 @@ func NewProtocolRemoveView(model *tui.Model) *ProtocolRemoveView {
 
 func (v *ProtocolRemoveView) Name() string { return "protocol-remove" }
 
+func (v *ProtocolRemoveView) setFocus(left bool) {
+	v.SetFocus(left, func(l bool) {
+		v.userMenu = v.userMenu.SetDim(l)
+	})
+}
+
 func (v *ProtocolRemoveView) Init() tea.Cmd {
 	v.step = protoRemoveMenu
 	v.pendingTag = ""
+	v.pendingUser = ""
 	v.emptyResult = false
+	v.ClearInline()
 	v.InitSplit()
 	v.Split.SetMinWidths(14, 10)
-	// Reload store from disk to pick up changes from protocol install.
 	v.Model.Store().Reload()
 	inv := derived.Inventory(v.Model.Store())
 
@@ -66,17 +77,15 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 
 	membership := derived.Membership(v.Model.Store())
 
-	// Build a reverse map: tag -> list of user names.
-	tagUsers := make(map[string][]string)
+	// Build reverse map: tag -> list of user names.
+	v.tagUsers = make(map[string][]string)
 	for name, entries := range membership {
 		for _, e := range entries {
-			tagUsers[e.Tag] = append(tagUsers[e.Tag], name)
+			v.tagUsers[e.Tag] = append(v.tagUsers[e.Tag], name)
 		}
 	}
 
 	// Table header + separator.
-	// Menu prefix is 7 display-cells ("   1.  "), label uses "%-14s %-8d %s".
-	// CJK chars are 2 cells wide, so pad manually to match ASCII column widths.
 	header := "  #    协议          端口     用户"
 	sep := "  " + strings.Repeat("─", 50)
 	v.tableHeader = header + "\n" + sep
@@ -89,7 +98,7 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 			k = rune('a' + i - 9)
 		}
 
-		userNames := strings.Join(tagUsers[info.Tag], "  ")
+		userNames := strings.Join(v.tagUsers[info.Tag], "  ")
 		if userNames == "" {
 			userNames = "—"
 		}
@@ -119,7 +128,6 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tui.SubSplitMouseMsg:
 		return v, v.HandleMouse(msg)
 	}
-	// In split mode, intercept up/down for menu navigation even when content is showing.
 	if cmd, handled := v.HandleMenuNav(msg, v.step == protoRemoveMenu, false); handled {
 		return v, cmd
 	}
@@ -129,23 +137,35 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	}
 	switch msg := msg.(type) {
 	case tui.MenuCursorChangeMsg:
-		// Do not auto-preview — triggerMenuAction starts the confirm dialog.
 		return v, nil
+
 	case tui.MenuSelectMsg:
-		v.SetFocus(false)
+		// Check if this is a user selection in the user sub-menu.
+		if v.step == protoRemoveUserSelect && !(v.Split.Enabled() && v.Split.FocusLeft()) {
+			v.pendingUser = msg.ID
+			v.step = protoRemoveConfirm
+			prompt := fmt.Sprintf("确认从 %s 卸载用户 %s?", v.pendingTag, v.pendingUser)
+			v.setFocus(false)
+			return v, v.SetInline(components.NewConfirm(prompt))
+		}
+		v.setFocus(false)
 		return v, v.triggerMenuAction(msg.ID)
 
 	case tui.ConfirmResultMsg:
 		if !msg.Confirmed {
 			v.step = protoRemoveMenu
-			v.SetFocus(true)
+			v.pendingTag = ""
+			v.pendingUser = ""
+			v.ClearInline()
+			v.setFocus(true)
 			return v, nil
 		}
 		tag := v.pendingTag
+		userName := v.pendingUser
 		return v, tea.Batch(
 			v.SetInline(components.NewSpinner("正在卸载...")),
 			func() tea.Msg {
-				return protoRemoveDoneMsg{tag: tag, err: v.doRemove(tag)}
+				return protoRemoveDoneMsg{tag: tag, user: userName, err: v.doRemove(tag, userName)}
 			},
 		)
 
@@ -154,6 +174,8 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		var result string
 		if msg.err != nil {
 			result = "卸载失败: " + msg.err.Error()
+		} else if msg.user != "" {
+			result = fmt.Sprintf("已从 %s 卸载用户: %s", msg.tag, msg.user)
 		} else {
 			result = "已卸载: " + msg.tag
 		}
@@ -168,17 +190,41 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	default:
 		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEsc {
-			return v, tui.BackCmd
+			switch v.step {
+			case protoRemoveUserSelect:
+				v.step = protoRemoveMenu
+				v.pendingTag = ""
+				v.setFocus(true)
+				return v, nil
+			default:
+				return v, tui.BackCmd
+			}
 		}
 		// Left/Right arrow toggles sub-split focus.
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			if v.HandleSplitArrows(keyMsg, v.step == protoRemoveMenu, v.HasInline()) {
-				return v, nil
+			if v.Split.Enabled() && v.step != protoRemoveMenu {
+				if keyMsg.Type == tea.KeyLeft {
+					v.setFocus(true)
+					return v, nil
+				}
+				if keyMsg.Type == tea.KeyRight && (v.HasInline() || v.step == protoRemoveUserSelect) {
+					v.setFocus(false)
+					return v, nil
+				}
 			}
 		}
-		if v.step == protoRemoveMenu {
+		switch v.step {
+		case protoRemoveMenu:
 			var cmd tea.Cmd
 			v.Menu, cmd = v.Menu.Update(msg)
+			return v, cmd
+		case protoRemoveUserSelect:
+			var cmd tea.Cmd
+			if v.Split.Enabled() && v.Split.FocusLeft() {
+				v.Menu, cmd = v.Menu.Update(msg)
+			} else {
+				v.userMenu, cmd = v.userMenu.Update(msg)
+			}
 			return v, cmd
 		}
 	}
@@ -186,17 +232,29 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *ProtocolRemoveView) View() string {
-	if v.step == protoRemoveMenu || !v.Split.Enabled() {
+	// Non-split fallback.
+	if !v.Split.Enabled() {
 		if v.HasInline() {
 			return v.ViewInline()
 		}
+		if v.step == protoRemoveUserSelect {
+			return tui.RenderSubMenuBody(v.userMenu.View(), v.Model.ContentWidth())
+		}
 		if v.step == protoRemoveMenu && v.tableHeader != "" {
-			content := v.renderRemoveTable()
-			return tui.RenderSubMenuBody(content, v.Model.ContentWidth())
+			return tui.RenderSubMenuBody(v.renderRemoveTable(), v.Model.ContentWidth())
 		}
 		return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
 	}
 
+	// Split mode: main menu step has no split content.
+	if v.step == protoRemoveMenu {
+		if v.tableHeader != "" {
+			return tui.RenderSubMenuBody(v.renderRemoveTable(), v.Model.ContentWidth())
+		}
+		return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
+	}
+
+	// LEFT: always table/menu.
 	var menuContent string
 	if v.tableHeader != "" {
 		menuContent = v.renderRemoveTable()
@@ -204,11 +262,14 @@ func (v *ProtocolRemoveView) View() string {
 		menuContent = v.Menu.View()
 	}
 
+	// RIGHT: user menu, inline, or empty.
 	var detailContent string
 	if v.HasInline() {
 		tui.InSplitPanel = true
 		detailContent = v.ViewInline()
 		tui.InSplitPanel = false
+	} else if v.step == protoRemoveUserSelect {
+		detailContent = v.userMenu.View()
 	} else {
 		detailContent = lipgloss.NewStyle().
 			Foreground(tui.ColorMuted).
@@ -224,18 +285,45 @@ func (v *ProtocolRemoveView) triggerMenuAction(id string) tea.Cmd {
 		return nil
 	}
 	v.pendingTag = id
-	v.step = protoRemoveConfirm
-	prompt := fmt.Sprintf("确认卸载 %s?", v.pendingTag)
-	return v.SetInline(components.NewConfirm(prompt))
+
+	users := v.tagUsers[id]
+
+	// Single user or snell: go directly to confirm.
+	if len(users) <= 1 || id == store.SnellTag {
+		v.pendingUser = ""
+		v.step = protoRemoveConfirm
+		prompt := fmt.Sprintf("确认卸载 %s?", v.pendingTag)
+		return v.SetInline(components.NewConfirm(prompt))
+	}
+
+	// Multiple users: show user selection menu.
+	v.step = protoRemoveUserSelect
+	items := make([]tui.MenuItem, len(users))
+	for i, name := range users {
+		k := rune('1' + i)
+		if i >= 9 {
+			k = rune('a' + i - 9)
+		}
+		items[i] = tui.MenuItem{Key: k, Label: name, ID: name}
+	}
+	v.userMenu = tui.NewMenu("选择要卸载的用户:", items)
+	return nil
 }
 
 type protoRemoveDoneMsg struct {
-	tag string
-	err error
+	tag  string
+	user string
+	err  error
 }
 
-func (v *ProtocolRemoveView) doRemove(tag string) error {
-	if err := protocol.Remove(v.Model.Store(), tag); err != nil {
+func (v *ProtocolRemoveView) doRemove(tag, userName string) error {
+	var err error
+	if userName != "" {
+		err = protocol.RemoveUserFromInbound(v.Model.Store(), tag, userName)
+	} else {
+		err = protocol.Remove(v.Model.Store(), tag)
+	}
+	if err != nil {
 		return err
 	}
 	return v.Model.Store().Apply()
@@ -251,7 +339,7 @@ func padProtocolRemoveCell(text string, width int) string {
 
 func (v *ProtocolRemoveView) renderRemoveTable() string {
 	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
-	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
+	valStyle := lipgloss.NewStyle().Foreground(tui.ColorBlack)
 	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
 	selectedStyle := lipgloss.NewStyle().
 		Background(tui.ColorAccent).

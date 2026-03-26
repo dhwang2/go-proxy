@@ -19,7 +19,9 @@ var (
 	ColorMuted       = lipgloss.Color("#6B7280") // Darker gray (hints, separators)
 	ColorAccent      = lipgloss.Color("#A5D6A7") // Light green (selected item bg)
 	ColorAccentFg    = lipgloss.Color("#282C34") // Dark (selected item fg)
-	ColorFooterKey   = lipgloss.Color("#C678DD") // Purple (footer shortcut keys)
+	ColorFooterKey   = lipgloss.Color("#E06C75") // Red (footer shortcut keys)
+	ColorBlack       = lipgloss.Color("#1A1A2E") // Very dark (black text on light bg)
+	ColorBlue        = lipgloss.Color("#61AFEF") // One Dark blue (user count)
 	ColorPanelBorder = lipgloss.Color("#4B5263") // Subtle dark (panel border)
 	ColorPanelFocus  = lipgloss.Color("#E8590C") // Orange-red (focused panel border)
 	ColorDragBorder  = lipgloss.Color("#E5C07B") // Yellow (drag resize indicator)
@@ -170,5 +172,5 @@ func FormatUserCount(count int) string {
 	if count == 0 {
 		return lipgloss.NewStyle().Foreground(ColorError).Bold(true).Render(text)
 	}
-	return ValRuleStyle.Render(text)
+	return lipgloss.NewStyle().Foreground(ColorBlue).Bold(true).Render(text)
 }

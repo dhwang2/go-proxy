@@ -192,7 +192,7 @@ func (v *SubscriptionView) renderAllLinks() string {
 	divider := strings.Repeat("─", w-2)
 
 	headerStyle := lipgloss.NewStyle().Foreground(tui.ColorPrimary).Bold(true)
-	userStyle := lipgloss.NewStyle().Foreground(tui.ColorAccent).Bold(true)
+	userStyle := lipgloss.NewStyle().Foreground(tui.ColorBlack).Bold(true)
 	highlightStyle := lipgloss.NewStyle().Foreground(tui.ColorFooterKey).Bold(true)
 
 	var sb strings.Builder
@@ -234,25 +234,13 @@ func (v *SubscriptionView) renderAllLinks() string {
 		sb.WriteString("\n")
 	}
 
-	renderSection(subscription.FormatURI, "[ 协议链接 ]")
 	renderSection(subscription.FormatSurge, "[ Surge 链接 ]")
+	renderSection(subscription.FormatURI, "[ 协议链接 ]")
 
 	// Clamp selectedLink after rebuild.
 	if v.selectedLink >= len(v.links) {
 		v.selectedLink = len(v.links) - 1
 	}
-
-	// Footer hint (right-aligned)
-	hintStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
-	hint := hintStyle.Render("选择(上下键) | 复制(ctrl+c)")
-	hintWidth := lipgloss.Width(hint)
-	padding := w - hintWidth
-	if padding < 0 {
-		padding = 0
-	}
-	sb.WriteString(strings.Repeat(" ", padding))
-	sb.WriteString(hint)
-	sb.WriteString("\n")
 
 	return sb.String()
 }

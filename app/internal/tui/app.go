@@ -393,8 +393,8 @@ func (m Model) viewSplitPanel() string {
 		rightStyle = rightStyle.BorderForeground(ColorDragBorder)
 	}
 
-	leftPanel := leftStyle.Width(m.leftWidth - 2).Height(m.height - 2).Render(leftContent)
-	rightPanel := rightStyle.Width(m.rightWidth - 2).Height(m.height - 2).Render(rightContent)
+	leftPanel := leftStyle.Width(m.leftWidth).Height(m.height).Render(leftContent)
+	rightPanel := rightStyle.Width(m.rightWidth).Height(m.height).Render(rightContent)
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 }
@@ -532,7 +532,7 @@ func (m Model) renderWelcome(width int) string {
 		Render("go-proxy 快捷指令：gproxy")
 
 	sub := lipgloss.NewStyle().
-		Foreground(ColorMuted).
+		Foreground(ColorBlack).
 		Width(width).
 		Align(lipgloss.Center).
 		Render("仓库地址: https://github.com/dhwang2/go-proxy")

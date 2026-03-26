@@ -276,7 +276,8 @@ func padDisplayCell(text string, width int) string {
 
 func (v *UserView) renderUserListTable() string {
 	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
-	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
+	nameStyle := lipgloss.NewStyle().Foreground(tui.ColorBlack).Bold(true)
+	valStyle := lipgloss.NewStyle().Foreground(tui.ColorBlack)
 	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
 
 	nameWidth := lipgloss.Width("用户列表")
@@ -303,7 +304,7 @@ func (v *UserView) renderUserListTable() string {
 
 	for _, row := range v.rows {
 		sb.WriteString("  ")
-		sb.WriteString(labelStyle.Render(padDisplayCell(row.Name, nameWidth)))
+		sb.WriteString(nameStyle.Render(padDisplayCell(row.Name, nameWidth)))
 		sb.WriteString(valStyle.Render(row.Protocol))
 		sb.WriteString("\n")
 	}

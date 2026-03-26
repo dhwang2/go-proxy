@@ -32,7 +32,7 @@ func RenderDashboard(stats derived.DashboardStats, version string, width int) st
 	// Title lines.
 	title := HeaderTitleStyle.Width(sepWidth).Render("go-proxy 快捷指令：gproxy")
 	subtitle := fmt.Sprintf("作者: dhwang2 · 命令: gproxy · 版本: %s", version)
-	subtitleRendered := HeaderSubStyle.Width(sepWidth).Render(subtitle)
+	subtitleRendered := lipgloss.NewStyle().Foreground(ColorBlack).Align(lipgloss.Center).Width(sepWidth).Render(subtitle)
 
 	// Status panel content — compact layout.
 	sysInfo := fmt.Sprintf("%s | %s",
@@ -193,7 +193,7 @@ func renderServiceStatus() string {
 func RenderCompactDashboard(stats derived.DashboardStats, version string, width int) string {
 
 	title := HeaderTitleStyle.Width(width).Render("go-proxy")
-	sub := HeaderSubStyle.Width(width).Render("作者: dhwang2  版本号: " + version)
+	sub := lipgloss.NewStyle().Foreground(ColorBlack).Width(width).Render("作者: dhwang2  版本号: " + version)
 
 	lineStyle := lipgloss.NewStyle().Width(width)
 	sysInfo := lineStyle.Render(fmt.Sprintf(" %s %s | %s",
