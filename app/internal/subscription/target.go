@@ -1,37 +1,137 @@
 package subscription
 
 import (
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"strings"
+	"time"
+
+	"go-proxy/internal/config"
 )
 
 // DetectTarget tries to determine the server's public hostname or IP.
-// It checks environment, then falls back to hostname.
+// It checks environment, then prefers a configured domain or shareable IP.
 func DetectTarget() string {
-	// Check environment variable first.
-	if host := os.Getenv("PROXY_HOST"); host != "" {
+	if host := strings.TrimSpace(os.Getenv("PROXY_HOST")); host != "" {
 		return host
 	}
 
-	// Try hostname.
-	if name, err := os.Hostname(); err == nil && name != "" {
-		return name
+	if domain := readConfiguredDomain(); domain != "" {
+		return domain
 	}
 
-	// Fall back to first non-loopback IP.
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return "127.0.0.1"
+	if ip := detectPublicIP(); ip != "" {
+		return ip
 	}
-	for _, addr := range addrs {
-		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ipnet.IP.To4() != nil {
-				return ipnet.IP.String()
-			}
+	if ip := detectInterfaceIP(true); ip != "" {
+		return ip
+	}
+	if ip := detectInterfaceIP(false); ip != "" {
+		return ip
+	}
+	if name, err := os.Hostname(); err == nil {
+		name = strings.TrimSpace(name)
+		if isShareableDomain(name) {
+			return name
 		}
 	}
 	return "127.0.0.1"
+}
+
+func readConfiguredDomain() string {
+	data, err := os.ReadFile(config.DomainFile)
+	if err != nil {
+		return ""
+	}
+	domain := SanitizeServerName(string(data))
+	if isShareableDomain(domain) {
+		return domain
+	}
+	return ""
+}
+
+func detectPublicIP() string {
+	client := &http.Client{Timeout: 1500 * time.Millisecond}
+	for _, endpoint := range []string{
+		"https://api.ipify.org",
+		"https://ipv4.icanhazip.com",
+	} {
+		resp, err := client.Get(endpoint)
+		if err != nil {
+			continue
+		}
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 64))
+		resp.Body.Close()
+		if err != nil {
+			continue
+		}
+		ip := net.ParseIP(strings.TrimSpace(string(body)))
+		if isShareableIP(ip, true) {
+			return ip.String()
+		}
+	}
+	return ""
+}
+
+func detectInterfaceIP(publicOnly bool) string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+	var fallback string
+	for _, addr := range addrs {
+		ipnet, ok := addr.(*net.IPNet)
+		if !ok || ipnet.IP == nil || ipnet.IP.IsLoopback() {
+			continue
+		}
+		ip := ipnet.IP
+		if ip.To4() == nil {
+			continue
+		}
+		if !isShareableIP(ip, publicOnly) {
+			continue
+		}
+		if publicOnly {
+			return ip.String()
+		}
+		if fallback == "" {
+			fallback = ip.String()
+		}
+	}
+	if fallback != "" {
+		return fallback
+	}
+	for _, addr := range addrs {
+		ipnet, ok := addr.(*net.IPNet)
+		if !ok || ipnet.IP == nil || ipnet.IP.IsLoopback() {
+			continue
+		}
+		ip := ipnet.IP
+		if ip.To4() != nil {
+			continue
+		}
+		if isShareableIP(ip, publicOnly) {
+			return ip.String()
+		}
+	}
+	return ""
+}
+
+func isShareableIP(ip net.IP, publicOnly bool) bool {
+	if ip == nil || !ip.IsGlobalUnicast() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return false
+	}
+	if publicOnly {
+		return !ip.IsPrivate()
+	}
+	return !ip.IsUnspecified() && !ip.IsMulticast()
+}
+
+func isShareableDomain(host string) bool {
+	host = SanitizeServerName(host)
+	return host != "" && net.ParseIP(host) == nil && strings.Contains(host, ".")
 }
 
 // IsIPv6 returns true if the address is an IPv6 address.

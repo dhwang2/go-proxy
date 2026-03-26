@@ -3,7 +3,10 @@ package cert
 import (
 	"context"
 	"fmt"
+	"io"
+	"io/fs"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,10 +16,14 @@ import (
 
 	"go-proxy/internal/config"
 	"go-proxy/internal/core"
+	"go-proxy/internal/network"
 	"go-proxy/internal/service"
+	"go-proxy/internal/store"
 )
 
 var domainRe = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`)
+
+const certIssueTimeout = 5 * time.Minute
 
 // IsValidDomain checks if the string is a valid domain name (not an IP).
 func IsValidDomain(domain string) bool {
@@ -71,24 +78,8 @@ func GenerateCaddyfile(domain, email string) error {
 // CertExists checks if TLS certificate files exist for the given domain
 // under any ACME issuer directory in CaddyCertDir.
 func CertExists(domain string) bool {
-	issuers, err := os.ReadDir(config.CaddyCertDir)
-	if err != nil {
-		return false
-	}
-	for _, issuer := range issuers {
-		if !issuer.IsDir() {
-			continue
-		}
-		certDir := filepath.Join(config.CaddyCertDir, issuer.Name(), domain)
-		certFile := filepath.Join(certDir, domain+".crt")
-		keyFile := filepath.Join(certDir, domain+".key")
-		_, errCert := os.Stat(certFile)
-		_, errKey := os.Stat(keyFile)
-		if errCert == nil && errKey == nil {
-			return true
-		}
-	}
-	return false
+	certFile, keyFile := findCertPair(domain)
+	return certFile != "" && keyFile != ""
 }
 
 // WaitForCert polls for certificate files until they appear or timeout.
@@ -116,6 +107,109 @@ func RestartCaddySub(ctx context.Context) error {
 	return cmd.Run()
 }
 
+func WaitForCaddySub(ctx context.Context) error {
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	deadline := time.After(10 * time.Second)
+	for {
+		if exec.CommandContext(ctx, "systemctl", "is-active", "--quiet", "caddy-sub").Run() == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline:
+			return fmt.Errorf("证书入口启动失败，请检查 caddy 日志")
+		case <-ticker.C:
+		}
+	}
+}
+
+func findCertPair(domain string) (string, string) {
+	if domain == "" {
+		return "", ""
+	}
+
+	var certFile string
+	var keyFile string
+	_ = filepath.WalkDir(config.CaddyCertDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d == nil || d.IsDir() {
+			return nil
+		}
+		if filepath.Base(path) != domain+".crt" || filepath.Base(filepath.Dir(path)) != domain {
+			return nil
+		}
+		keyCandidate := strings.TrimSuffix(path, ".crt") + ".key"
+		if _, err := os.Stat(keyCandidate); err != nil {
+			return nil
+		}
+		certFile = path
+		keyFile = keyCandidate
+		return fs.SkipAll
+	})
+	return certFile, keyFile
+}
+
+func domainPointsToThisServer(ctx context.Context, domain string) bool {
+	if domain == "" {
+		return true
+	}
+
+	lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	addrs, err := net.DefaultResolver.LookupIPAddr(lookupCtx, domain)
+	if err != nil || len(addrs) == 0 {
+		return false
+	}
+
+	localV4 := detectPublicCertIP("https://api.ipify.org", "https://ipv4.icanhazip.com")
+	localV6 := detectPublicCertIP("https://api64.ipify.org", "https://icanhazip.com")
+	if localV4 == "" && localV6 == "" {
+		return true
+	}
+
+	for _, addr := range addrs {
+		ip := addr.IP
+		switch ip.String() {
+		case localV4, localV6:
+			return true
+		}
+	}
+	return false
+}
+
+func detectPublicCertIP(endpoints ...string) string {
+	client := &http.Client{Timeout: 2 * time.Second}
+	for _, endpoint := range endpoints {
+		resp, err := client.Get(endpoint)
+		if err != nil {
+			continue
+		}
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 64))
+		resp.Body.Close()
+		if err != nil {
+			continue
+		}
+		ip := net.ParseIP(strings.TrimSpace(string(body)))
+		if ip != nil && ip.IsGlobalUnicast() && !ip.IsPrivate() && !ip.IsLoopback() {
+			return ip.String()
+		}
+	}
+	return ""
+}
+
+func refreshManagedFirewall() error {
+	if !network.HasManagedConvergence() {
+		return nil
+	}
+	s, err := store.Load()
+	if err != nil {
+		return err
+	}
+	return network.ApplyConvergence(s)
+}
+
 // EnsureCertificate orchestrates the full certificate issuance flow:
 // check existing -> ensure caddy binary -> ensure caddy-sub unit -> write domain ->
 // generate Caddyfile -> restart caddy -> wait for cert.
@@ -123,6 +217,13 @@ func RestartCaddySub(ctx context.Context) error {
 func EnsureCertificate(ctx context.Context, domain, email string, progress func(string)) error {
 	if CertExists(domain) {
 		return nil
+	}
+
+	if progress != nil {
+		progress("正在检查域名解析...")
+	}
+	if !domainPointsToThisServer(ctx, domain) {
+		return fmt.Errorf("证书申请前检查失败：域名当前未解析到本机，请先更新 A/AAAA 记录，再重试")
 	}
 
 	// Step 1: Ensure caddy binary exists.
@@ -163,6 +264,9 @@ func EnsureCertificate(ctx context.Context, domain, email string, progress func(
 	if err := GenerateCaddyfile(domain, email); err != nil {
 		return fmt.Errorf("生成 Caddyfile 失败: %w", err)
 	}
+	if err := refreshManagedFirewall(); err != nil {
+		return fmt.Errorf("更新防火墙收敛失败: %w", err)
+	}
 
 	// Step 5: Restart caddy-sub.
 	if progress != nil {
@@ -171,12 +275,15 @@ func EnsureCertificate(ctx context.Context, domain, email string, progress func(
 	if err := RestartCaddySub(ctx); err != nil {
 		return fmt.Errorf("重启 caddy-sub 失败: %w", err)
 	}
+	if err := WaitForCaddySub(ctx); err != nil {
+		return err
+	}
 
 	// Step 6: Wait for cert.
 	if progress != nil {
 		progress("等待证书签发...")
 	}
-	return WaitForCert(ctx, domain, 120*time.Second)
+	return WaitForCert(ctx, domain, certIssueTimeout)
 }
 
 // downloadCaddy downloads the caddy binary using the GitHub release mechanism.

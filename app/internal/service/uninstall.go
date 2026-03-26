@@ -29,9 +29,11 @@ func Uninstall(ctx context.Context) error {
 	unitFiles := []string{
 		config.SingBoxService,
 		config.SnellService,
-		config.ShadowTLSService,
 		config.CaddySubService,
 		config.WatchdogService,
+	}
+	if shadowTLSUnits, err := shadowTLSUnitPaths(); err == nil {
+		unitFiles = append(unitFiles, shadowTLSUnits...)
 	}
 	for _, f := range unitFiles {
 		if err := os.Remove(f); err != nil && !os.IsNotExist(err) {

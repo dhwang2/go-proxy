@@ -18,20 +18,21 @@ type routingStep int
 
 const (
 	routingMenu routingStep = iota
-	// Chain proxy flow
 	routingChainMenu
 	routingChainAddInput
 	routingChainDeleteSelect
-	// Configure routing flow
-	routingConfigUser
-	routingConfigPreset
-	routingConfigOutbound
-	// Direct outbound flow
+	routingConfigMenu
+	routingConfigAddUser
+	routingConfigAddPresetInput
+	routingConfigAddOutbound
+	routingConfigDeleteUser
+	routingConfigDeleteInput
+	routingConfigModifyUser
+	routingConfigModifyInput
+	routingConfigModifyOutbound
 	routingDirect
-	// Test routing flow
 	routingTestUser
 	routingTestDomain
-	// Result
 	routingResult
 )
 
@@ -39,10 +40,11 @@ type RoutingView struct {
 	tui.SplitViewBase
 	subMenu tui.MenuModel
 	step    routingStep
-	// State for multi-step flows
-	selectedUser    string
-	selectedPreset  routing.Preset
-	pendingChainTag string
+
+	activeMenu     string
+	selectedUser   string
+	selectedPreset []routing.Preset
+	selectedIndex  []int
 }
 
 func NewRoutingView(model *tui.Model) *RoutingView {
@@ -61,13 +63,17 @@ func (v *RoutingView) Name() string { return "routing" }
 
 func (v *RoutingView) setFocus(left bool) {
 	v.SetFocus(left, func(l bool) {
-		v.subMenu = v.subMenu.SetDim(l) // right panel: dim when left focused
+		v.subMenu = v.subMenu.SetDim(l)
 	})
 }
 
 func (v *RoutingView) Init() tea.Cmd {
 	v.step = routingMenu
 	v.Menu = v.Menu.SetActiveID("")
+	v.activeMenu = ""
+	v.selectedUser = ""
+	v.selectedPreset = nil
+	v.selectedIndex = nil
 	v.InitSplit()
 	v.Split.SetMinWidths(14, 10)
 	return nil
@@ -81,7 +87,6 @@ func (v *RoutingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tui.SubSplitMouseMsg:
 		return v, v.HandleMouse(msg)
 	}
-	// In split mode, intercept up/down for menu navigation even when content is showing.
 	if cmd, handled := v.HandleMenuNav(msg, v.step == routingMenu, false); handled {
 		return v, cmd
 	}
@@ -98,29 +103,30 @@ func (v *RoutingView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, v.triggerMenuAction(msg.ID)
 		}
 		return v.handleMenuSelect(msg)
-
 	case tui.InputResultMsg:
 		return v.handleInput(msg)
-
 	case routingActionDoneMsg:
 		v.step = routingResult
 		v.setFocus(false)
 		return v, v.SetInline(components.NewResult(msg.result))
-
 	case tui.ResultDismissedMsg:
+		if v.activeMenu == "config" {
+			v.step = routingConfigMenu
+			return v, nil
+		}
 		v.step = routingMenu
 		v.Menu = v.Menu.SetActiveID("")
+		v.activeMenu = ""
 		v.setFocus(true)
 		return v, nil
-
 	default:
 		return v.handleDefault(msg)
 	}
 }
 
-// triggerMenuAction executes the action for the given top-level menu item ID.
 func (v *RoutingView) triggerMenuAction(id string) tea.Cmd {
 	v.Menu = v.Menu.SetActiveID(id)
+	v.activeMenu = id
 	switch id {
 	case "chain":
 		v.step = routingChainMenu
@@ -131,7 +137,14 @@ func (v *RoutingView) triggerMenuAction(id string) tea.Cmd {
 		})
 		return nil
 	case "config":
-		return v.showUserMenu(routingConfigUser)
+		v.step = routingConfigMenu
+		v.subMenu = tui.NewMenu("󰒓 配置分流", []tui.MenuItem{
+			{Key: '1', Label: "󰐕 一次性添加多条规则", ID: "add"},
+			{Key: '2', Label: "󰍷 一次性删除多条规则", ID: "delete"},
+			{Key: '3', Label: "󰏫 一次性修改多条规则", ID: "modify"},
+			{Key: '4', Label: "󰍉 查看当前规则", ID: "view"},
+		})
+		return nil
 	case "direct":
 		v.step = routingDirect
 		v.subMenu = tui.NewMenu("󰩟 直连出口", []tui.MenuItem{
@@ -150,7 +163,6 @@ func (v *RoutingView) triggerMenuAction(id string) tea.Cmd {
 
 func (v *RoutingView) handleMenuSelect(msg tui.MenuSelectMsg) (tui.View, tea.Cmd) {
 	switch v.step {
-
 	case routingChainMenu:
 		switch msg.ID {
 		case "add":
@@ -161,39 +173,52 @@ func (v *RoutingView) handleMenuSelect(msg tui.MenuSelectMsg) (tui.View, tea.Cmd
 		case "view":
 			return v, v.doChainView
 		}
-
 	case routingChainDeleteSelect:
 		tag := msg.ID
 		return v, func() tea.Msg { return v.doChainRemove(tag) }
-
-	case routingConfigUser:
+	case routingConfigMenu:
+		switch msg.ID {
+		case "add":
+			return v, v.showUserMenu(routingConfigAddUser)
+		case "delete":
+			return v, v.showUserMenu(routingConfigDeleteUser)
+		case "modify":
+			return v, v.showUserMenu(routingConfigModifyUser)
+		case "view":
+			return v, v.doConfigViewAll
+		}
+	case routingConfigAddUser:
 		v.selectedUser = msg.ID
-		return v, v.showPresetMenu()
-
-	case routingConfigPreset:
-		presets := routing.BuiltinPresets()
-		idx, _ := strconv.Atoi(msg.ID)
-		if idx >= 0 && idx < len(presets) {
-			v.selectedPreset = presets[idx]
-		}
-		return v, v.showOutboundMenu()
-
-	case routingConfigOutbound:
+		v.step = routingConfigAddPresetInput
+		return v, v.SetInline(components.NewTextInput(v.presetSelectionPrompt(), "1,2"))
+	case routingConfigAddOutbound:
 		outbound := msg.ID
-		return v, func() tea.Msg {
-			return v.doConfigRoute(v.selectedUser, v.selectedPreset, outbound)
+		return v, func() tea.Msg { return v.doConfigRouteBatch(v.selectedUser, v.selectedPreset, outbound) }
+	case routingConfigDeleteUser:
+		v.selectedUser = msg.ID
+		if len(derived.UserRoutes(v.Model.Store(), msg.ID)) == 0 {
+			return v, func() tea.Msg { return routingActionDoneMsg{result: "暂无分流规则"} }
 		}
-
+		v.step = routingConfigDeleteInput
+		return v, v.SetInline(components.NewTextInput(v.ruleSelectionPrompt(msg.ID), "1,2"))
+	case routingConfigModifyUser:
+		v.selectedUser = msg.ID
+		if len(derived.UserRoutes(v.Model.Store(), msg.ID)) == 0 {
+			return v, func() tea.Msg { return routingActionDoneMsg{result: "暂无分流规则"} }
+		}
+		v.step = routingConfigModifyInput
+		return v, v.SetInline(components.NewTextInput(v.ruleSelectionPrompt(msg.ID), "1,2"))
+	case routingConfigModifyOutbound:
+		outbound := msg.ID
+		return v, func() tea.Msg { return v.doModifyRoutes(v.selectedUser, v.selectedIndex, outbound) }
 	case routingDirect:
 		strategy := msg.ID
 		return v, func() tea.Msg { return v.doDirectOutbound(strategy) }
-
 	case routingTestUser:
 		v.selectedUser = msg.ID
 		v.step = routingTestDomain
 		return v, v.SetInline(components.NewTextInput("测试域名:", "google.com"))
 	}
-
 	return v, nil
 }
 
@@ -202,9 +227,14 @@ func (v *RoutingView) handleInput(msg tui.InputResultMsg) (tui.View, tea.Cmd) {
 		switch v.step {
 		case routingChainAddInput:
 			v.step = routingChainMenu
+		case routingConfigAddPresetInput:
+			v.step = routingConfigMenu
+		case routingConfigDeleteInput, routingConfigModifyInput:
+			v.step = routingConfigMenu
 		default:
 			v.step = routingMenu
 			v.Menu = v.Menu.SetActiveID("")
+			v.activeMenu = ""
 			v.setFocus(true)
 		}
 		return v, nil
@@ -218,58 +248,60 @@ func (v *RoutingView) handleInput(msg tui.InputResultMsg) (tui.View, tea.Cmd) {
 		}
 		display := msg.Value
 		return v, func() tea.Msg { return v.doChainAdd(server, port, username, password, display) }
-
+	case routingConfigAddPresetInput:
+		presets, err := parsePresetSelection(msg.Value)
+		if err != nil {
+			return v, v.showError(err.Error())
+		}
+		v.selectedPreset = presets
+		return v, v.showOutboundMenu(routingConfigAddOutbound, "选择出站")
+	case routingConfigDeleteInput:
+		indexes, err := parseRuleSelection(msg.Value, len(derived.UserRoutes(v.Model.Store(), v.selectedUser)))
+		if err != nil {
+			return v, v.showError(err.Error())
+		}
+		return v, func() tea.Msg { return v.doDeleteRoutes(v.selectedUser, indexes) }
+	case routingConfigModifyInput:
+		indexes, err := parseRuleSelection(msg.Value, len(derived.UserRoutes(v.Model.Store(), v.selectedUser)))
+		if err != nil {
+			return v, v.showError(err.Error())
+		}
+		v.selectedIndex = indexes
+		return v, v.showOutboundMenu(routingConfigModifyOutbound, "选择新的出站")
 	case routingTestDomain:
 		domain := msg.Value
 		user := v.selectedUser
 		return v, func() tea.Msg { return v.doTestDomain(user, domain) }
 	}
-
 	return v, nil
 }
 
 func (v *RoutingView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEsc {
 		switch v.step {
-		case routingChainMenu:
+		case routingChainMenu, routingConfigMenu, routingDirect, routingTestUser:
 			v.step = routingMenu
 			v.Menu = v.Menu.SetActiveID("")
+			v.activeMenu = ""
 			v.setFocus(true)
 			return v, nil
 		case routingChainDeleteSelect:
 			v.step = routingChainMenu
 			return v, nil
-		case routingConfigUser:
-			v.step = routingMenu
-			v.Menu = v.Menu.SetActiveID("")
-			v.setFocus(true)
-			return v, nil
-		case routingConfigPreset:
-			return v, v.showUserMenu(routingConfigUser)
-		case routingConfigOutbound:
-			return v, v.showPresetMenu()
-		case routingDirect:
-			v.step = routingMenu
-			v.Menu = v.Menu.SetActiveID("")
-			v.setFocus(true)
-			return v, nil
-		case routingTestUser:
-			v.step = routingMenu
-			v.Menu = v.Menu.SetActiveID("")
-			v.setFocus(true)
+		case routingConfigAddUser, routingConfigDeleteUser, routingConfigModifyUser, routingConfigAddOutbound, routingConfigModifyOutbound:
+			v.step = routingConfigMenu
 			return v, nil
 		default:
 			return v, tui.BackCmd
 		}
 	}
-	// Left/Right arrow toggles sub-split focus.
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		if v.Split.Enabled() && v.step != routingMenu {
 			if keyMsg.Type == tea.KeyLeft {
 				v.setFocus(true)
 				return v, nil
 			}
-			if keyMsg.Type == tea.KeyRight && v.HasInline() {
+			if keyMsg.Type == tea.KeyRight && (v.HasInline() || v.step != routingResult) {
 				v.setFocus(false)
 				return v, nil
 			}
@@ -290,29 +322,25 @@ func (v *RoutingView) handleDefault(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *RoutingView) View() string {
-	// Non-split fallback.
 	if !v.Split.Enabled() {
 		if v.HasInline() {
 			return v.ViewInline()
 		}
 		switch v.step {
-		case routingChainMenu, routingChainDeleteSelect, routingConfigUser,
-			routingConfigPreset, routingConfigOutbound, routingDirect, routingTestUser:
+		case routingChainMenu, routingChainDeleteSelect, routingConfigMenu, routingConfigAddUser,
+			routingConfigAddOutbound, routingConfigDeleteUser, routingConfigModifyUser,
+			routingConfigModifyOutbound, routingDirect, routingTestUser:
 			return tui.RenderSubMenuBody(v.subMenu.View(), v.Model.ContentWidth())
 		default:
 			return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
 		}
 	}
 
-	// Split mode: main menu step has no split content.
 	if v.step == routingMenu {
 		return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
 	}
 
-	// LEFT: always main menu.
 	menuContent := v.Menu.View()
-
-	// RIGHT: inline content or sub-menu.
 	var detailContent string
 	if v.HasInline() {
 		tui.InSplitPanel = true
@@ -320,55 +348,34 @@ func (v *RoutingView) View() string {
 		tui.InSplitPanel = false
 	} else {
 		switch v.step {
-		case routingChainMenu, routingChainDeleteSelect, routingConfigUser,
-			routingConfigPreset, routingConfigOutbound, routingDirect, routingTestUser:
+		case routingChainMenu, routingChainDeleteSelect, routingConfigMenu, routingConfigAddUser,
+			routingConfigAddOutbound, routingConfigDeleteUser, routingConfigModifyUser,
+			routingConfigModifyOutbound, routingDirect, routingTestUser:
 			detailContent = v.subMenu.View()
-		default:
-			detailContent = ""
 		}
 	}
-
 	return v.Split.View(menuContent, detailContent)
 }
-
-// --- Helper methods to build dynamic menus ---
 
 func (v *RoutingView) showUserMenu(nextStep routingStep) tea.Cmd {
 	users := derived.UserNames(v.Model.Store())
 	if len(users) == 0 {
-		return func() tea.Msg {
-			return routingActionDoneMsg{result: "暂无用户"}
-		}
+		return func() tea.Msg { return routingActionDoneMsg{result: "暂无用户"} }
 	}
-	items := make([]tui.MenuItem, 0, len(users)+1)
-	for i, u := range users {
+	items := make([]tui.MenuItem, 0, len(users))
+	for i, userName := range users {
 		key := rune('1' + i)
 		if i >= 9 {
 			key = rune('a' + i - 9)
 		}
-		items = append(items, tui.MenuItem{Key: key, Label: u, ID: u})
+		items = append(items, tui.MenuItem{Key: key, Label: userName, ID: userName})
 	}
 	v.step = nextStep
 	v.subMenu = tui.NewMenu("选择用户", items)
 	return nil
 }
 
-func (v *RoutingView) showPresetMenu() tea.Cmd {
-	presets := routing.BuiltinPresets()
-	items := make([]tui.MenuItem, 0, len(presets)+1)
-	for i, p := range presets {
-		key := rune('1' + i)
-		if i >= 9 {
-			key = rune('a' + i - 9)
-		}
-		items = append(items, tui.MenuItem{Key: key, Label: p.Label, ID: strconv.Itoa(i)})
-	}
-	v.step = routingConfigPreset
-	v.subMenu = tui.NewMenu("选择预设", items)
-	return nil
-}
-
-func (v *RoutingView) showOutboundMenu() tea.Cmd {
+func (v *RoutingView) showOutboundMenu(nextStep routingStep, title string) tea.Cmd {
 	var items []tui.MenuItem
 	key := '1'
 	for _, raw := range v.Model.Store().SingBox.Outbounds {
@@ -383,25 +390,22 @@ func (v *RoutingView) showOutboundMenu() tea.Cmd {
 		})
 		key++
 	}
-	v.step = routingConfigOutbound
-	v.subMenu = tui.NewMenu("选择出站", items)
+	v.step = nextStep
+	v.subMenu = tui.NewMenu(title, items)
 	return nil
 }
 
 func (v *RoutingView) showChainDeleteMenu() tea.Cmd {
 	chains := v.listChains()
 	if len(chains) == 0 {
-		return func() tea.Msg {
-			return routingActionDoneMsg{result: "暂无链式代理节点"}
-		}
+		return func() tea.Msg { return routingActionDoneMsg{result: "暂无链式代理节点"} }
 	}
-	items := make([]tui.MenuItem, 0, len(chains)+1)
-	for i, c := range chains {
-		key := rune('1' + i)
+	items := make([]tui.MenuItem, 0, len(chains))
+	for i, chain := range chains {
 		items = append(items, tui.MenuItem{
-			Key:   key,
-			Label: fmt.Sprintf("%s → %s:%d", c.Tag, c.Server, c.ServerPort),
-			ID:    c.Tag,
+			Key:   rune('1' + i),
+			Label: fmt.Sprintf("%s → %s:%d", chain.Tag, chain.Server, chain.ServerPort),
+			ID:    chain.Tag,
 		})
 	}
 	v.step = routingChainDeleteSelect
@@ -413,8 +417,6 @@ func (v *RoutingView) showError(msg string) tea.Cmd {
 	v.step = routingResult
 	return v.SetInline(components.NewResult(msg))
 }
-
-// --- Action methods ---
 
 type routingActionDoneMsg struct{ result string }
 
@@ -429,8 +431,8 @@ func (v *RoutingView) doChainView() tea.Msg {
 	}
 	var sb strings.Builder
 	sb.WriteString("链式代理节点\n\n")
-	for _, c := range chains {
-		sb.WriteString(fmt.Sprintf("  %s → %s:%d\n", c.Tag, c.Server, c.ServerPort))
+	for _, chain := range chains {
+		sb.WriteString(fmt.Sprintf("  %s → %s:%d\n", chain.Tag, chain.Server, chain.ServerPort))
 	}
 	return routingActionDoneMsg{result: sb.String()}
 }
@@ -458,10 +460,31 @@ func (v *RoutingView) doChainRemove(tag string) tea.Msg {
 	return routingActionDoneMsg{result: fmt.Sprintf("链式代理已删除: %s", tag)}
 }
 
-func (v *RoutingView) doConfigRoute(userName string, preset routing.Preset, outbound string) tea.Msg {
+func (v *RoutingView) doConfigViewAll() tea.Msg {
+	var sb strings.Builder
+	sb.WriteString("当前分流规则\n\n")
+	users := derived.AllRoutedUsers(v.Model.Store())
+	if len(users) == 0 {
+		sb.WriteString("暂无分流规则")
+		return routingActionDoneMsg{result: sb.String()}
+	}
+	for _, userName := range users {
+		sb.WriteString(v.renderUserRules(userName))
+		sb.WriteString("\n")
+	}
+	return routingActionDoneMsg{result: strings.TrimSpace(sb.String())}
+}
+
+func (v *RoutingView) doConfigRouteBatch(userName string, presets []routing.Preset, outbound string) tea.Msg {
 	s := v.Model.Store()
-	rule := routing.PresetToRule(preset, userName, outbound)
-	if err := routing.SetRule(s, userName, rule); err != nil {
+	rules := make([]store.UserRouteRule, 0, len(presets))
+	names := make([]string, 0, len(presets))
+	for _, preset := range presets {
+		rules = append(rules, routing.PresetToRule(preset, userName, outbound))
+		names = append(names, preset.Name)
+	}
+	count, err := routing.SetRules(s, userName, rules)
+	if err != nil {
 		return routingActionDoneMsg{result: "添加规则失败: " + err.Error()}
 	}
 	routing.SyncDNS(s, nil, "ipv4_only")
@@ -470,9 +493,36 @@ func (v *RoutingView) doConfigRoute(userName string, preset routing.Preset, outb
 		return routingActionDoneMsg{result: "保存失败: " + err.Error()}
 	}
 	return routingActionDoneMsg{
-		result: fmt.Sprintf("已添加分流规则\n\n  用户: %s\n  预设: %s\n  出站: %s",
-			userName, preset.Name, outbound),
+		result: fmt.Sprintf("已添加 %d 条分流规则\n\n  用户: %s\n  规则: %s\n  出站: %s", count, userName, strings.Join(names, ", "), outbound),
 	}
+}
+
+func (v *RoutingView) doDeleteRoutes(userName string, indexes []int) tea.Msg {
+	s := v.Model.Store()
+	count, err := routing.DeleteUserRulesByIndex(s, userName, indexes)
+	if err != nil {
+		return routingActionDoneMsg{result: "删除规则失败: " + err.Error()}
+	}
+	routing.SyncDNS(s, nil, "ipv4_only")
+	routing.SyncRouteRules(s)
+	if err := s.Apply(); err != nil {
+		return routingActionDoneMsg{result: "保存失败: " + err.Error()}
+	}
+	return routingActionDoneMsg{result: fmt.Sprintf("已删除 %d 条分流规则\n\n用户: %s", count, userName)}
+}
+
+func (v *RoutingView) doModifyRoutes(userName string, indexes []int, outbound string) tea.Msg {
+	s := v.Model.Store()
+	count, err := routing.ReplaceUserRuleOutbounds(s, userName, indexes, outbound)
+	if err != nil {
+		return routingActionDoneMsg{result: "修改规则失败: " + err.Error()}
+	}
+	routing.SyncDNS(s, nil, "ipv4_only")
+	routing.SyncRouteRules(s)
+	if err := s.Apply(); err != nil {
+		return routingActionDoneMsg{result: "保存失败: " + err.Error()}
+	}
+	return routingActionDoneMsg{result: fmt.Sprintf("已修改 %d 条分流规则\n\n用户: %s\n出站: %s", count, userName, outbound)}
 }
 
 func (v *RoutingView) doDirectOutbound(strategy string) tea.Msg {
@@ -492,20 +542,53 @@ func (v *RoutingView) doDirectOutbound(strategy string) tea.Msg {
 func (v *RoutingView) doTestDomain(userName, domain string) tea.Msg {
 	result := routing.TestDomain(v.Model.Store(), userName, domain)
 	if len(result.MatchedRules) == 0 {
-		return routingActionDoneMsg{
-			result: fmt.Sprintf("测试分流: %s @ %s\n\n无匹配规则 (将走默认出站)", domain, userName),
-		}
+		return routingActionDoneMsg{result: fmt.Sprintf("测试分流: %s @ %s\n\n无匹配规则 (将走默认出站)", domain, userName)}
 	}
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("测试分流: %s @ %s\n\n", domain, userName))
-	for _, r := range result.MatchedRules {
-		sb.WriteString(fmt.Sprintf("  → %s  [%s: %s]\n", r.Outbound, r.MatchBy, r.Value))
+	for _, rule := range result.MatchedRules {
+		sb.WriteString(fmt.Sprintf("  → %s  [%s: %s]\n", rule.Outbound, rule.MatchBy, rule.Value))
 	}
 	return routingActionDoneMsg{result: sb.String()}
 }
 
-// parseChainInput parses the chain proxy input in format: address:port:username:password
-// Username and password are optional. Minimum format: address:port.
+func (v *RoutingView) presetSelectionPrompt() string {
+	var sb strings.Builder
+	sb.WriteString("输入规则编号，支持逗号分隔\n")
+	for i, preset := range routing.BuiltinPresets() {
+		sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, preset.Label))
+	}
+	return strings.TrimSpace(sb.String())
+}
+
+func (v *RoutingView) ruleSelectionPrompt(userName string) string {
+	return "输入规则编号，支持 1,2 或 all\n\n" + v.renderUserRules(userName)
+}
+
+func (v *RoutingView) renderUserRules(userName string) string {
+	rules := derived.UserRoutes(v.Model.Store(), userName)
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("用户: %s\n", userName))
+	if len(rules) == 0 {
+		sb.WriteString("  暂无分流规则")
+		return sb.String()
+	}
+	for i, rule := range rules {
+		name := strings.Join(rule.RuleSet, ",")
+		if name == "" {
+			name = strings.Join(rule.Domain, ",")
+		}
+		if name == "" {
+			name = strings.Join(rule.DomainSuffix, ",")
+		}
+		if name == "" {
+			name = "自定义规则"
+		}
+		sb.WriteString(fmt.Sprintf("  %d. %s -> %s\n", i+1, name, rule.Outbound))
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
 func parseChainInput(input string) (server string, port int, username, password string, err error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
@@ -522,13 +605,67 @@ func parseChainInput(input string) (server string, port int, username, password 
 	if convErr != nil || port <= 0 || port > 65535 {
 		return "", 0, "", "", fmt.Errorf("端口号无效")
 	}
-
 	if len(parts) >= 3 {
 		username = parts[2]
 	}
 	if len(parts) >= 4 {
 		password = parts[3]
 	}
-
 	return server, port, username, password, nil
+}
+
+func parsePresetSelection(input string) ([]routing.Preset, error) {
+	tokens := splitMultiInput(input)
+	if len(tokens) == 0 {
+		return nil, fmt.Errorf("请输入至少一条规则")
+	}
+	presets := routing.BuiltinPresets()
+	seen := make(map[int]bool, len(tokens))
+	result := make([]routing.Preset, 0, len(tokens))
+	for _, token := range tokens {
+		idx, err := strconv.Atoi(token)
+		if err != nil || idx < 1 || idx > len(presets) {
+			return nil, fmt.Errorf("无效规则编号: %s", token)
+		}
+		if seen[idx] {
+			continue
+		}
+		seen[idx] = true
+		result = append(result, presets[idx-1])
+	}
+	return result, nil
+}
+
+func parseRuleSelection(input string, total int) ([]int, error) {
+	tokens := splitMultiInput(input)
+	if len(tokens) == 0 {
+		return nil, fmt.Errorf("请输入规则编号")
+	}
+	if len(tokens) == 1 && (tokens[0] == "all" || tokens[0] == "*") {
+		return routing.ExpandRuleIndexes(total, nil, true), nil
+	}
+	seen := make(map[int]bool, len(tokens))
+	indexes := make([]int, 0, len(tokens))
+	for _, token := range tokens {
+		idx, err := strconv.Atoi(token)
+		if err != nil || idx < 1 || idx > total {
+			return nil, fmt.Errorf("无效规则编号: %s", token)
+		}
+		if seen[idx] {
+			continue
+		}
+		seen[idx] = true
+		indexes = append(indexes, idx)
+	}
+	return routing.ExpandRuleIndexes(total, indexes, false), nil
+}
+
+func splitMultiInput(input string) []string {
+	input = strings.TrimSpace(strings.ToLower(input))
+	if input == "" {
+		return nil
+	}
+	return strings.FieldsFunc(input, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '，' || r == '、'
+	})
 }

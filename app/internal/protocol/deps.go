@@ -33,8 +33,7 @@ func ProvisionDeps(ctx context.Context, protoType Type, params InstallParams) []
 		steps = append(steps, ensureSnell(ctx)...)
 
 	case protoType == ShadowTLS:
-		// ShadowTLS needs its own binary + service, plus a sing-box backend.
-		steps = append(steps, ensureSingBox(ctx)...)
+		// ShadowTLS provisioning is handled per backend binding during install.
 		steps = append(steps, ensureShadowTLS(ctx, params)...)
 	}
 
@@ -103,27 +102,6 @@ func ensureShadowTLS(ctx context.Context, params InstallParams) []DepStep {
 		}
 	}
 
-	// ShadowTLS service requires listen port, password, SNI, and backend port.
-	// These come from params. The backend port is the sing-box inbound port.
-	if _, err := os.Stat(config.ShadowTLSService); os.IsNotExist(err) {
-		sni := params.SNI
-		if sni == "" {
-			sni = params.Domain
-		}
-		if sni == "" {
-			sni = "www.microsoft.com"
-		}
-		step := DepStep{Description: "创建 shadow-tls 服务"}
-		// ShadowTLS listens on params.Port, backend is params.Port+1 by convention.
-		if err := service.ProvisionShadowTLS(ctx, params.Port, "placeholder", sni, params.Port+1); err != nil {
-			step.Err = err
-			steps = append(steps, step)
-			return steps
-		}
-		steps = append(steps, step)
-	}
-
-	steps = append(steps, enableAndStart(ctx, service.ShadowTLS)...)
 	return steps
 }
 

@@ -16,6 +16,7 @@ type Store struct {
 	UserMeta     *UserManagement
 	UserRoutes   []UserRouteRule
 	UserTemplate *UserRouteTemplates
+	Firewall     *FirewallConfig
 	SnellConf    *SnellConfig // nil if snell is not installed
 
 	dirty   map[string]bool
@@ -29,6 +30,7 @@ const (
 	FileUserMeta     = "user-management.json"
 	FileUserRoutes   = "user-route-rules.json"
 	FileUserTemplate = "user-route-templates.json"
+	FileFirewall     = "firewall-ports.json"
 	FileSnellConf    = "snell-v5.conf"
 )
 
@@ -74,6 +76,13 @@ func Load() (*Store, error) {
 	if s.UserTemplate.Templates == nil {
 		s.UserTemplate.Templates = make(map[string][]TemplateRule)
 	}
+
+	fw, err := loadJSON[FirewallConfig](config.FirewallConfigFile)
+	if err != nil {
+		return nil, fmt.Errorf("load %s: %w", FileFirewall, err)
+	}
+	s.Firewall = fw
+	s.Firewall.Normalize()
 
 	// snell-v5.conf (optional)
 	if data, err := os.ReadFile(config.SnellConfigFile); err == nil {
@@ -190,6 +199,12 @@ func (s *Store) saveFile(file string) error {
 		return writeJSON(config.UserRouteFile, s.UserRoutes)
 	case FileUserTemplate:
 		return writeJSON(config.UserTemplateFile, s.UserTemplate)
+	case FileFirewall:
+		if s.Firewall == nil {
+			s.Firewall = &FirewallConfig{}
+		}
+		s.Firewall.Normalize()
+		return writeJSON(config.FirewallConfigFile, s.Firewall)
 	case FileSnellConf:
 		if s.SnellConf == nil {
 			if err := os.Remove(config.SnellConfigFile); err != nil && !os.IsNotExist(err) {
@@ -213,6 +228,8 @@ func (s *Store) filePath(file string) string {
 		return config.UserRouteFile
 	case FileUserTemplate:
 		return config.UserTemplateFile
+	case FileFirewall:
+		return config.FirewallConfigFile
 	case FileSnellConf:
 		return config.SnellConfigFile
 	default:

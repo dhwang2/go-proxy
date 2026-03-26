@@ -2,10 +2,12 @@ package subscription
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"go-proxy/internal/crypto"
 	"go-proxy/internal/derived"
+	"go-proxy/internal/service"
 	"go-proxy/internal/store"
 )
 
@@ -66,6 +68,31 @@ func renderSnellSurge(entry derived.MembershipEntry, conf *store.SnellConfig, ho
 	}
 	return fmt.Sprintf("%s = snell, %s, %d, psk=%s, version=5, reuse=true, tfo=true",
 		entry.Tag, FormatHost(host), conf.Port(), conf.PSK)
+}
+
+func renderShadowTLSShadowsocksSurge(ib *store.Inbound, entry derived.MembershipEntry, binding service.ShadowTLSBinding, host string) string {
+	method := ib.Method
+	if method == "" {
+		method = crypto.DefaultSSMethod
+	}
+	version := binding.Version
+	if version == 0 {
+		version = 3
+	}
+	return fmt.Sprintf("%s = ss, %s, %d, encrypt-method=%s, password=\"%s\", shadow-tls-password=%s, shadow-tls-sni=%s, shadow-tls-version=%s, udp-relay=true",
+		entry.Tag, FormatHost(host), binding.ListenPort, method, escapeSurgeQuoted(ssPassword(ib, entry.UserID)), binding.Password, binding.SNI, strconv.Itoa(version))
+}
+
+func renderShadowTLSSnellSurge(entry derived.MembershipEntry, conf *store.SnellConfig, binding service.ShadowTLSBinding, host string) string {
+	if conf == nil || conf.PSK == "" {
+		return ""
+	}
+	version := binding.Version
+	if version == 0 {
+		version = 3
+	}
+	return fmt.Sprintf("%s = snell, %s, %d, psk=%s, version=5, reuse=true, tfo=true, shadow-tls-password=%s, shadow-tls-sni=%s, shadow-tls-version=%s",
+		entry.Tag, FormatHost(host), binding.ListenPort, conf.PSK, binding.Password, binding.SNI, strconv.Itoa(version))
 }
 
 func firstALPN(tls *store.TLSConfig) string {

@@ -22,14 +22,15 @@ const (
 
 // Config file paths.
 var (
-	SingBoxConfig    = filepath.Join(ConfDir, "sing-box.json")
-	UserMetaFile     = filepath.Join(WorkDir, "user-management.json")
-	UserRouteFile    = filepath.Join(WorkDir, "user-route-rules.json")
-	UserTemplateFile = filepath.Join(WorkDir, "user-route-templates.json")
-	SnellConfigFile  = filepath.Join(WorkDir, "snell-v5.conf")
-	SubscriptionFile = filepath.Join(WorkDir, "subscription.txt")
-	CaddyFile        = filepath.Join(WorkDir, "Caddyfile")
-	DomainFile       = filepath.Join(WorkDir, ".domain")
+	SingBoxConfig      = filepath.Join(ConfDir, "sing-box.json")
+	UserMetaFile       = filepath.Join(WorkDir, "user-management.json")
+	UserRouteFile      = filepath.Join(WorkDir, "user-route-rules.json")
+	UserTemplateFile   = filepath.Join(WorkDir, "user-route-templates.json")
+	FirewallConfigFile = filepath.Join(WorkDir, "firewall-ports.json")
+	SnellConfigFile    = filepath.Join(WorkDir, "snell-v5.conf")
+	SubscriptionFile   = filepath.Join(WorkDir, "subscription.txt")
+	CaddyFile          = filepath.Join(WorkDir, "Caddyfile")
+	DomainFile         = filepath.Join(WorkDir, ".domain")
 )
 
 // Binary paths.

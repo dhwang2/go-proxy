@@ -14,6 +14,7 @@ import (
 
 	"go-proxy/internal/config"
 	"go-proxy/internal/derived"
+	"go-proxy/internal/network"
 	"go-proxy/internal/routing"
 	"go-proxy/internal/service"
 	"go-proxy/internal/store"
@@ -50,6 +51,8 @@ func main() {
 		cmdUser()
 	case "protocol":
 		cmdProtocol()
+	case "network":
+		cmdNetwork()
 	case "routing":
 		cmdRouting()
 	case "sub":
@@ -319,33 +322,42 @@ func cmdRouting() {
 		preset := argOrEmpty(4)
 		outbound := argOrEmpty(5)
 		if userName == "" || preset == "" || outbound == "" {
-			fmt.Fprintln(os.Stderr, "usage: gproxy routing set <user> <preset> <outbound>")
+			fmt.Fprintln(os.Stderr, "usage: gproxy routing set <user> <preset[,preset...]> <outbound>")
 			fmt.Fprintln(os.Stderr, "\npresets:")
 			for _, p := range routing.BuiltinPresets() {
 				fmt.Fprintf(os.Stderr, "  %s\n", p.Name)
 			}
 			os.Exit(1)
 		}
-		var matched *routing.Preset
-		for _, p := range routing.BuiltinPresets() {
-			if strings.EqualFold(p.Name, preset) {
-				matched = &p
-				break
+		parts := strings.FieldsFunc(preset, func(r rune) bool {
+			return r == ',' || r == '，'
+		})
+		var rules []store.UserRouteRule
+		var names []string
+		for _, part := range parts {
+			name := strings.TrimSpace(part)
+			var matched *routing.Preset
+			for _, p := range routing.BuiltinPresets() {
+				if strings.EqualFold(p.Name, name) {
+					matched = &p
+					break
+				}
 			}
+			if matched == nil {
+				fmt.Fprintf(os.Stderr, "unknown preset: %s\n", name)
+				os.Exit(1)
+			}
+			rules = append(rules, routing.PresetToRule(*matched, userName, outbound))
+			names = append(names, matched.Name)
 		}
-		if matched == nil {
-			fmt.Fprintf(os.Stderr, "unknown preset: %s\n", preset)
-			os.Exit(1)
-		}
-		rule := routing.PresetToRule(*matched, userName, outbound)
-		if err := routing.SetRule(s, userName, rule); err != nil {
+		if _, err := routing.SetRules(s, userName, rules); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
 		routing.SyncDNS(s, nil, "ipv4_only")
 		routing.SyncRouteRules(s)
 		applyOrExit(s)
-		fmt.Printf("set routing rule: %s → %s for %s\n", matched.Name, outbound, userName)
+		fmt.Printf("set routing rule: %s → %s for %s\n", strings.Join(names, ","), outbound, userName)
 	case "test":
 		userName := argOrEmpty(3)
 		domain := argOrEmpty(4)
@@ -367,6 +379,45 @@ func cmdRouting() {
 	}
 }
 
+func cmdNetwork() {
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "usage: gproxy network status|bbr|firewall")
+		os.Exit(1)
+	}
+	s, err := store.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	switch os.Args[2] {
+	case "status":
+		entries, err := network.DescribeDesiredPorts(s)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		for _, entry := range entries {
+			fmt.Printf("%s/%d [%s]\n", entry.Proto, entry.Port, strings.Join(entry.Services, ","))
+		}
+	case "bbr":
+		enabled, current, err := network.BBRStatus()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("congestion_control=%s enabled=%t\n", current, enabled)
+	case "firewall":
+		if err := network.ApplyConvergence(s); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("firewall convergence applied")
+	default:
+		fmt.Fprintf(os.Stderr, "unknown network subcommand: %s\n", os.Args[2])
+		os.Exit(1)
+	}
+}
+
 func cmdSub() {
 	if len(os.Args) < 3 {
 		fmt.Fprintln(os.Stderr, "usage: gproxy sub show|target")
@@ -384,16 +435,17 @@ func cmdSub() {
 		if f := argOrEmpty(4); f == "singbox" {
 			format = subscription.FormatSingBox
 		}
+		host := subscription.DetectTarget()
 		if userName == "" {
 			// Show all users.
 			for _, name := range derived.UserNames(s) {
-				links := subscription.Render(s, name, format, "")
+				links := subscription.Render(s, name, format, host)
 				for _, l := range links {
 					fmt.Printf("[%s] %s\n%s\n\n", name, l.Tag, l.Content)
 				}
 			}
 		} else {
-			links := subscription.Render(s, userName, format, "")
+			links := subscription.Render(s, userName, format, host)
 			for _, l := range links {
 				fmt.Printf("%s\n%s\n\n", l.Tag, l.Content)
 			}
@@ -519,6 +571,7 @@ func printUsage() {
 	fmt.Println("  config      Configuration management")
 	fmt.Println("  user        User management")
 	fmt.Println("  protocol    Protocol management")
+	fmt.Println("  network     Network management")
 	fmt.Println("  routing     Routing management")
 	fmt.Println("  sub         Subscription management")
 }

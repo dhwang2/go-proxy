@@ -1,7 +1,6 @@
 package views
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -289,113 +288,36 @@ func (v *ConfigView) renderSnell() string {
 		labelStyle.Render("配置路径:"),
 		valStyle.Render(config.SnellConfigFile)))
 
-	// Service status
-	status := checkServiceActive("snell-v5")
-	sb.WriteString(fmt.Sprintf("  %-12s %s\n",
-		labelStyle.Render("服务状态:"),
-		status))
-
-	sb.WriteString("\n")
-	sb.WriteString(labelStyle.Render("  原始配置"))
-	sb.WriteString("\n")
-	sb.WriteString(sepStyle.Render("  " + strings.Repeat("─", 40)))
-	sb.WriteString("\n")
-	sb.WriteString(string(conf.MarshalSnellConfig()))
-
 	return sb.String()
 }
 
 func (v *ConfigView) renderShadowTLS() string {
+	bindings, err := service.ListShadowTLSBindings(v.Model.Store())
+	if err != nil {
+		return "  读取 shadow-tls 配置失败\n\n  " + err.Error()
+	}
+	if len(bindings) == 0 {
+		return "  无 shadow-tls 配置"
+	}
+
 	titleStyle := lipgloss.NewStyle().Foreground(tui.ColorPrimary).Bold(true)
 	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
 	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
-	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
 
 	var sb strings.Builder
 	sb.WriteString(titleStyle.Render("  shadow-tls 配置"))
 	sb.WriteString("\n\n")
-	found := false
-
-	for _, raw := range v.Model.Store().SingBox.Outbounds {
-		h, err := store.ParseOutboundHeader(raw)
-		if err != nil || h.Type != "shadowtls" {
-			continue
+	for i, binding := range bindings {
+		if i > 0 {
+			sb.WriteString("\n")
 		}
-		found = true
-
-		var ob struct {
-			Type       string `json:"type"`
-			Tag        string `json:"tag"`
-			Server     string `json:"server"`
-			ServerPort int    `json:"server_port"`
-			Version    int    `json:"version"`
-			Password   string `json:"password"`
-			TLS        *struct {
-				Enabled    bool   `json:"enabled"`
-				ServerName string `json:"server_name"`
-			} `json:"tls,omitempty"`
-		}
-		if err := json.Unmarshal(raw, &ob); err != nil {
-			sb.WriteString(fmt.Sprintf("  %s: 解析失败\n\n", h.Tag))
-			continue
-		}
-
-		sb.WriteString(labelStyle.Render(fmt.Sprintf("  实例: %s", ob.Tag)))
-		sb.WriteString("\n")
-		sb.WriteString(sepStyle.Render("  " + strings.Repeat("─", 40)))
-		sb.WriteString("\n")
-
-		sb.WriteString(fmt.Sprintf("  %-12s %s\n",
-			labelStyle.Render("地址:"),
-			valStyle.Render(fmt.Sprintf("%s:%d", ob.Server, ob.ServerPort))))
-
-		if ob.Version > 0 {
-			sb.WriteString(fmt.Sprintf("  %-12s %s\n",
-				labelStyle.Render("版本:"),
-				valStyle.Render(fmt.Sprintf("v%d", ob.Version))))
-		}
-
-		if ob.TLS != nil && ob.TLS.ServerName != "" {
-			sb.WriteString(fmt.Sprintf("  %-12s %s\n",
-				labelStyle.Render("SNI:"),
-				valStyle.Render(ob.TLS.ServerName)))
-		}
-
-		sb.WriteString("\n")
-	}
-
-	// Service status
-	status := checkServiceActive("shadow-tls")
-	sb.WriteString(labelStyle.Render("  服务状态"))
-	sb.WriteString("\n")
-	sb.WriteString(sepStyle.Render("  " + strings.Repeat("─", 40)))
-	sb.WriteString("\n")
-	sb.WriteString(fmt.Sprintf("  %-12s %s\n",
-		labelStyle.Render("shadow-tls:"),
-		status))
-	sb.WriteString(fmt.Sprintf("  %-12s %s\n",
-		labelStyle.Render("二进制:"),
-		valStyle.Render(config.ShadowTLSBin)))
-
-	if !found {
-		return "  无 shadow-tls outbound 配置\n\n" + sb.String()
+		sb.WriteString(fmt.Sprintf("  %-12s %s\n", labelStyle.Render("实例:"), valStyle.Render(binding.ServiceName)))
+		sb.WriteString(fmt.Sprintf("  %-12s %s\n", labelStyle.Render("监听端口:"), valStyle.Render(fmt.Sprintf("%d", binding.ListenPort))))
+		sb.WriteString(fmt.Sprintf("  %-12s %s\n", labelStyle.Render("后端类型:"), valStyle.Render(binding.BackendProto)))
+		sb.WriteString(fmt.Sprintf("  %-12s %s\n", labelStyle.Render("后端端口:"), valStyle.Render(fmt.Sprintf("%d", binding.BackendPort))))
+		sb.WriteString(fmt.Sprintf("  %-12s %s\n", labelStyle.Render("SNI:"), valStyle.Render(binding.SNI)))
+		sb.WriteString(fmt.Sprintf("  %-12s %s\n", labelStyle.Render("密码:"), valStyle.Render(binding.Password)))
 	}
 
 	return sb.String()
-}
-
-func checkServiceActive(name string) string {
-	greenStyle := lipgloss.NewStyle().Foreground(tui.ColorSuccess).Bold(true)
-	redStyle := lipgloss.NewStyle().Foreground(tui.ColorError).Bold(true)
-	grayStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
-
-	ctx := context.Background()
-	st, _ := service.GetStatus(ctx, service.Name(name))
-	if st == nil {
-		return grayStyle.Render("● 未安装")
-	}
-	if st.Running {
-		return greenStyle.Render("● 运行中")
-	}
-	return redStyle.Render("● 已停止")
 }

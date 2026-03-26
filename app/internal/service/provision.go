@@ -62,24 +62,7 @@ WantedBy=multi-user.target
 
 // ProvisionShadowTLS writes the shadow-tls systemd unit file.
 func ProvisionShadowTLS(ctx context.Context, listenPort int, password, sni string, backendPort int) error {
-	unit := fmt.Sprintf(`[Unit]
-Description=Shadow-TLS v3 Service
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=%s --v3 server --listen 0.0.0.0:%d --server 127.0.0.1:%d --tls %s --password %s
-Restart=on-failure
-RestartSec=10s
-StandardOutput=append:%s
-StandardError=append:%s
-
-[Install]
-WantedBy=multi-user.target
-`, config.ShadowTLSBin, listenPort, backendPort, sni, password,
-		config.ShadowTLSLog, config.ShadowTLSLog)
-
-	return provisionUnit(ctx, config.ShadowTLSService, unit)
+	return writeShadowTLSUnit(ctx, config.ShadowTLSService, config.ShadowTLSLog, "unknown", listenPort, password, sni, backendPort)
 }
 
 // ProvisionCaddySub writes the caddy subscription server systemd unit file.

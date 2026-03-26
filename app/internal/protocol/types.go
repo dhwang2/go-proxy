@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"fmt"
+	"io/fs"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -182,14 +183,23 @@ func DetectTLSDomain() string {
 	}
 
 	for _, issuerDir := range caddyCertIssuerDirs() {
-		domainEntries, err := os.ReadDir(issuerDir)
-		if err != nil {
-			continue
-		}
-		for _, de := range domainEntries {
-			if de.IsDir() && strings.Contains(de.Name(), ".") {
-				return de.Name()
+		domain := ""
+		_ = filepath.WalkDir(issuerDir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d == nil || !d.IsDir() {
+				return nil
 			}
+			name := d.Name()
+			if name == "." || !strings.Contains(name, ".") {
+				return nil
+			}
+			if _, key := resolveTLSCertPair(path, name); key != "" {
+				domain = name
+				return fs.SkipAll
+			}
+			return nil
+		})
+		if domain != "" {
+			return domain
 		}
 	}
 	return ""
@@ -201,12 +211,31 @@ func ResolveTLSCertPaths(domain string) (certPath, keyPath string) {
 		return "", ""
 	}
 	for _, issuerDir := range caddyCertIssuerDirs() {
-		domainDir := filepath.Join(issuerDir, domain)
-		cert := filepath.Join(domainDir, domain+".crt")
-		key := filepath.Join(domainDir, domain+".key")
-		if _, err := os.Stat(cert); err == nil {
+		cert, key := resolveTLSCertPair(issuerDir, domain)
+		if cert != "" && key != "" {
 			return cert, key
 		}
 	}
 	return "", ""
+}
+
+func resolveTLSCertPair(rootDir, domain string) (string, string) {
+	var certPath string
+	var keyPath string
+	_ = filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d == nil || d.IsDir() {
+			return nil
+		}
+		if filepath.Base(path) != domain+".crt" || filepath.Base(filepath.Dir(path)) != domain {
+			return nil
+		}
+		keyCandidate := strings.TrimSuffix(path, ".crt") + ".key"
+		if _, err := os.Stat(keyCandidate); err != nil {
+			return nil
+		}
+		certPath = path
+		keyPath = keyCandidate
+		return fs.SkipAll
+	})
+	return certPath, keyPath
 }

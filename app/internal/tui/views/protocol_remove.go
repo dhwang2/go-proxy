@@ -1,6 +1,7 @@
 package views
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"go-proxy/internal/derived"
 	"go-proxy/internal/protocol"
+	"go-proxy/internal/service"
 	"go-proxy/internal/store"
 	"go-proxy/internal/tui"
 	"go-proxy/internal/tui/components"
@@ -63,6 +65,10 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 	v.pendingTag = ""
 	v.pendingUser = ""
 	v.emptyResult = false
+	v.rows = nil
+	v.tableHeader = ""
+	v.Menu = v.Menu.SetItems(nil)
+	v.userMenu = tui.MenuModel{}
 	v.ClearInline()
 	v.InitSplit()
 	v.Split.SetMinWidths(14, 10)
@@ -232,6 +238,10 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 }
 
 func (v *ProtocolRemoveView) View() string {
+	if v.emptyResult && v.HasInline() {
+		return v.ViewInline()
+	}
+
 	// Non-split fallback.
 	if !v.Split.Enabled() {
 		if v.HasInline() {
@@ -316,7 +326,13 @@ type protoRemoveDoneMsg struct {
 	err  error
 }
 
+type shadowTLSCleanupTarget struct {
+	backendProto string
+	backendPort  int
+}
+
 func (v *ProtocolRemoveView) doRemove(tag, userName string) error {
+	cleanup := v.shadowTLSCleanupTarget(tag, userName)
 	var err error
 	if userName != "" {
 		err = protocol.RemoveUserFromInbound(v.Model.Store(), tag, userName)
@@ -326,7 +342,36 @@ func (v *ProtocolRemoveView) doRemove(tag, userName string) error {
 	if err != nil {
 		return err
 	}
-	return v.Model.Store().Apply()
+	if err := v.Model.Store().Apply(); err != nil {
+		return err
+	}
+	if cleanup != nil {
+		if err := service.RemoveShadowTLSBindingByBackend(context.Background(), cleanup.backendProto, cleanup.backendPort); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *ProtocolRemoveView) shadowTLSCleanupTarget(tag, userName string) *shadowTLSCleanupTarget {
+	if tag == store.SnellTag {
+		if v.Model.Store().SnellConf == nil {
+			return nil
+		}
+		return &shadowTLSCleanupTarget{backendProto: "snell", backendPort: v.Model.Store().SnellConf.Port()}
+	}
+
+	ib := derived.FindInbound(v.Model.Store(), tag)
+	if ib == nil || ib.Type != "shadowsocks" || ib.ListenPort == 0 {
+		return nil
+	}
+	if userName == "" || len(ib.Users) == 0 {
+		return &shadowTLSCleanupTarget{backendProto: "ss", backendPort: ib.ListenPort}
+	}
+	if len(ib.Users) == 1 && ib.Users[0].Name == userName {
+		return &shadowTLSCleanupTarget{backendProto: "ss", backendPort: ib.ListenPort}
+	}
+	return nil
 }
 
 func padProtocolRemoveCell(text string, width int) string {

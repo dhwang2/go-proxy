@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"go-proxy/internal/cert"
+	"go-proxy/internal/crypto"
 	"go-proxy/internal/derived"
 	"go-proxy/internal/protocol"
 	"go-proxy/internal/service"
@@ -118,8 +119,7 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case protoInstallDoneMsg:
 		v.step = protoInstallResult
 		v.lastResult = msg.installResult
-		// If snell was just installed, prompt for shadow-tls.
-		if msg.installResult != nil && v.pendingType == protocol.Snell {
+		if msg.installResult != nil && v.shouldPromptShadowTLS(v.pendingType) {
 			v.step = protoInstallShadowTLSPrompt
 			resultText := msg.result + "\n\n是否配置 shadow-tls 保护此端口?"
 			return v, v.SetInline(components.NewConfirm(resultText))
@@ -129,11 +129,12 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tui.ConfirmResultMsg:
 		if v.step == protoInstallShadowTLSPrompt {
 			if msg.Confirmed && v.lastResult != nil {
-				snellPort := v.lastResult.Port
+				backendPort := v.lastResult.Port
+				backendType := v.shadowTLSBackendType(v.pendingType)
 				return v, tea.Batch(
 					v.SetInline(components.NewSpinner("配置 shadow-tls...")),
 					func() tea.Msg {
-						return v.doShadowTLSForSnell(snellPort)
+						return v.doShadowTLSForBackend(backendType, backendPort)
 					},
 				)
 			}
@@ -362,7 +363,7 @@ func (v *ProtocolInstallView) handleEmailInput(email string) (tui.View, tea.Cmd)
 	d := v.pendingDomain
 	e := email
 	return v, tea.Batch(
-		v.SetInline(components.NewTimedSpinner("等待证书签发...", 120)),
+		v.SetInline(components.NewTimedSpinner("等待证书签发...", 300)),
 		func() tea.Msg {
 			err := cert.EnsureCertificate(context.Background(), d, e, nil)
 			return certDoneMsg{err: err}
@@ -387,6 +388,11 @@ func (v *ProtocolInstallView) collectUsedPorts() map[int]bool {
 	if v.Model.Store().SnellConf != nil {
 		if p := v.Model.Store().SnellConf.Port(); p > 0 {
 			ports = append(ports, p)
+		}
+	}
+	if bindings, err := service.ListShadowTLSBindings(v.Model.Store()); err == nil {
+		for _, binding := range bindings {
+			ports = append(ports, binding.ListenPort)
 		}
 	}
 	return protocol.CollectUsedPorts(ports)
@@ -432,46 +438,90 @@ func (v *ProtocolInstallView) doInstallWithPort(pt protocol.Type, port int) tea.
 	}
 }
 
-func (v *ProtocolInstallView) doShadowTLSForSnell(snellPort int) tea.Msg {
-	// ShadowTLS listens on its own port, routes to snell backend.
+func (v *ProtocolInstallView) doShadowTLSForBackend(backendType string, backendPort int) tea.Msg {
 	used := v.collectUsedPorts()
-	used[snellPort] = true
-
-	// Pick a shadow-tls listen port from snell common ports, excluding the snell port itself.
-	stPort := 0
-	for _, p := range protocol.CommonPorts(protocol.Snell) {
-		if !used[p] {
-			stPort = p
-			break
-		}
-	}
-	if stPort == 0 {
-		stPort = protocol.DefaultPort(protocol.ShadowTLS, used)
-	}
-
-	params := protocol.InstallParams{
-		ProtoType: protocol.ShadowTLS,
-		Port:      stPort,
-		UserName:  v.pendingUser,
-	}
+	used[backendPort] = true
 
 	ctx := context.Background()
-	depSteps := protocol.ProvisionDeps(ctx, protocol.ShadowTLS, params)
-
-	// Filter out sing-box steps to avoid duplicate display (already shown during snell install).
-	var stSteps []protocol.DepStep
-	for _, s := range depSteps {
-		if !strings.Contains(s.Description, "sing-box") {
-			stSteps = append(stSteps, s)
-		}
-	}
-
+	depSteps := protocol.ProvisionDeps(ctx, protocol.ShadowTLS, protocol.InstallParams{
+		ProtoType: protocol.ShadowTLS,
+	})
 	if protocol.HasDepError(depSteps) {
 		return protoInstallDoneMsg{result: "shadow-tls 依赖安装失败\n\n" + protocol.FormatDepSteps(depSteps)}
 	}
 
-	msg := fmt.Sprintf("shadow-tls 已配置\n监听: %d\n后端: %d", stPort, snellPort)
+	binding, err := service.FindShadowTLSBindingByBackend(v.Model.Store(), backendType, backendPort)
+	if err != nil {
+		return protoInstallDoneMsg{result: "shadow-tls 读取失败: " + err.Error()}
+	}
+
+	stPort := 0
+	if binding != nil && binding.ListenPort > 0 {
+		stPort = binding.ListenPort
+		delete(used, stPort)
+	} else {
+		for _, p := range protocol.CommonPorts(v.pendingType) {
+			if !used[p] {
+				stPort = p
+				break
+			}
+		}
+		if stPort == 0 {
+			stPort = protocol.DefaultPort(protocol.ShadowTLS, used)
+		}
+	}
+
+	password := ""
+	if binding != nil {
+		password = binding.Password
+	}
+	if password == "" {
+		password, err = crypto.GeneratePassword(16)
+		if err != nil {
+			return protoInstallDoneMsg{result: "shadow-tls 配置失败: " + err.Error()}
+		}
+	}
+
+	sni := ""
+	if binding != nil {
+		sni = binding.SNI
+	}
+	if sni == "" {
+		sni = v.pendingDomain
+	}
+	if sni == "" {
+		sni = protocol.DetectTLSDomain()
+	}
+	if sni == "" {
+		sni = "www.microsoft.com"
+	}
+
+	serviceName, err := service.ProvisionShadowTLSBinding(ctx, backendType, stPort, password, sni, backendPort)
+	if err != nil {
+		return protoInstallDoneMsg{result: "shadow-tls 配置失败: " + err.Error()}
+	}
+
+	shadowTLSService := service.Name(serviceName)
+	if err := service.Enable(ctx, shadowTLSService); err != nil {
+		return protoInstallDoneMsg{result: "shadow-tls 启用失败: " + err.Error()}
+	}
+	if err := service.Restart(ctx, shadowTLSService); err != nil {
+		return protoInstallDoneMsg{result: "shadow-tls 重启失败: " + err.Error()}
+	}
+
+	msg := fmt.Sprintf("shadow-tls 已配置\n监听: %d\n后端: %s:%d", stPort, backendType, backendPort)
 	return protoInstallDoneMsg{result: msg}
+}
+
+func (v *ProtocolInstallView) shouldPromptShadowTLS(pt protocol.Type) bool {
+	return pt == protocol.Snell || pt == protocol.Shadowsocks
+}
+
+func (v *ProtocolInstallView) shadowTLSBackendType(pt protocol.Type) string {
+	if pt == protocol.Snell {
+		return "snell"
+	}
+	return "ss"
 }
 
 func formatInstallSuccess(pt protocol.Type, result *protocol.InstallResult, withCert bool) string {

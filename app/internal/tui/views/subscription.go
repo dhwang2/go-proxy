@@ -36,6 +36,7 @@ type SubscriptionView struct {
 	viewport     viewport.Model
 	ready        bool
 	width        int
+	target       string
 	links        []string // all copyable link contents
 	selectedLink int      // current selected link index (-1 = none)
 	copyNotice   string   // temporary copy feedback
@@ -51,6 +52,7 @@ func (v *SubscriptionView) HasInline() bool { return false }
 
 func (v *SubscriptionView) Init() tea.Cmd {
 	v.width = v.model.ContentWidth()
+	v.target = subscription.DetectTarget()
 	content := v.renderAllLinks()
 	w := v.width
 	h := v.model.Height() - 7
@@ -219,7 +221,7 @@ func (v *SubscriptionView) renderAllLinks() string {
 
 		hasLinks := false
 		for _, name := range names {
-			links := subscription.Render(s, name, format, "")
+			links := subscription.Render(s, name, format, v.target)
 			if len(links) == 0 {
 				continue
 			}
