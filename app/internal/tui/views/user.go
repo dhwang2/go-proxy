@@ -55,6 +55,7 @@ func NewUserView(model *tui.Model) *UserView {
 func (v *UserView) Name() string { return "user" }
 
 func (v *UserView) Init() tea.Cmd {
+	v.ClearInline()
 	v.step = userMenu
 	v.Split.SetFocusLeft(true)
 	return nil

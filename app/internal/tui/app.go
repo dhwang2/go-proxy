@@ -255,6 +255,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.nav.Clear()
 			return m, nil
 		}
+		m.nav.Clear()
 		m.nav.Push(msg.Name)
 		m.current = msg.Name
 		m.focus = FocusRight

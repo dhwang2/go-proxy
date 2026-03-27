@@ -2,6 +2,7 @@ package subscription
 
 import (
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 
@@ -12,12 +13,19 @@ import (
 )
 
 // renderSurge generates a Surge-format proxy line for an inbound membership.
-func renderSurge(ib *store.Inbound, entry derived.MembershipEntry, host string) string {
-	fmtHost := FormatHost(host)
+// targetHost is the IP/host to connect to; sniHost is used for SNI (original domain or configured SNI).
+// tagSuffix is appended to the proxy tag (e.g. "-v4", "-v6", or "").
+func renderSurge(ib *store.Inbound, entry derived.MembershipEntry, targetHost, sniHost, tagSuffix string) string {
+	fmtHost := FormatHost(targetHost)
 	sni := ib.ServerName()
 	if sni == "" {
-		sni = SanitizeServerName(host)
+		cleaned := SanitizeServerName(sniHost)
+		// Only use domain names for SNI, never IP literals.
+		if net.ParseIP(cleaned) == nil {
+			sni = cleaned
+		}
 	}
+	tag := entry.Tag + tagSuffix
 
 	switch ib.Type {
 	case "vless":
@@ -33,11 +41,11 @@ func renderSurge(ib *store.Inbound, entry derived.MembershipEntry, host string) 
 			uuid = strings.ToUpper(uuid)
 		}
 		return fmt.Sprintf("%s = tuic-v5, %s, %d, password=%s, uuid=%s, alpn=h3, sni=%s, skip-cert-verify=false, congestion-controller=bbr, udp-relay=true",
-			entry.Tag, fmtHost, ib.ListenPort, user.Password, uuid, sni)
+			tag, fmtHost, ib.ListenPort, user.Password, uuid, sni)
 
 	case "trojan":
 		params := []string{
-			fmt.Sprintf("%s = trojan, %s, %d, password=%s, sni=%s", entry.Tag, fmtHost, ib.ListenPort, entry.UserID, sni),
+			fmt.Sprintf("%s = trojan, %s, %d, password=%s, sni=%s", tag, fmtHost, ib.ListenPort, entry.UserID, sni),
 		}
 		if alpn := firstALPN(ib.TLS); alpn != "" {
 			params = append(params, "alpn="+alpn)
@@ -47,7 +55,7 @@ func renderSurge(ib *store.Inbound, entry derived.MembershipEntry, host string) 
 
 	case "anytls":
 		return fmt.Sprintf("%s = anytls, %s, %d, password=%s, sni=%s, skip-cert-verify=false, reuse=true",
-			entry.Tag, fmtHost, ib.ListenPort, entry.UserID, sni)
+			tag, fmtHost, ib.ListenPort, entry.UserID, sni)
 
 	case "shadowsocks":
 		method := ib.Method
@@ -55,22 +63,23 @@ func renderSurge(ib *store.Inbound, entry derived.MembershipEntry, host string) 
 			method = crypto.DefaultSSMethod
 		}
 		return fmt.Sprintf("%s = ss, %s, %d, encrypt-method=%s, password=\"%s\", udp-relay=true",
-			entry.Tag, fmtHost, ib.ListenPort, method, escapeSurgeQuoted(ssPassword(ib, entry.UserID)))
+			tag, fmtHost, ib.ListenPort, method, escapeSurgeQuoted(ssPassword(ib, entry.UserID)))
 
 	default:
 		return ""
 	}
 }
 
-func renderSnellSurge(entry derived.MembershipEntry, conf *store.SnellConfig, host string) string {
+func renderSnellSurge(entry derived.MembershipEntry, conf *store.SnellConfig, targetHost, tagSuffix string) string {
 	if conf == nil || conf.PSK == "" {
 		return ""
 	}
+	tag := entry.Tag + tagSuffix
 	return fmt.Sprintf("%s = snell, %s, %d, psk=%s, version=5, reuse=true, tfo=true",
-		entry.Tag, FormatHost(host), conf.Port(), conf.PSK)
+		tag, FormatHost(targetHost), conf.Port(), conf.PSK)
 }
 
-func renderShadowTLSShadowsocksSurge(ib *store.Inbound, entry derived.MembershipEntry, binding service.ShadowTLSBinding, host string) string {
+func renderShadowTLSShadowsocksSurge(ib *store.Inbound, entry derived.MembershipEntry, binding service.ShadowTLSBinding, targetHost, tagSuffix string) string {
 	method := ib.Method
 	if method == "" {
 		method = crypto.DefaultSSMethod
@@ -79,11 +88,12 @@ func renderShadowTLSShadowsocksSurge(ib *store.Inbound, entry derived.Membership
 	if version == 0 {
 		version = 3
 	}
+	tag := entry.Tag + tagSuffix
 	return fmt.Sprintf("%s = ss, %s, %d, encrypt-method=%s, password=\"%s\", shadow-tls-password=%s, shadow-tls-sni=%s, shadow-tls-version=%s, udp-relay=true",
-		entry.Tag, FormatHost(host), binding.ListenPort, method, escapeSurgeQuoted(ssPassword(ib, entry.UserID)), binding.Password, binding.SNI, strconv.Itoa(version))
+		tag, FormatHost(targetHost), binding.ListenPort, method, escapeSurgeQuoted(ssPassword(ib, entry.UserID)), binding.Password, binding.SNI, strconv.Itoa(version))
 }
 
-func renderShadowTLSSnellSurge(entry derived.MembershipEntry, conf *store.SnellConfig, binding service.ShadowTLSBinding, host string) string {
+func renderShadowTLSSnellSurge(entry derived.MembershipEntry, conf *store.SnellConfig, binding service.ShadowTLSBinding, targetHost, tagSuffix string) string {
 	if conf == nil || conf.PSK == "" {
 		return ""
 	}
@@ -91,8 +101,9 @@ func renderShadowTLSSnellSurge(entry derived.MembershipEntry, conf *store.SnellC
 	if version == 0 {
 		version = 3
 	}
+	tag := entry.Tag + tagSuffix
 	return fmt.Sprintf("%s = snell, %s, %d, psk=%s, version=5, reuse=true, tfo=true, shadow-tls-password=%s, shadow-tls-sni=%s, shadow-tls-version=%s",
-		entry.Tag, FormatHost(host), binding.ListenPort, conf.PSK, binding.Password, binding.SNI, strconv.Itoa(version))
+		tag, FormatHost(targetHost), binding.ListenPort, conf.PSK, binding.Password, binding.SNI, strconv.Itoa(version))
 }
 
 func firstALPN(tls *store.TLSConfig) string {

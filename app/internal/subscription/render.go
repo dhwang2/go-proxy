@@ -40,11 +40,16 @@ func Render(s *store.Store, userName string, format Format, host string) []Link 
 		host = DetectTarget()
 	}
 
+	// For Surge format, detect dual-stack targets once and reuse across entries.
+	var surgeTargets []SurgeTarget
+	if format == FormatSurge {
+		surgeTargets = DetectSurgeTargets(host)
+	}
+
 	bindingsByBackend := shadowTLSBindingsByBackend(s)
 
 	var links []Link
 	for _, entry := range entries {
-		var content string
 		linkPort := entry.Port
 		if entry.Tag == store.SnellTag {
 			if s.SnellConf == nil {
@@ -53,12 +58,21 @@ func Render(s *store.Store, userName string, format Format, host string) []Link 
 			binding := bindingsByBackend[shadowTLSBackendKey("snell", s.SnellConf.Port())]
 			switch format {
 			case FormatSurge:
+				port := linkPort
 				if binding != nil {
-					content = renderShadowTLSSnellSurge(entry, s.SnellConf, *binding, host)
-					linkPort = binding.ListenPort
-				} else {
-					content = renderSnellSurge(entry, s.SnellConf, host)
+					port = binding.ListenPort
 				}
+				for _, t := range surgeTargets {
+					suffix := surgeTagSuffix(t, surgeTargets)
+					var content string
+					if binding != nil {
+						content = renderShadowTLSSnellSurge(entry, s.SnellConf, *binding, t.Host, suffix)
+					} else {
+						content = renderSnellSurge(entry, s.SnellConf, t.Host, suffix)
+					}
+					links = appendLink(links, entry, port, content)
+				}
+				continue
 			default:
 				continue
 			}
@@ -73,35 +87,57 @@ func Render(s *store.Store, userName string, format Format, host string) []Link 
 			}
 			switch format {
 			case FormatSurge:
+				port := linkPort
 				if binding != nil {
-					content = renderShadowTLSShadowsocksSurge(ib, entry, *binding, host)
-					linkPort = binding.ListenPort
-				} else {
-					content = renderSurge(ib, entry, host)
+					port = binding.ListenPort
 				}
+				for _, t := range surgeTargets {
+					suffix := surgeTagSuffix(t, surgeTargets)
+					var content string
+					if binding != nil {
+						content = renderShadowTLSShadowsocksSurge(ib, entry, *binding, t.Host, suffix)
+					} else {
+						content = renderSurge(ib, entry, t.Host, host, suffix)
+					}
+					links = appendLink(links, entry, port, content)
+				}
+				continue
 			case FormatSingBox:
 				if binding != nil {
 					continue
 				}
-				content = renderSingBox(ib, entry, host)
+				links = appendLink(links, entry, linkPort, renderSingBox(ib, entry, host))
+				continue
 			case FormatURI:
-				content = renderURI(ib, entry, host)
+				links = appendLink(links, entry, linkPort, renderURI(ib, entry, host))
+				continue
 			default:
 				continue
 			}
 		}
-		if content == "" {
-			continue
-		}
-		links = append(links, Link{
-			Proto:    entry.Proto,
-			Tag:      entry.Tag,
-			Port:     linkPort,
-			UserName: entry.UserName,
-			Content:  content,
-		})
 	}
 	return links
+}
+
+// surgeTagSuffix returns "-v4" or "-v6" when there are multiple targets, empty string for single-stack.
+func surgeTagSuffix(t SurgeTarget, all []SurgeTarget) string {
+	if len(all) <= 1 || t.Family == "" {
+		return ""
+	}
+	return "-" + t.Family
+}
+
+func appendLink(links []Link, entry derived.MembershipEntry, port int, content string) []Link {
+	if content == "" {
+		return links
+	}
+	return append(links, Link{
+		Proto:    entry.Proto,
+		Tag:      entry.Tag,
+		Port:     port,
+		UserName: entry.UserName,
+		Content:  content,
+	})
 }
 
 func shadowTLSBindingsByBackend(s *store.Store) map[string]*service.ShadowTLSBinding {

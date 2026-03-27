@@ -36,6 +36,7 @@ func NewSelfUpdateView(model *tui.Model) *SelfUpdateView {
 func (v *SelfUpdateView) Name() string { return "self-update" }
 
 func (v *SelfUpdateView) Init() tea.Cmd {
+	v.ClearInline()
 	v.step = selfUpdateChecking
 	v.check = nil
 	v.status = "正在检查更新..."

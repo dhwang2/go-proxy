@@ -34,6 +34,7 @@ func NewUninstallView(model *tui.Model) *UninstallView {
 func (v *UninstallView) Name() string { return "uninstall" }
 
 func (v *UninstallView) Init() tea.Cmd {
+	v.ClearInline()
 	v.step = uninstallConfirm
 	v.confirmPrompt = "确认卸载所有服务和配置?"
 	return nil

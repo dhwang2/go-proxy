@@ -555,8 +555,8 @@ func (v *RoutingView) doTestDomain(userName, domain string) tea.Msg {
 func (v *RoutingView) presetSelectionPrompt() string {
 	var sb strings.Builder
 	sb.WriteString("输入规则编号，支持逗号分隔\n")
-	for i, preset := range routing.BuiltinPresets() {
-		sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, preset.Label))
+	for _, option := range routing.AddMenuPresetOptions() {
+		sb.WriteString(fmt.Sprintf("%s. %s\n", option.Key, option.Preset.Label))
 	}
 	return strings.TrimSpace(sb.String())
 }
@@ -574,17 +574,7 @@ func (v *RoutingView) renderUserRules(userName string) string {
 		return sb.String()
 	}
 	for i, rule := range rules {
-		name := strings.Join(rule.RuleSet, ",")
-		if name == "" {
-			name = strings.Join(rule.Domain, ",")
-		}
-		if name == "" {
-			name = strings.Join(rule.DomainSuffix, ",")
-		}
-		if name == "" {
-			name = "自定义规则"
-		}
-		sb.WriteString(fmt.Sprintf("  %d. %s -> %s\n", i+1, name, rule.Outbound))
+		sb.WriteString(fmt.Sprintf("  %d. %s -> %s\n", i+1, routing.UserRouteLabel(rule), routing.OutboundLabel(rule.Outbound)))
 	}
 	return strings.TrimRight(sb.String(), "\n")
 }
@@ -619,19 +609,23 @@ func parsePresetSelection(input string) ([]routing.Preset, error) {
 	if len(tokens) == 0 {
 		return nil, fmt.Errorf("请输入至少一条规则")
 	}
-	presets := routing.BuiltinPresets()
-	seen := make(map[int]bool, len(tokens))
+	options := routing.AddMenuPresetOptions()
+	byKey := make(map[string]routing.Preset, len(options))
+	for _, option := range options {
+		byKey[option.Key] = option.Preset
+	}
+	seen := make(map[string]bool, len(tokens))
 	result := make([]routing.Preset, 0, len(tokens))
 	for _, token := range tokens {
-		idx, err := strconv.Atoi(token)
-		if err != nil || idx < 1 || idx > len(presets) {
+		preset, ok := byKey[token]
+		if !ok {
 			return nil, fmt.Errorf("无效规则编号: %s", token)
 		}
-		if seen[idx] {
+		if seen[token] {
 			continue
 		}
-		seen[idx] = true
-		result = append(result, presets[idx-1])
+		seen[token] = true
+		result = append(result, preset)
 	}
 	return result, nil
 }

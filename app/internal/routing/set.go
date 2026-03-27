@@ -36,12 +36,10 @@ func SetRule(s *store.Store, userName string, rule store.UserRouteRule) error {
 		if !hasAuthUser(s.UserRoutes[i].AuthUser, userName) {
 			continue
 		}
-		if sameStringSlice(s.UserRoutes[i].RuleSet, rule.RuleSet) &&
-			sameStringSlice(s.UserRoutes[i].Domain, rule.Domain) &&
-			sameStringSlice(s.UserRoutes[i].DomainSuffix, rule.DomainSuffix) &&
-			sameStringSlice(s.UserRoutes[i].DomainKeyword, rule.DomainKeyword) &&
-			sameStringSlice(s.UserRoutes[i].DomainRegex, rule.DomainRegex) &&
-			sameStringSlice(s.UserRoutes[i].IPCIDR, rule.IPCIDR) {
+		if !rulesMatchForDedup(s.UserRoutes[i], rule) {
+			continue
+		}
+		{
 			if len(s.UserRoutes[i].AuthUser) > 1 {
 				s.UserRoutes[i].AuthUser = removeAuthUser(s.UserRoutes[i].AuthUser, userName)
 				rule.AuthUser = []string{userName}
@@ -49,8 +47,7 @@ func SetRule(s *store.Store, userName string, rule store.UserRouteRule) error {
 				s.MarkDirty(store.FileUserRoutes)
 				return nil
 			}
-			s.UserRoutes[i].Action = rule.Action
-			s.UserRoutes[i].Outbound = rule.Outbound
+			s.UserRoutes[i] = rule
 			s.MarkDirty(store.FileUserRoutes)
 			return nil
 		}
@@ -59,6 +56,23 @@ func SetRule(s *store.Store, userName string, rule store.UserRouteRule) error {
 	s.UserRoutes = append(s.UserRoutes, rule)
 	s.MarkDirty(store.FileUserRoutes)
 	return nil
+}
+
+// rulesMatchForDedup checks whether two rules target the same routing concern.
+// Uses preset-aware matching: if both rules resolve to the same preset, they match
+// even if stored fields differ (e.g., old rule lacks FallbackDomains).
+func rulesMatchForDedup(existing, incoming store.UserRouteRule) bool {
+	if ep, ok := presetForRule(existing); ok {
+		if ip, ok2 := presetForRule(incoming); ok2 {
+			return ep.Name == ip.Name
+		}
+	}
+	return sameStringSlice(existing.RuleSet, incoming.RuleSet) &&
+		sameStringSlice(existing.Domain, incoming.Domain) &&
+		sameStringSlice(existing.DomainSuffix, incoming.DomainSuffix) &&
+		sameStringSlice(existing.DomainKeyword, incoming.DomainKeyword) &&
+		sameStringSlice(existing.DomainRegex, incoming.DomainRegex) &&
+		sameStringSlice(existing.IPCIDR, incoming.IPCIDR)
 }
 
 func sameStringSlice(a, b []string) bool {

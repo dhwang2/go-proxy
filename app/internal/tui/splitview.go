@@ -24,6 +24,7 @@ func (b *SplitViewBase) SetFocus(left bool, onFocus ...func(left bool)) {
 
 // InitSplit resets split focus to left and sizes the split panel.
 func (b *SplitViewBase) InitSplit() {
+	b.ClearInline()
 	b.Split.SetFocusLeft(true)
 	b.Split.SetSize(b.Model.ContentWidth(), b.Model.Height()-5)
 }

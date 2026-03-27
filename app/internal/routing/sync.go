@@ -3,7 +3,6 @@ package routing
 import (
 	"encoding/json"
 
-	"go-proxy/internal/derived"
 	"go-proxy/internal/store"
 )
 
@@ -31,8 +30,7 @@ func SyncDNS(s *store.Store, outboundToDNS map[string]string, strategy string) {
 		}
 	}
 
-	// Generate new auth_user DNS rules from user routes.
-	newRules := derived.DNSRulesFromRoutes(s, outboundToDNS, strategy)
+	newRules := CompileDNSRules(s, outboundToDNS, strategy)
 	kept = append(kept, newRules...)
 
 	s.SingBox.DNS.Rules = kept
@@ -46,31 +44,15 @@ func SyncRouteRules(s *store.Store) {
 		s.SingBox.Route = &store.RouteConfig{}
 	}
 
-	// Keep non-auth_user route rules.
-	var kept []store.RouteRule
+	// Separate base rules (non-auth_user) from user rules.
+	var base []store.RouteRule
 	for _, r := range s.SingBox.Route.Rules {
 		if len(r.AuthUser) == 0 {
-			kept = append(kept, r)
+			base = append(base, r)
 		}
 	}
 
-	// Convert user route rules to sing-box route rules.
-	for _, ur := range s.UserRoutes {
-		rr := store.RouteRule{
-			Action:        ur.Action,
-			Outbound:      ur.Outbound,
-			AuthUser:      ur.AuthUser,
-			RuleSet:       ur.RuleSet,
-			Domain:        ur.Domain,
-			DomainSuffix:  ur.DomainSuffix,
-			DomainKeyword: ur.DomainKeyword,
-			DomainRegex:   ur.DomainRegex,
-			IPCIDR:        ur.IPCIDR,
-		}
-		kept = append(kept, rr)
-	}
-
-	s.SingBox.Route.Rules = kept
+	s.SingBox.Route.Rules = append(base, CompiledUserRouteRules(s)...)
 	s.SingBox.EnsureDefaultDomainResolver()
 	s.MarkDirty(store.FileSingBox)
 }

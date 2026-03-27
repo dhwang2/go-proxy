@@ -12,7 +12,41 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"go-proxy/internal/derived"
+	"go-proxy/internal/service"
 )
+
+func renderDashboardHeader(width int, titleText, subtitleText string) (string, string) {
+	title := HeaderTitleStyle.Width(width).Render(titleText)
+	subtitle := lipgloss.NewStyle().Foreground(ColorBlack).Align(lipgloss.Center).Width(width).Render(subtitleText)
+	return title, subtitle
+}
+
+func renderDashboardInfoLines(stats derived.DashboardStats, width int, serviceText string) []string {
+	lineStyle := lipgloss.NewStyle().Width(width)
+	return []string{
+		lineStyle.Render(fmt.Sprintf(" %s %s | %s",
+			LabelStyle.Render("系统:"),
+			ValSysStyle.Render(runtime.GOOS),
+			ValSysStyle.Render(displayArch()),
+		)),
+		lineStyle.Render(fmt.Sprintf(" %s %s",
+			LabelStyle.Render("协议:"),
+			ValProtoStyle.Render(stats.Protocols),
+		)),
+		lineStyle.Render(fmt.Sprintf(" %s %s",
+			LabelStyle.Render("用户:"),
+			FormatUserCount(stats.UserCount),
+		)),
+		lineStyle.Render(fmt.Sprintf(" %s %s",
+			LabelStyle.Render("分流:"),
+			ValRuleStyle.Render(fmt.Sprintf("%d条规则", stats.RouteCount)),
+		)),
+		lineStyle.Render(fmt.Sprintf(" %s %s",
+			LabelStyle.Render("服务:"),
+			serviceText,
+		)),
+	}
+}
 
 // RenderDashboard returns a lipgloss-styled dashboard string.
 func RenderDashboard(stats derived.DashboardStats, version string, width int) string {
@@ -29,37 +63,11 @@ func RenderDashboard(stats derived.DashboardStats, version string, width int) st
 		sepWidth = width
 	}
 
-	// Title lines.
-	title := HeaderTitleStyle.Width(sepWidth).Render("go-proxy 快捷指令：gproxy")
-	subtitle := fmt.Sprintf("作者: dhwang2 · 命令: gproxy · 版本: %s", version)
-	subtitleRendered := lipgloss.NewStyle().Foreground(ColorBlack).Align(lipgloss.Center).Width(sepWidth).Render(subtitle)
-
-	// Status panel content — compact layout.
-	sysInfo := fmt.Sprintf("%s | %s",
-		ValSysStyle.Render(runtime.GOOS),
-		ValSysStyle.Render(displayArch()),
-	)
-	sysLine := fmt.Sprintf("  %s  %s", LabelStyle.Render("系统:"), sysInfo)
-
-	protoLine := fmt.Sprintf("  %s  %s",
-		LabelStyle.Render("协议:"),
-		ValProtoStyle.Render(stats.Protocols),
-	)
-
-	userLine := fmt.Sprintf("  %s  %s",
-		LabelStyle.Render("用户:"),
-		FormatUserCount(stats.UserCount),
-	)
-
-	svcLine := fmt.Sprintf("  %s  %s", LabelStyle.Render("服务:"), renderServiceStatus())
+	title, subtitle := renderDashboardHeader(sepWidth, "go-proxy 快捷指令：gproxy", fmt.Sprintf("作者: dhwang2 · 命令: gproxy · 版本: %s", version))
+	lines := renderDashboardInfoLines(stats, sepWidth-4, renderServiceStatus())
 
 	// Wrap status info in an inset bordered panel.
-	statusContent := lipgloss.JoinVertical(lipgloss.Left,
-		sysLine,
-		protoLine,
-		userLine,
-		svcLine,
-	)
+	statusContent := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	statusPanel := StatusPanelStyle.Width(sepWidth - 4).Render(statusContent)
 
 	// Center the status panel.
@@ -70,7 +78,7 @@ func RenderDashboard(stats derived.DashboardStats, version string, width int) st
 	content := lipgloss.JoinVertical(lipgloss.Center,
 		"",
 		title,
-		subtitleRendered,
+		subtitle,
 		sep,
 		statusCentered,
 		sep,
@@ -113,6 +121,27 @@ func checkService(name string) serviceStatusEntry {
 	return entry
 }
 
+// checkShadowTLS checks the aggregate status of all shadow-tls-* units.
+// Uses any-active semantics: reports running if at least one unit is active.
+func checkShadowTLS() serviceStatusEntry {
+	entry := serviceStatusEntry{name: "shadow-tls"}
+	names, err := service.ShadowTLSServiceNames()
+	if err != nil || len(names) == 0 {
+		return entry
+	}
+	entry.exists = true
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, name := range names {
+		out, err := exec.CommandContext(ctx, "systemctl", "is-active", name).CombinedOutput()
+		if err == nil && strings.TrimSpace(string(out)) == "active" {
+			entry.running = true
+			return entry
+		}
+	}
+	return entry
+}
+
 // Shared async service status cache. Both full and compact renderers
 // read from the same cached entries without blocking.
 var (
@@ -124,7 +153,7 @@ var (
 
 const serviceStatusTTL = 10 * time.Second
 
-var dashboardServices = []string{"sing-box", "snell-v5", "shadow-tls", "caddy-sub"}
+var dashboardServices = []string{"sing-box", "snell-v5", "shadow-tls", "caddy-sub", "proxy-watchdog"}
 
 // Pre-rendered dot styles to avoid per-frame allocation.
 var (
@@ -156,7 +185,11 @@ func refreshServiceCacheAsync() {
 	go func() {
 		entries := make([]serviceStatusEntry, len(dashboardServices))
 		for i, svc := range dashboardServices {
-			entries[i] = checkService(svc)
+			if svc == "shadow-tls" {
+				entries[i] = checkShadowTLS()
+			} else {
+				entries[i] = checkService(svc)
+			}
 		}
 		svcCacheMu.Lock()
 		svcCacheEntries = entries
@@ -191,39 +224,16 @@ func renderServiceStatus() string {
 
 // RenderCompactDashboard returns a compact dashboard for the narrow left panel.
 func RenderCompactDashboard(stats derived.DashboardStats, version string, width int) string {
-
-	title := HeaderTitleStyle.Width(width).Render("go-proxy")
-	sub := lipgloss.NewStyle().Foreground(ColorBlack).Width(width).Render("作者: dhwang2  版本号: " + version)
-
-	lineStyle := lipgloss.NewStyle().Width(width)
-	sysInfo := lineStyle.Render(fmt.Sprintf(" %s %s | %s",
-		LabelStyle.Render("系统:"),
-		ValSysStyle.Render(runtime.GOOS),
-		ValSysStyle.Render(displayArch()),
-	))
-	protoInfo := lineStyle.Render(fmt.Sprintf(" %s %s",
-		LabelStyle.Render("协议:"),
-		ValProtoStyle.Render(stats.Protocols),
-	))
-	userInfo := lineStyle.Render(fmt.Sprintf(" %s %s",
-		LabelStyle.Render("用户:"),
-		FormatUserCount(stats.UserCount),
-	))
-	svcInfo := lineStyle.Render(fmt.Sprintf(" %s %s",
-		LabelStyle.Render("服务:"),
-		renderCompactServiceStatus(),
-	))
+	title, subtitle := renderDashboardHeader(width, "go-proxy", "作者: dhwang2  版本号: "+version)
+	lines := renderDashboardInfoLines(stats, width, renderCompactServiceStatus())
 
 	sep := SeparatorDouble(width)
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		title,
-		sub,
+		subtitle,
 		sep,
-		sysInfo,
-		protoInfo,
-		userInfo,
-		svcInfo,
+		lipgloss.JoinVertical(lipgloss.Left, lines...),
 		sep,
 	)
 }
@@ -242,6 +252,8 @@ func renderCompactServiceStatus() string {
 			return "cdy"
 		case "snell-v5":
 			return "snl"
+		case "proxy-watchdog":
+			return "wdog"
 		default:
 			return name
 		}

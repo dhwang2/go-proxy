@@ -26,7 +26,7 @@ func TestRenderSurgeTUICIncludesRequiredParams(t *testing.T) {
 		UserName: "alice",
 	}
 
-	got := renderSurge(ib, entry, "example.com")
+	got := renderSurge(ib, entry, "1.2.3.4", "example.com", "")
 	for _, want := range []string{
 		"password=pw",
 		"uuid=11111111-1111-1111-1111-111111111111",
@@ -50,7 +50,7 @@ func TestRenderSnellSurgeIncludesRequiredParams(t *testing.T) {
 	}
 	conf := &store.SnellConfig{Listen: "0.0.0.0:8443", PSK: "secret"}
 
-	got := renderSnellSurge(entry, conf, "1.2.3.4")
+	got := renderSnellSurge(entry, conf, "1.2.3.4", "")
 	for _, want := range []string{
 		"psk=secret",
 		"version=5",
@@ -87,7 +87,7 @@ func TestRenderShadowTLSShadowsocksSurgeIncludesShadowTLSParams(t *testing.T) {
 		Version:      3,
 	}
 
-	got := renderShadowTLSShadowsocksSurge(ib, entry, binding, "example.com")
+	got := renderShadowTLSShadowsocksSurge(ib, entry, binding, "1.2.3.4", "")
 	for _, want := range []string{
 		"8443",
 		"shadow-tls-password=shadow-pass",
@@ -119,7 +119,7 @@ func TestRenderShadowTLSSnellSurgeIncludesShadowTLSParams(t *testing.T) {
 		Version:      3,
 	}
 
-	got := renderShadowTLSSnellSurge(entry, conf, binding, "1.2.3.4")
+	got := renderShadowTLSSnellSurge(entry, conf, binding, "1.2.3.4", "")
 	for _, want := range []string{
 		"8443",
 		"psk=secret",

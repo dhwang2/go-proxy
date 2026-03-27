@@ -297,10 +297,16 @@ func cmdRouting() {
 	}
 	switch os.Args[2] {
 	case "list":
-		for _, r := range s.UserRoutes {
-			users := strings.Join(r.AuthUser, ",")
-			fmt.Printf("outbound=%s  users=%s  rulesets=%s\n",
-				r.Outbound, users, strings.Join(r.RuleSet, ","))
+		users := derived.AllRoutedUsers(s)
+		if len(users) == 0 {
+			fmt.Println("no routing rules found")
+			return
+		}
+		for _, userName := range users {
+			fmt.Printf("%s:\n", userName)
+			for i, rule := range derived.UserRoutes(s, userName) {
+				fmt.Printf("  %d. %s -> %s\n", i+1, routing.UserRouteLabel(rule), routing.OutboundLabel(rule.Outbound))
+			}
 		}
 	case "clear":
 		name := argOrEmpty(3)

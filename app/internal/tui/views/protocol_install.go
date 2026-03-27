@@ -55,6 +55,7 @@ func (v *ProtocolInstallView) setFocus(left bool) {
 }
 
 func (v *ProtocolInstallView) Init() tea.Cmd {
+	v.ClearInline()
 	v.resetMenuState(v.Model.ContentWidth(), v.Model.Height()-5)
 	return nil
 }

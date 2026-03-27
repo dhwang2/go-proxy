@@ -209,10 +209,22 @@ func (v *ServiceView) doStatusTable() tea.Msg {
 	userStyle := lipgloss.NewStyle().Foreground(tui.ColorAccent).Bold(true)
 	protoStyle := lipgloss.NewStyle().Foreground(tui.ColorSuccess)
 	portStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#C678DD"))
+	backPortStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#56B6C2"))
 	greenDot := lipgloss.NewStyle().Foreground(tui.ColorSuccess).Render("●")
 	redDot := lipgloss.NewStyle().Foreground(tui.ColorError).Render("●")
 	grayCircle := lipgloss.NewStyle().Foreground(tui.ColorMuted).Render("○")
 	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
+
+	// Build shadow-tls binding lookup: "ss|<backendPort>" or "snell|<backendPort>" -> frontendListenPort
+	stlsLookup := make(map[string]int)
+	if bindings, err := service.ListShadowTLSBindings(s); err == nil {
+		for _, b := range bindings {
+			if b.BackendProto == "ss" || b.BackendProto == "snell" {
+				key := fmt.Sprintf("%s|%d", b.BackendProto, b.BackendPort)
+				stlsLookup[key] = b.ListenPort
+			}
+		}
+	}
 
 	var sb strings.Builder
 
@@ -239,6 +251,30 @@ func (v *ServiceView) doStatusTable() tea.Msg {
 				for _, e := range entries {
 					port := e.Port
 					bulletDot := lipgloss.NewStyle().Foreground(tui.ColorSuccess).Render("●")
+					// Check shadow-tls binding for ss and snell.
+					var stlsKey, stlsProto, stlsBack string
+					switch e.Proto {
+					case "shadowsocks", "ss":
+						stlsKey = fmt.Sprintf("ss|%d", port)
+						stlsProto = "ss+shadow-tls-v3"
+						stlsBack = "ss"
+					case "snell", "snell-v5":
+						stlsKey = fmt.Sprintf("snell|%d", port)
+						stlsProto = "snell-v5+shadow-tls-v3"
+						stlsBack = "snell"
+					}
+					if stlsKey != "" {
+						if frontPort, ok := stlsLookup[stlsKey]; ok {
+							sb.WriteString(fmt.Sprintf("    %s %s - shadow-tls:%s -> %s:%s\n",
+								bulletDot,
+								protoStyle.Render(stlsProto),
+								portStyle.Render(fmt.Sprintf("%d", frontPort)),
+								stlsBack,
+								backPortStyle.Render(fmt.Sprintf("%d", port)),
+							))
+							continue
+						}
+					}
 					sb.WriteString(fmt.Sprintf("    %s %s - %s\n",
 						bulletDot,
 						protoStyle.Render(e.Proto),
