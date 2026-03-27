@@ -153,7 +153,7 @@ func TestRenderInfersLegacySnellOwnerFromSingleActiveInboundUser(t *testing.T) {
 	}
 	s.UserMeta.Groups["~/.groups"] = []string{"u1", "u2"}
 
-	links := Render(s, "u1", FormatSurge, "example.com")
+	links := Render(s, "u1", FormatSurge, "1.2.3.4")
 	if len(links) != 2 {
 		t.Fatalf("links len = %d, want 2", len(links))
 	}
@@ -197,7 +197,7 @@ func TestRenderUsesShadowTLSFrontForShadowsocksSurgeAndKeepsURI(t *testing.T) {
 		UserTemplate: &store.UserRouteTemplates{Templates: map[string][]store.TemplateRule{}},
 	}
 
-	surgeLinks := Render(s, "alice", FormatSurge, "example.com")
+	surgeLinks := Render(s, "alice", FormatSurge, "1.2.3.4")
 	if len(surgeLinks) != 1 {
 		t.Fatalf("surge links len = %d, want 1", len(surgeLinks))
 	}
@@ -210,14 +210,14 @@ func TestRenderUsesShadowTLSFrontForShadowsocksSurgeAndKeepsURI(t *testing.T) {
 		}
 	}
 
-	uriLinks := Render(s, "alice", FormatURI, "example.com")
+	uriLinks := Render(s, "alice", FormatURI, "1.2.3.4")
 	if len(uriLinks) != 1 {
 		t.Fatalf("uri links len = %d, want 1", len(uriLinks))
 	}
 	if !strings.Contains(uriLinks[0].Content, "ss://") {
 		t.Fatalf("uri link missing ss scheme: %q", uriLinks[0].Content)
 	}
-	if !strings.Contains(uriLinks[0].Content, "@example.com:443") {
+	if !strings.Contains(uriLinks[0].Content, "@1.2.3.4:443") {
 		t.Fatalf("uri link host/port mismatch: %q", uriLinks[0].Content)
 	}
 }
