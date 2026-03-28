@@ -10,6 +10,12 @@ type SplitViewBase struct {
 	Model *Model
 	Menu  MenuModel
 	Split SubSplitModel
+	// Cached dimensions from the last ViewResizeMsg.  The Model pointer may
+	// be stale (it points to the initial stack-allocated Model, not the copy
+	// maintained by bubbletea), so InitSplit uses these cached values when
+	// available instead of querying the pointer.
+	lastContentWidth  int
+	lastContentHeight int
 }
 
 // SetFocus sets split focus and dims/undims the main menu accordingly.
@@ -26,11 +32,19 @@ func (b *SplitViewBase) SetFocus(left bool, onFocus ...func(left bool)) {
 func (b *SplitViewBase) InitSplit() {
 	b.ClearInline()
 	b.Split.SetFocusLeft(true)
-	b.Split.SetSize(b.Model.ContentWidth(), b.Model.Height()-5)
+	b.Menu = b.Menu.SetDim(false)
+	w, h := b.lastContentWidth, b.lastContentHeight
+	if w == 0 || h == 0 {
+		w = b.Model.ContentWidth()
+		h = b.Model.Height() - 2
+	}
+	b.Split.SetSize(w, h-3)
 }
 
 // HandleResize updates split dimensions on ViewResizeMsg.
 func (b *SplitViewBase) HandleResize(msg ViewResizeMsg) {
+	b.lastContentWidth = msg.ContentWidth
+	b.lastContentHeight = msg.ContentHeight
 	b.Split.SetSize(msg.ContentWidth, msg.ContentHeight-3)
 }
 

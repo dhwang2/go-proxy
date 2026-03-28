@@ -20,13 +20,18 @@ import (
 
 type ProtocolInstallView struct {
 	tui.SplitViewBase
-	step          protoInstallStep
-	pendingType   protocol.Type
-	pendingUser   string
-	pendingPort   int
-	pendingDomain string
-	pendingEmail  string
-	lastResult    *protocol.InstallResult
+	step              protoInstallStep
+	pendingType       protocol.Type
+	pendingUser       string
+	pendingPort       int
+	pendingDomain     string
+	pendingEmail      string
+	lastResult        *protocol.InstallResult
+	pendingSnellIPv6  bool
+	pendingSnellObfs  string
+	pendingSnellUDP   bool
+	pendingCongestion string
+	pendingSSMethod   string
 }
 
 type protoInstallStep int
@@ -40,6 +45,10 @@ const (
 	protoInstallCert
 	protoInstallResult
 	protoInstallShadowTLSPrompt
+	protoInstallSnellIPv6
+	protoInstallSnellObfs
+	protoInstallSnellUDP
+	protoInstallOptions
 )
 
 func NewProtocolInstallView(model *tui.Model) *ProtocolInstallView {
@@ -99,6 +108,18 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v.handleDomainInput(msg.Value)
 		case protoInstallEmail:
 			return v.handleEmailInput(msg.Value)
+		case protoInstallSnellObfs:
+			v.pendingSnellObfs = msg.Value
+			v.step = protoInstallSnellUDP
+			return v, v.SetInline(components.NewConfirm("启用 UDP?"))
+		case protoInstallOptions:
+			switch v.pendingType {
+			case protocol.TUIC:
+				v.pendingCongestion = msg.Value
+			case protocol.Shadowsocks:
+				v.pendingSSMethod = msg.Value
+			}
+			return v, v.proceedAfterOptions()
 		}
 
 	case certDoneMsg:
@@ -128,7 +149,15 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, v.SetInline(components.NewResult(msg.result))
 
 	case tui.ConfirmResultMsg:
-		if v.step == protoInstallShadowTLSPrompt {
+		switch v.step {
+		case protoInstallSnellIPv6:
+			v.pendingSnellIPv6 = msg.Confirmed
+			v.step = protoInstallSnellObfs
+			return v, v.SetInline(components.NewSelectList("Obfs 模式:", []string{"off", "http", "tls"}))
+		case protoInstallSnellUDP:
+			v.pendingSnellUDP = msg.Confirmed
+			return v, v.proceedAfterOptions()
+		case protoInstallShadowTLSPrompt:
 			if msg.Confirmed && v.lastResult != nil {
 				backendPort := v.lastResult.Port
 				backendType := v.shadowTLSBackendType(v.pendingType)
@@ -218,6 +247,11 @@ func (v *ProtocolInstallView) resetMenuState(contentWidth, contentHeight int) {
 	v.pendingDomain = ""
 	v.pendingEmail = ""
 	v.lastResult = nil
+	v.pendingSnellIPv6 = false
+	v.pendingSnellObfs = ""
+	v.pendingSnellUDP = false
+	v.pendingCongestion = ""
+	v.pendingSSMethod = ""
 	v.SetFocus(true)
 	// Protocol install needs a narrower third-level split so the user picker
 	// still renders beside the protocol list on common terminal widths and
@@ -320,16 +354,31 @@ func (v *ProtocolInstallView) handlePortInput(portStr string) (tui.View, tea.Cmd
 	}
 	v.pendingPort = port
 
+	switch v.pendingType {
+	case protocol.Snell:
+		v.step = protoInstallSnellIPv6
+		return v, v.SetInline(components.NewConfirm("启用 IPv6?"))
+	case protocol.TUIC:
+		v.step = protoInstallOptions
+		return v, v.SetInline(components.NewSelectList("拥塞控制:", []string{"bbr", "cubic"}))
+	case protocol.Shadowsocks:
+		v.step = protoInstallOptions
+		return v, v.SetInline(components.NewSelectList("加密方式:", []string{"2022-blake3-aes-256-gcm", "2022-blake3-aes-128-gcm"}))
+	}
+	return v, v.proceedAfterOptions()
+}
+
+// proceedAfterOptions advances to domain input (if TLS needed) or directly to install.
+func (v *ProtocolInstallView) proceedAfterOptions() tea.Cmd {
 	spec := protocol.Specs()[v.pendingType]
 	if spec.NeedsTLS && !spec.UsesReality {
-		// TLS non-Reality: ask for domain next.
 		v.step = protoInstallDomain
 		existing := cert.ReadDomain()
-		return v, v.SetInline(components.NewTextInput("域名 (用于 TLS 证书):", existing))
+		return v.SetInline(components.NewTextInput("域名 (用于 TLS 证书):", existing))
 	}
-	// Non-TLS or Reality: go straight to install.
 	pt := v.pendingType
-	return v, tea.Batch(
+	port := v.pendingPort
+	return tea.Batch(
 		v.SetInline(components.NewSpinner("安装中...")),
 		func() tea.Msg {
 			return v.doInstallWithPort(pt, port)
@@ -408,10 +457,15 @@ func (v *ProtocolInstallView) computeDefaultPort(pt protocol.Type) int {
 
 func (v *ProtocolInstallView) doInstallWithPort(pt protocol.Type, port int) tea.Msg {
 	params := protocol.InstallParams{
-		ProtoType: pt,
-		Port:      port,
-		UserName:  v.pendingUser,
-		Domain:    v.pendingDomain,
+		ProtoType:         pt,
+		Port:              port,
+		UserName:          v.pendingUser,
+		Domain:            v.pendingDomain,
+		SSMethod:          v.pendingSSMethod,
+		CongestionControl: v.pendingCongestion,
+		SnellIPv6:         v.pendingSnellIPv6,
+		SnellObfs:         v.pendingSnellObfs,
+		SnellUDP:          v.pendingSnellUDP,
 	}
 
 	// Provision dependencies (download binaries, create systemd services).

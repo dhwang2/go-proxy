@@ -105,6 +105,12 @@ type InstallParams struct {
 	SNI string // Server Name Indication / decoy domain
 	// Shadowsocks parameters.
 	SSMethod string // e.g., "2022-blake3-aes-256-gcm"
+	// TUIC parameters.
+	CongestionControl string // e.g., "bbr", "cubic"
+	// Snell parameters.
+	SnellIPv6 bool
+	SnellObfs string // "off", "http", "tls"
+	SnellUDP  bool
 }
 
 // InstallResult holds the output of a protocol installation.
@@ -341,12 +347,16 @@ func buildTUICInbound(tag string, p InstallParams) (*store.Inbound, string, erro
 	}
 	tls := buildStandardTLS(p)
 	tls.ALPN = []string{"h3"}
+	congestion := p.CongestionControl
+	if congestion == "" {
+		congestion = "bbr"
+	}
 	ib := &store.Inbound{
 		Type:              "tuic",
 		Tag:               tag,
 		Listen:            "0.0.0.0",
 		ListenPort:        p.Port,
-		CongestionControl: "bbr",
+		CongestionControl: congestion,
 		Users: []store.User{
 			{Name: p.UserName, UUID: uuid, Password: password},
 		},
@@ -449,9 +459,16 @@ func buildSnellConfig(p InstallParams) (*store.SnellConfig, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	obfs := p.SnellObfs
+	if obfs == "" {
+		obfs = "off"
+	}
 	conf := &store.SnellConfig{
 		Listen: fmt.Sprintf("0.0.0.0:%d", p.Port),
 		PSK:    psk,
+		IPv6:   p.SnellIPv6,
+		Obfs:   obfs,
+		UDP:    p.SnellUDP,
 	}
 	return conf, psk, nil
 }

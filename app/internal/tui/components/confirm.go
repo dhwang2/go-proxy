@@ -19,7 +19,8 @@ func NewConfirm(prompt string) ConfirmModel {
 	return ConfirmModel{prompt: prompt}
 }
 
-func (m ConfirmModel) Init() tea.Cmd { return nil }
+func (m ConfirmModel) Init() tea.Cmd    { return nil }
+func (m ConfirmModel) UsesCursor() bool { return true }
 
 func (m ConfirmModel) Update(msg tea.Msg) (tui.OverlayModel, tea.Cmd) {
 	switch msg := msg.(type) {

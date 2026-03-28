@@ -72,7 +72,11 @@ func (v *ProtocolRemoveView) Init() tea.Cmd {
 	v.ClearInline()
 	v.InitSplit()
 	v.Split.SetMinWidths(14, 10)
-	v.Model.Store().Reload()
+	if err := v.Model.Store().Reload(); err != nil {
+		v.step = protoRemoveResult
+		v.emptyResult = true
+		return v.SetInline(components.NewResult("重新加载失败: " + err.Error()))
+	}
 	inv := derived.Inventory(v.Model.Store())
 
 	if len(inv) == 0 {
@@ -208,12 +212,12 @@ func (v *ProtocolRemoveView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		// Left/Right arrow toggles sub-split focus.
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			if v.Split.Enabled() && v.step != protoRemoveMenu {
+			if v.Split.Enabled() && v.step != protoRemoveMenu && !v.HasInline() {
 				if keyMsg.Type == tea.KeyLeft {
 					v.setFocus(true)
 					return v, nil
 				}
-				if keyMsg.Type == tea.KeyRight && (v.HasInline() || v.step == protoRemoveUserSelect) {
+				if keyMsg.Type == tea.KeyRight && v.step == protoRemoveUserSelect {
 					v.setFocus(false)
 					return v, nil
 				}

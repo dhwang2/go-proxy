@@ -13,12 +13,71 @@ import (
 
 	"go-proxy/internal/derived"
 	"go-proxy/internal/service"
+	"go-proxy/internal/subscription"
 )
 
 func renderDashboardHeader(width int, titleText, subtitleText string) (string, string) {
 	title := HeaderTitleStyle.Width(width).Render(titleText)
 	subtitle := lipgloss.NewStyle().Foreground(ColorBlack).Align(lipgloss.Center).Width(width).Render(subtitleText)
 	return title, subtitle
+}
+
+var (
+	ipCacheMu     sync.RWMutex
+	ipCacheV4     string
+	ipCacheV6     string
+	ipCacheReady  bool
+	ipCacheExpiry time.Time
+	ipRefreshing  bool
+)
+
+const ipCacheTTL = 60 * time.Second
+
+func refreshIPCacheAsync() {
+	ipCacheMu.Lock()
+	if ipRefreshing || (ipCacheReady && time.Now().Before(ipCacheExpiry)) {
+		ipCacheMu.Unlock()
+		return
+	}
+	ipRefreshing = true
+	ipCacheMu.Unlock()
+
+	go func() {
+		v4 := subscription.DetectIPv4()
+		v6 := subscription.DetectIPv6()
+		ipCacheMu.Lock()
+		ipCacheV4 = v4
+		ipCacheV6 = v6
+		ipCacheReady = true
+		ipCacheExpiry = time.Now().Add(ipCacheTTL)
+		ipRefreshing = false
+		ipCacheMu.Unlock()
+	}()
+}
+
+func getCachedNetworkStack() (v4, v6 string, ready bool) {
+	refreshIPCacheAsync()
+	ipCacheMu.RLock()
+	defer ipCacheMu.RUnlock()
+	return ipCacheV4, ipCacheV6, ipCacheReady
+}
+
+func renderNetworkStack() string {
+	v4, v6, ready := getCachedNetworkStack()
+	if !ready {
+		return ValSysStyle.Render("检测中...")
+	}
+	var parts []string
+	if v4 != "" {
+		parts = append(parts, "ipv4("+v4+")")
+	}
+	if v6 != "" {
+		parts = append(parts, "ipv6("+v6+")")
+	}
+	if len(parts) == 0 {
+		return ValSysStyle.Render("未检测到")
+	}
+	return ValSysStyle.Render(strings.Join(parts, " | "))
 }
 
 func renderDashboardInfoLines(stats derived.DashboardStats, width int, serviceText string) []string {
@@ -28,6 +87,10 @@ func renderDashboardInfoLines(stats derived.DashboardStats, width int, serviceTe
 			LabelStyle.Render("系统:"),
 			ValSysStyle.Render(runtime.GOOS),
 			ValSysStyle.Render(displayArch()),
+		)),
+		lineStyle.Render(fmt.Sprintf(" %s %s",
+			LabelStyle.Render("网络栈:"),
+			renderNetworkStack(),
 		)),
 		lineStyle.Render(fmt.Sprintf(" %s %s",
 			LabelStyle.Render("协议:"),
