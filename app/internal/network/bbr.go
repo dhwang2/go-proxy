@@ -45,7 +45,7 @@ func persistSysctl(settings map[string]string) error {
 	content := string(existing)
 
 	for key, val := range settings {
-		line := key + " = " + val
+		line := key + " = " + val + " # gproxy-managed"
 		if !strings.Contains(content, key) {
 			content += "\n" + line
 		}

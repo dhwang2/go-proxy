@@ -38,9 +38,9 @@ func ReadLog(logFile, unit string, lines int) (string, string) {
 		}
 	}
 
-	// Fall back to journalctl.
+	// Fall back to journalctl (--boot limits to current boot to avoid stale entries after reinstall).
 	if unit != "" {
-		out, err := exec.Command("journalctl", "-u", unit, "-n", fmt.Sprintf("%d", lines), "--no-pager").CombinedOutput()
+		out, err := exec.Command("journalctl", "-u", unit, "-n", fmt.Sprintf("%d", lines), "--no-pager", "--boot").CombinedOutput()
 		if err == nil {
 			result := strings.TrimSpace(string(out))
 			if result != "" {
