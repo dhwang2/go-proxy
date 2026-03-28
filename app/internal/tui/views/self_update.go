@@ -58,11 +58,11 @@ func (v *SelfUpdateView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.check = msg.check
 		if !msg.check.UpdateAvail {
 			v.step = selfUpdateResult
-			result := fmt.Sprintf("当前版本: %s\n已是最新版本", msg.check.CurrentVersion)
+			result := fmt.Sprintf("当前版本: %s，已是最新版本", msg.check.CurrentVersion)
 			return v, v.SetInline(components.NewResult(result))
 		}
 		v.step = selfUpdateConfirm
-		v.confirmPrompt = fmt.Sprintf("发现新版本: %s → %s\n是否更新?",
+		v.confirmPrompt = fmt.Sprintf("发现新版本: %s → %s，是否更新?",
 			msg.check.CurrentVersion, msg.check.LatestVersion)
 		return v, nil
 

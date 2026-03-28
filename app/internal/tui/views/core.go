@@ -2,8 +2,6 @@ package views
 
 import (
 	"context"
-	"fmt"
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -203,30 +201,30 @@ func binPath(comp core.Component) string {
 func (v *CoreView) doVersions() tea.Msg {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	var sb strings.Builder
-	sb.WriteString("组件版本\n\n")
+	width := v.Model.ContentWidth()
+	rows := make([][]string, 0, len(core.AllComponents()))
 	for _, comp := range core.AllComponents() {
 		bp := binPath(comp)
 		if bp == "" {
-			sb.WriteString(fmt.Sprintf("  %s: 未配置\n", comp))
+			rows = append(rows, []string{string(comp), "未配置", "-"})
 			continue
 		}
 		info := core.DetectVersion(ctx, bp, comp)
 		if info.Installed {
-			sb.WriteString(fmt.Sprintf("  %s: %s\n", comp, info.Version))
-		} else {
-			sb.WriteString(fmt.Sprintf("  %s: 未安装\n", comp))
+			rows = append(rows, []string{string(comp), "已安装", info.Version})
+			continue
 		}
+		rows = append(rows, []string{string(comp), "未安装", "-"})
 	}
-	return coreVersionsDoneMsg{result: sb.String()}
+	return coreVersionsDoneMsg{result: renderTable([]string{"组件", "状态", "版本"}, rows, width, false)}
 }
 
 func (v *CoreView) doCheckUpdates(forUpdate bool) tea.Msg {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	var sb strings.Builder
 	var avail []core.UpdateCheck
-	sb.WriteString("更新检查\n\n")
+	width := v.Model.ContentWidth()
+	rows := make([][]string, 0, len(core.AllComponents()))
 
 	for _, comp := range core.UpdatableComponents() {
 		bp := binPath(comp)
@@ -235,25 +233,21 @@ func (v *CoreView) doCheckUpdates(forUpdate bool) tea.Msg {
 		}
 		check, err := core.CheckUpdate(ctx, comp, bp)
 		if err != nil {
-			sb.WriteString(fmt.Sprintf("  %s: 检查失败 (%s)\n", comp, err))
+			rows = append(rows, []string{string(comp), "-", "-", "检查失败: " + err.Error()})
 			continue
 		}
 		if check.CurrentVersion == "" {
-			// Not installed - skip for update purposes.
-			sb.WriteString(fmt.Sprintf("  %s: 未安装 (最新 %s)\n", comp, check.LatestVersion))
+			rows = append(rows, []string{string(comp), "-", check.LatestVersion, "未安装"})
 			continue
 		}
 		if !check.UpdateAvail {
-			sb.WriteString(fmt.Sprintf("  %s: %s (最新)\n",
-				comp, check.CurrentVersion))
+			rows = append(rows, []string{string(comp), check.CurrentVersion, check.LatestVersion, "已最新"})
 			continue
 		}
-		sb.WriteString(fmt.Sprintf("  %s: %s → %s (可更新)\n",
-			comp, check.CurrentVersion, check.LatestVersion))
+		rows = append(rows, []string{string(comp), check.CurrentVersion, check.LatestVersion, "可更新"})
 		avail = append(avail, *check)
 	}
 
-	// Show non-updatable components.
 	for _, comp := range core.AllComponents() {
 		if core.HasRepo(comp) {
 			continue
@@ -264,42 +258,41 @@ func (v *CoreView) doCheckUpdates(forUpdate bool) tea.Msg {
 		}
 		info := core.DetectVersion(ctx, bp, comp)
 		if info.Installed {
-			sb.WriteString(fmt.Sprintf("  %s: %s (手动管理)\n", comp, info.Version))
-		} else {
-			sb.WriteString(fmt.Sprintf("  %s: 未安装 (手动管理)\n", comp))
+			rows = append(rows, []string{string(comp), info.Version, "-", "手动管理"})
+			continue
 		}
+		rows = append(rows, []string{string(comp), "-", "-", "未安装(手动管理)"})
 	}
 
-	if len(avail) == 0 {
-		sb.WriteString("\n所有组件已是最新版本")
+	return coreCheckDoneMsg{
+		result:    renderTable([]string{"组件", "当前版本", "最新版本", "状态"}, rows, width, false),
+		updates:   avail,
+		forUpdate: forUpdate,
 	}
-
-	return coreCheckDoneMsg{result: sb.String(), updates: avail, forUpdate: forUpdate}
 }
 
 func (v *CoreView) doUpdate(updates []core.UpdateCheck) tea.Msg {
 	ctx := context.Background()
-	var sb strings.Builder
-	sb.WriteString("更新结果\n\n")
+	width := v.Model.ContentWidth()
+	rows := make([][]string, 0, len(updates))
 
 	for _, u := range updates {
 		if u.DownloadURL == "" {
-			sb.WriteString(fmt.Sprintf("  %s: 无下载地址，跳过\n", u.Component))
+			rows = append(rows, []string{string(u.Component), u.CurrentVersion, u.LatestVersion, "无下载地址，已跳过"})
 			continue
 		}
 		bp := binPath(u.Component)
 		if err := core.DownloadBinary(ctx, u.DownloadURL, bp); err != nil {
-			sb.WriteString(fmt.Sprintf("  %s: 下载失败 (%s)\n", u.Component, err))
+			rows = append(rows, []string{string(u.Component), u.CurrentVersion, u.LatestVersion, "下载失败: " + err.Error()})
 			continue
 		}
-		sb.WriteString(fmt.Sprintf("  %s: %s → %s 更新成功\n",
-			u.Component, u.CurrentVersion, u.LatestVersion))
+		rows = append(rows, []string{string(u.Component), u.CurrentVersion, u.LatestVersion, "更新成功"})
 		svc := componentService(u.Component)
 		if svc != "" {
 			service.Restart(ctx, service.Name(svc))
 		}
 	}
-	return coreUpdateDoneMsg{result: sb.String()}
+	return coreUpdateDoneMsg{result: renderTable([]string{"组件", "当前版本", "目标版本", "结果"}, rows, width, false)}
 }
 
 func componentService(comp core.Component) string {

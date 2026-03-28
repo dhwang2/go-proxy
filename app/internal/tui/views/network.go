@@ -28,13 +28,14 @@ const (
 
 type NetworkView struct {
 	tui.SplitViewBase
-	step          networkStep
-	pendingAction string
-	fail2banState string
-	subMenu       tui.MenuModel
-	viewport      viewport.Model
-	viewportReady bool
-	rawDetail     string
+	step           networkStep
+	pendingAction  string
+	fail2banState  string
+	subMenu        tui.MenuModel
+	viewport       viewport.Model
+	viewportReady  bool
+	detailBuilder  func(int) string
+	renderedDetail string
 }
 
 func NewNetworkView(model *tui.Model) *NetworkView {
@@ -53,7 +54,8 @@ func (v *NetworkView) Name() string { return "network" }
 func (v *NetworkView) Init() tea.Cmd {
 	v.step = networkMenu
 	v.viewportReady = false
-	v.rawDetail = ""
+	v.detailBuilder = nil
+	v.renderedDetail = ""
 	v.InitSplit()
 	return nil
 }
@@ -62,17 +64,10 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.ViewResizeMsg:
 		v.HandleResize(msg)
-		if v.viewportReady {
-			w := msg.ContentWidth
-			h := msg.ContentHeight - 5
-			if v.Split.Enabled() {
-				w = v.Split.RightWidth()
-				h = v.Split.TotalHeight()
-			}
-			v.viewport.Width = w
-			v.viewport.Height = h
-			v.viewport.SetContent(wrapNetworkContent(v.rawDetail, w))
-		}
+		v.resizeViewport(msg.ContentWidth, msg.ContentHeight)
+		return v, nil
+	case tui.SubSplitResizeMsg:
+		v.resizeViewport(msg.RightWidth, msg.RightHeight+3)
 		return v, nil
 	case tui.SubSplitMouseMsg:
 		if v.viewportReady && (!v.Split.Enabled() || !v.Split.FocusLeft()) {
@@ -117,7 +112,11 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		if v.pendingAction == "firewall" {
 			v.ClearInline()
 			v.step = networkResult
-			v.showFirewallDetail(msg.result)
+			if msg.render != nil {
+				v.showFirewallDetail(msg.render)
+			} else {
+				v.showFirewallDetail(func(int) string { return msg.result })
+			}
 			return v, nil
 		}
 		v.step = networkResult
@@ -136,7 +135,8 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, nil
 	case tui.ResultDismissedMsg:
 		v.viewportReady = false
-		v.rawDetail = ""
+		v.detailBuilder = nil
+		v.renderedDetail = ""
 		if v.pendingAction == "firewall" {
 			v.step = networkFirewallMenu
 			return v, nil
@@ -158,7 +158,8 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				if v.pendingAction == "firewall" {
 					v.step = networkFirewallMenu
 					v.viewportReady = false
-					v.rawDetail = ""
+					v.detailBuilder = nil
+					v.renderedDetail = ""
 					return v, nil
 				}
 			}
@@ -226,7 +227,8 @@ func (v *NetworkView) View() string {
 func (v *NetworkView) triggerMenuAction(id string) tea.Cmd {
 	v.pendingAction = id
 	v.viewportReady = false
-	v.rawDetail = ""
+	v.detailBuilder = nil
+	v.renderedDetail = ""
 	switch id {
 	case "bbr":
 		return v.doBBRStatus
@@ -249,7 +251,8 @@ func (v *NetworkView) triggerMenuAction(id string) tea.Cmd {
 func (v *NetworkView) handleFirewallMenu(id string) tea.Cmd {
 	v.pendingAction = "firewall"
 	v.viewportReady = false
-	v.rawDetail = ""
+	v.detailBuilder = nil
+	v.renderedDetail = ""
 	switch id {
 	case "apply":
 		return tea.Batch(
@@ -293,17 +296,19 @@ func (v *NetworkView) handleFirewallInput(msg tui.InputResultMsg) (tui.View, tea
 		v.Model.Store().MarkDirty(store.FileFirewall)
 		if err := v.Model.Store().Apply(); err != nil {
 			v.step = networkResult
-			v.showFirewallDetail("保存失败: " + err.Error())
+			v.showFirewallDetail(func(int) string { return "保存失败: " + err.Error() })
 			return v, nil
 		}
 		v.step = networkResult
-		v.showFirewallDetail("自定义 TCP 端口已更新\n\n" + v.renderFirewallSummary())
+		v.showFirewallDetail(func(width int) string {
+			return "自定义 TCP 端口已更新\n\n" + v.renderFirewallSummary(width)
+		})
 		return v, nil
 	case networkFirewallUDPInput:
 		ports, err := parsePortCSV(msg.Value)
 		if err != nil {
 			v.step = networkResult
-			v.showFirewallDetail("设置失败: " + err.Error())
+			v.showFirewallDetail(func(int) string { return "设置失败: " + err.Error() })
 			return v, nil
 		}
 		cfg := v.currentFirewallConfig()
@@ -312,11 +317,13 @@ func (v *NetworkView) handleFirewallInput(msg tui.InputResultMsg) (tui.View, tea
 		v.Model.Store().MarkDirty(store.FileFirewall)
 		if err := v.Model.Store().Apply(); err != nil {
 			v.step = networkResult
-			v.showFirewallDetail("保存失败: " + err.Error())
+			v.showFirewallDetail(func(int) string { return "保存失败: " + err.Error() })
 			return v, nil
 		}
 		v.step = networkResult
-		v.showFirewallDetail("自定义 UDP 端口已更新\n\n" + v.renderFirewallSummary())
+		v.showFirewallDetail(func(width int) string {
+			return "自定义 UDP 端口已更新\n\n" + v.renderFirewallSummary(width)
+		})
 		return v, nil
 	}
 	return v, nil
@@ -326,18 +333,20 @@ type networkActionDoneMsg struct {
 	result      string
 	needConfirm bool
 	state       string
+	render      func(int) string
 }
 
 func (v *NetworkView) doBBRStatus() tea.Msg {
 	enabled, current, err := network.BBRStatus()
 	if err != nil {
-		return networkActionDoneMsg{result: fmt.Sprintf("BBR 状态\n\n读取失败: %s", err)}
+		return networkActionDoneMsg{result: "读取失败: " + err.Error()}
 	}
+	width := v.Model.ContentWidth()
 	if enabled {
-		return networkActionDoneMsg{result: fmt.Sprintf("BBR 状态\n\n当前拥塞控制: %s\nBBR 已启用", current)}
+		return networkActionDoneMsg{result: renderBBRStatusTable(current, enabled, width)}
 	}
 	return networkActionDoneMsg{
-		result:      fmt.Sprintf("当前拥塞控制: %s\nBBR 未启用，是否启用？", current),
+		result:      renderBBRStatusTable(current, false, width) + "\n\n  是否启用 BBR？",
 		needConfirm: true,
 	}
 }
@@ -396,11 +405,19 @@ func (v *NetworkView) doEnableBBR() tea.Msg {
 	if err := network.EnableBBR(); err != nil {
 		return networkActionDoneMsg{result: "启用 BBR 失败: " + err.Error()}
 	}
-	return networkActionDoneMsg{result: "BBR 已成功启用"}
+	enabled, current, err := network.BBRStatus()
+	if err != nil {
+		return networkActionDoneMsg{result: "BBR 已成功启用"}
+	}
+	return networkActionDoneMsg{result: renderBBRStatusTable(current, enabled, v.Model.ContentWidth())}
 }
 
 func (v *NetworkView) doFirewallSummary() tea.Msg {
-	return networkActionDoneMsg{result: v.renderFirewallSummary()}
+	return networkActionDoneMsg{
+		render: func(width int) string {
+			return v.renderFirewallSummary(width)
+		},
+	}
 }
 
 func (v *NetworkView) doFirewallCurrentRules() tea.Msg {
@@ -411,17 +428,25 @@ func (v *NetworkView) doFirewallCurrentRules() tea.Msg {
 	if len(entries) == 0 {
 		return networkActionDoneMsg{result: "当前无防火墙规则"}
 	}
-	return networkActionDoneMsg{result: renderCurrentRulesTable(entries)}
+	return networkActionDoneMsg{
+		render: func(width int) string {
+			return renderCurrentRulesTable(entries, width)
+		},
+	}
 }
 
 func (v *NetworkView) doFirewallApply() tea.Msg {
 	if err := network.ApplyConvergence(v.Model.Store()); err != nil {
 		return networkActionDoneMsg{result: "应用防火墙收敛失败: " + err.Error()}
 	}
-	return networkActionDoneMsg{result: "防火墙收敛已应用\n\n" + v.renderFirewallSummary()}
+	return networkActionDoneMsg{
+		render: func(width int) string {
+			return "防火墙收敛已应用\n\n" + v.renderFirewallSummary(width)
+		},
+	}
 }
 
-func (v *NetworkView) renderFirewallSummary() string {
+func (v *NetworkView) renderFirewallSummary(width int) string {
 	entries, err := network.DescribeDesiredPorts(v.Model.Store())
 	if err != nil {
 		return "  读取失败: " + err.Error()
@@ -429,93 +454,39 @@ func (v *NetworkView) renderFirewallSummary() string {
 	if len(entries) == 0 {
 		return "  无目标端口"
 	}
-	return renderDesiredPortsTable(entries)
+	return renderDesiredPortsTable(entries, width)
 }
 
-func renderDesiredPortsTable(entries []network.DesiredPortEntry) string {
-	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
-	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
-	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
-
-	type row struct{ proto, port, source string }
-	rows := make([]row, len(entries))
-	protoW := lipgloss.Width("协议")
-	portW := lipgloss.Width("端口")
-	for i, e := range entries {
-		rows[i] = row{
-			proto:  e.Proto,
-			port:   strconv.Itoa(e.Port),
-			source: strings.Join(e.Services, ", "),
-		}
-		if w := lipgloss.Width(rows[i].proto); w > protoW {
-			protoW = w
-		}
-		if w := lipgloss.Width(rows[i].port); w > portW {
-			portW = w
-		}
+func renderDesiredPortsTable(entries []network.DesiredPortEntry, width int) string {
+	rows := make([][]string, 0, len(entries))
+	for _, e := range entries {
+		rows = append(rows, []string{e.Proto, strconv.Itoa(e.Port), strings.Join(e.Services, ", ")})
 	}
-	protoW += 4
-	portW += 4
-
-	var sb strings.Builder
-	sb.WriteString("  ")
-	sb.WriteString(labelStyle.Render(padCell("协议", protoW)))
-	sb.WriteString(labelStyle.Render(padCell("端口", portW)))
-	sb.WriteString(labelStyle.Render("来源"))
-	sb.WriteString("\n  ")
-	sb.WriteString(sepStyle.Render(strings.Repeat("─", protoW+portW+18)))
-	sb.WriteString("\n")
-	for _, r := range rows {
-		sb.WriteString("  ")
-		sb.WriteString(valStyle.Render(padCell(r.proto, protoW)))
-		sb.WriteString(valStyle.Render(padCell(r.port, portW)))
-		sb.WriteString(valStyle.Render(r.source))
-		sb.WriteString("\n")
-	}
-	return sb.String()
+	return renderTable([]string{"协议", "端口", "来源"}, rows, width, false)
 }
 
-func renderCurrentRulesTable(entries []network.CurrentPortEntry) string {
-	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
-	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
-	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
-
-	type row struct{ proto, port, action string }
-	rows := make([]row, len(entries))
-	protoW := lipgloss.Width("协议")
-	portW := lipgloss.Width("端口")
-	for i, e := range entries {
-		rows[i] = row{
-			proto:  e.Proto,
-			port:   strconv.Itoa(e.Port),
-			action: e.Action,
-		}
-		if w := lipgloss.Width(rows[i].proto); w > protoW {
-			protoW = w
-		}
-		if w := lipgloss.Width(rows[i].port); w > portW {
-			portW = w
-		}
+func renderCurrentRulesTable(entries []network.CurrentPortEntry, width int) string {
+	rows := make([][]string, 0, len(entries))
+	for _, e := range entries {
+		rows = append(rows, []string{e.Proto, strconv.Itoa(e.Port), e.Action})
 	}
-	protoW += 4
-	portW += 4
+	return renderTable([]string{"协议", "端口", "动作"}, rows, width, false)
+}
 
-	var sb strings.Builder
-	sb.WriteString("  ")
-	sb.WriteString(labelStyle.Render(padCell("协议", protoW)))
-	sb.WriteString(labelStyle.Render(padCell("端口", portW)))
-	sb.WriteString(labelStyle.Render("动作"))
-	sb.WriteString("\n  ")
-	sb.WriteString(sepStyle.Render(strings.Repeat("─", protoW+portW+18)))
-	sb.WriteString("\n")
-	for _, r := range rows {
-		sb.WriteString("  ")
-		sb.WriteString(valStyle.Render(padCell(r.proto, protoW)))
-		sb.WriteString(valStyle.Render(padCell(r.port, portW)))
-		sb.WriteString(valStyle.Render(r.action))
-		sb.WriteString("\n")
+func renderBBRStatusTable(current string, enabled bool, width int) string {
+	status := "未启用"
+	if enabled {
+		status = "已启用"
 	}
-	return sb.String()
+	return renderTable(
+		[]string{"项目", "值"},
+		[][]string{
+			{"当前拥塞控制", current},
+			{"BBR 状态", status},
+		},
+		width,
+		false,
+	)
 }
 
 func (v *NetworkView) currentFirewallConfig() *store.FirewallConfig {
@@ -560,23 +531,49 @@ func formatPorts(ports []int) string {
 	return strings.Join(values, ",")
 }
 
-func (v *NetworkView) showFirewallDetail(content string) {
-	w := v.Model.ContentWidth()
-	h := v.Model.Height() - 5
+func (v *NetworkView) currentViewportWidth() int {
 	if v.Split.Enabled() {
-		w = v.Split.RightWidth()
-		h = v.Split.TotalHeight()
+		return v.Split.RightWidth()
 	}
-	v.rawDetail = content
-	v.viewport = viewport.New(w, h)
-	v.viewport.SetContent(wrapNetworkContent(content, w))
-	v.viewportReady = true
-	v.SetFocus(false)
+	return v.Model.ContentWidth()
 }
 
-func wrapNetworkContent(content string, width int) string {
-	if width <= 0 {
-		return content
+func (v *NetworkView) currentViewportHeight() int {
+	if v.Split.Enabled() {
+		return v.Split.TotalHeight()
 	}
-	return lipgloss.NewStyle().Width(width).Render(content)
+	return v.Model.Height() - 5
+}
+
+func (v *NetworkView) resizeViewport(contentWidth, contentHeight int) {
+	if !v.viewportReady || v.detailBuilder == nil {
+		return
+	}
+	width := contentWidth
+	height := contentHeight - 5
+	if v.Split.Enabled() {
+		width = v.Split.RightWidth()
+		height = v.Split.TotalHeight()
+	}
+	if height < 1 {
+		height = 1
+	}
+	v.viewport.Width = width
+	v.viewport.Height = height
+	v.renderedDetail = v.detailBuilder(width)
+	v.viewport.SetContent(v.renderedDetail)
+}
+
+func (v *NetworkView) showFirewallDetail(builder func(int) string) {
+	width := v.currentViewportWidth()
+	height := v.currentViewportHeight()
+	if height < 1 {
+		height = 1
+	}
+	v.detailBuilder = builder
+	v.viewport = viewport.New(width, height)
+	v.renderedDetail = builder(width)
+	v.viewport.SetContent(v.renderedDetail)
+	v.viewportReady = true
+	v.SetFocus(false)
 }

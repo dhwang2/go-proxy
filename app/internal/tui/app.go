@@ -223,11 +223,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.contentWidth < 30 {
 					m.contentWidth = 30
 				}
+				// Only update layout dimensions during drag.
+				// Skip forwarding ViewResizeMsg to views to avoid expensive
+				// content rebuilds on every mouse motion frame.
+				// The final resize is sent on MouseActionRelease.
 				return m, nil
 			}
 		case tea.MouseActionRelease:
 			if m.dragging {
 				m.dragging = false
+				if m.current != "" {
+					if v, ok := m.views[m.current]; ok {
+						resizeMsg := ViewResizeMsg{ContentWidth: m.contentWidth, ContentHeight: m.height - 2}
+						newView, cmd := v.Update(resizeMsg)
+						m.views[m.current] = newView
+						return m, cmd
+					}
+				}
 				return m, nil
 			}
 		}
@@ -394,8 +406,12 @@ func (m Model) viewSplitPanel() string {
 		rightStyle = rightStyle.BorderForeground(ColorDragBorder)
 	}
 
-	leftPanel := leftStyle.Width(m.leftWidth - 2).Height(m.height - 2).Render(leftContent)
-	rightPanel := rightStyle.Width(m.rightWidth - 2).Height(m.height - 2).Render(rightContent)
+	panelHeight := m.height - 2
+	// Clip content height before applying border style to prevent overflow
+	// during drag (when viewport dimensions are stale and content wraps).
+	contentClip := lipgloss.NewStyle().MaxHeight(panelHeight)
+	leftPanel := leftStyle.Width(m.leftWidth - 2).Height(panelHeight).Render(contentClip.Render(leftContent))
+	rightPanel := rightStyle.Width(m.rightWidth - 2).Height(panelHeight).Render(contentClip.Render(rightContent))
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 }

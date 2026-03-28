@@ -33,3 +33,13 @@ func TestSubSplitAutoFitsLeftPaneToLongestLine(t *testing.T) {
 		t.Fatalf("right width = %d, want >= %d", m.RightWidth(), subSplitMinRight)
 	}
 }
+
+func TestSubSplitKeepsRightPaneContentAvailable(t *testing.T) {
+	m := NewSubSplit(44, 12)
+	right := "1234567890123456789012345678901234567890"
+
+	view := m.View("left", right)
+	if !strings.Contains(view, "123456789012345678901") || !strings.Contains(view, "2345678901234567890") {
+		t.Fatalf("view should keep right content across wrapped lines: %q", view)
+	}
+}

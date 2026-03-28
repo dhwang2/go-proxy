@@ -5,7 +5,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"go-proxy/internal/config"
 	"go-proxy/internal/derived"
@@ -72,7 +71,14 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 			v.viewport.Width = w
 			v.viewport.Height = h
-			v.viewport.SetContent(wrapContent(v.rawContent, w))
+			v.viewport.SetContent(wrapPanelContent(v.rawContent, w))
+		}
+		return v, nil
+	case tui.SubSplitResizeMsg:
+		if v.viewportReady {
+			v.viewport.Width = msg.RightWidth
+			v.viewport.Height = msg.RightHeight
+			v.viewport.SetContent(wrapPanelContent(v.rawContent, msg.RightWidth))
 		}
 		return v, nil
 	case tui.SubSplitMouseMsg:
@@ -126,7 +132,7 @@ func (v *LogsView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		v.rawContent = msg.content
 		v.viewport = viewport.New(w, h)
-		v.viewport.SetContent(wrapContent(v.rawContent, w))
+		v.viewport.SetContent(wrapPanelContent(v.rawContent, w))
 		v.viewportReady = true
 		v.ClearInline()
 		v.step = logsResult
@@ -369,12 +375,4 @@ func colorizeLine(line string) string {
 	default:
 		return line
 	}
-}
-
-// wrapContent wraps each line to fit within the given width using lipgloss.
-func wrapContent(content string, width int) string {
-	if width <= 0 {
-		return content
-	}
-	return lipgloss.NewStyle().Width(width).Render(content)
 }

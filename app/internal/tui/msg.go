@@ -54,6 +54,14 @@ type SubSplitMouseMsg struct {
 	tea.MouseMsg
 }
 
+// SubSplitResizeMsg signals that a sub-split divider drag changed the
+// available right-panel dimensions for the current view.
+// Only emitted on mouse release to avoid expensive rebuilds during drag.
+type SubSplitResizeMsg struct {
+	RightWidth  int
+	RightHeight int
+}
+
 // OverlayModel is the interface for overlay components.
 type OverlayModel interface {
 	Init() tea.Cmd

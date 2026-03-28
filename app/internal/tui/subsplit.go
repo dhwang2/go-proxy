@@ -200,10 +200,13 @@ func (m *SubSplitModel) View(leftContent, rightContent string) string {
 		h = 1
 	}
 
-	// Truncate lines that exceed left panel width to prevent wrapping.
-	leftContent = truncateLines(leftContent, lw)
-	left := lipgloss.NewStyle().Width(lw).Height(h).Render(leftContent)
-	right := lipgloss.NewStyle().Width(rw).Height(h).Render(rightContent)
+	// During drag, skip expensive per-line truncation — lipgloss Width
+	// constrains the output. Full truncation runs on idle renders.
+	if !m.dragging {
+		leftContent = truncateLines(leftContent, lw)
+	}
+	left := lipgloss.NewStyle().Width(lw).Height(h).MaxHeight(h).Render(leftContent)
+	right := lipgloss.NewStyle().Width(rw).Height(h).MaxHeight(h).Render(rightContent)
 
 	// Render divider spanning full height.
 	divColor := ColorPanelBorder

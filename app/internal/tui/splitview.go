@@ -36,8 +36,19 @@ func (b *SplitViewBase) HandleResize(msg ViewResizeMsg) {
 
 // HandleMouse delegates mouse events to the split model. Returns the tea.Cmd.
 func (b *SplitViewBase) HandleMouse(msg SubSplitMouseMsg) tea.Cmd {
+	wasDragging := b.Split.Dragging()
 	var cmd tea.Cmd
 	b.Split, cmd = b.Split.Update(msg.MouseMsg)
+	// Only emit SubSplitResizeMsg on release to avoid expensive content
+	// rebuilds on every mouse motion frame during drag.
+	if msg.Action == tea.MouseActionRelease && wasDragging {
+		return tea.Batch(cmd, func() tea.Msg {
+			return SubSplitResizeMsg{
+				RightWidth:  b.Split.RightWidth(),
+				RightHeight: b.Split.TotalHeight(),
+			}
+		})
+	}
 	return cmd
 }
 

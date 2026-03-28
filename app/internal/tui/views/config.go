@@ -24,9 +24,11 @@ const (
 
 type ConfigView struct {
 	tui.SplitViewBase
-	viewport viewport.Model
-	step     configStep
-	ready    bool
+	viewport   viewport.Model
+	step       configStep
+	ready      bool
+	selectedID string
+	rawContent string
 }
 
 func NewConfigView(model *tui.Model) *ConfigView {
@@ -53,6 +55,14 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tui.ViewResizeMsg:
 		v.HandleResize(msg)
+		if v.ready {
+			v.rebuildViewport(msg.ContentWidth, msg.ContentHeight)
+		}
+		return v, nil
+	case tui.SubSplitResizeMsg:
+		if v.ready {
+			v.rebuildViewport(msg.RightWidth, msg.RightHeight+3)
+		}
 		return v, nil
 	case tui.SubSplitMouseMsg:
 		// Handle mouse wheel scrolling for viewport before delegating to split.
@@ -84,14 +94,11 @@ func (v *ConfigView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, v.triggerMenuAction(msg.ID)
 
 	case configContentMsg:
-		w := v.Model.ContentWidth()
-		h := v.Model.Height() - 5
-		if v.Split.Enabled() {
-			w = v.Split.RightWidth()
-			h = v.Split.TotalHeight()
-		}
+		v.selectedID = msg.id
+		w, h := v.viewportSize()
 		v.viewport = viewport.New(w, h)
-		v.viewport.SetContent(msg.content)
+		v.rawContent = v.renderSelectedContent(w)
+		v.viewport.SetContent(v.rawContent)
 		v.ready = true
 		return v, nil
 
@@ -155,25 +162,64 @@ func (v *ConfigView) triggerMenuAction(id string) tea.Cmd {
 	case "singbox":
 		v.step = configViewport
 		v.ready = false
-		content := v.renderSingBox()
-		return func() tea.Msg { return configContentMsg{content: content} }
+		return func() tea.Msg { return configContentMsg{id: id} }
 	case "snell":
 		v.step = configViewport
 		v.ready = false
-		content := v.renderSnell()
-		return func() tea.Msg { return configContentMsg{content: content} }
+		return func() tea.Msg { return configContentMsg{id: id} }
 	case "shadowtls":
 		v.step = configViewport
 		v.ready = false
-		content := v.renderShadowTLS()
-		return func() tea.Msg { return configContentMsg{content: content} }
+		return func() tea.Msg { return configContentMsg{id: id} }
 	}
 	return nil
 }
 
-type configContentMsg struct{ content string }
+type configContentMsg struct{ id string }
 
-func (v *ConfigView) renderSingBox() string {
+func (v *ConfigView) viewportSize() (int, int) {
+	w := v.Model.ContentWidth()
+	h := v.Model.Height() - 5
+	if v.Split.Enabled() {
+		w = v.Split.RightWidth()
+		h = v.Split.TotalHeight()
+	}
+	if h < 1 {
+		h = 1
+	}
+	return w, h
+}
+
+func (v *ConfigView) rebuildViewport(contentWidth, contentHeight int) {
+	w := contentWidth
+	h := contentHeight - 5
+	if v.Split.Enabled() {
+		w = v.Split.RightWidth()
+		h = v.Split.TotalHeight()
+	}
+	if h < 1 {
+		h = 1
+	}
+	v.viewport.Width = w
+	v.viewport.Height = h
+	v.rawContent = v.renderSelectedContent(w)
+	v.viewport.SetContent(v.rawContent)
+}
+
+func (v *ConfigView) renderSelectedContent(width int) string {
+	switch v.selectedID {
+	case "singbox":
+		return v.renderSingBox(width)
+	case "snell":
+		return v.renderSnell(width)
+	case "shadowtls":
+		return v.renderShadowTLS(width)
+	default:
+		return ""
+	}
+}
+
+func (v *ConfigView) renderSingBox(width int) string {
 	s := v.Model.Store()
 	var sb strings.Builder
 
@@ -216,7 +262,7 @@ func (v *ConfigView) renderSingBox() string {
 	sb.WriteString("\n")
 	sb.WriteString(renderOrderedSingBoxJSON(s.SingBox))
 
-	return sb.String()
+	return wrapPanelContent(sb.String(), width)
 }
 
 func renderOrderedSingBoxJSON(c *store.SingBoxConfig) string {
@@ -260,16 +306,11 @@ func renderOrderedSingBoxJSON(c *store.SingBoxConfig) string {
 	return "{\n" + strings.Join(parts, ",\n") + "\n}"
 }
 
-func (v *ConfigView) renderSnell() string {
+func (v *ConfigView) renderSnell(width int) string {
 	conf := v.Model.Store().SnellConf
 	if conf == nil {
 		return "  snell-v5 未安装\n\n  配置文件: " + config.SnellConfigFile
 	}
-
-	titleStyle := lipgloss.NewStyle().Foreground(tui.ColorPrimary).Bold(true)
-	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
-	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
-	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
 
 	type kv struct{ k, v string }
 	boolStr := func(b bool) string {
@@ -286,36 +327,19 @@ func (v *ConfigView) renderSnell() string {
 		{"Obfs", conf.Obfs},
 		{"配置路径", config.SnellConfigFile},
 	}
-
-	labelWidth := lipgloss.Width("属性")
+	tableRows := make([][]string, 0, len(rows))
 	for _, r := range rows {
-		if w := lipgloss.Width(r.k); w > labelWidth {
-			labelWidth = w
-		}
+		tableRows = append(tableRows, []string{r.k, r.v})
 	}
-	labelWidth += 2
 
 	var sb strings.Builder
-	sb.WriteString(titleStyle.Render("  snell-v5 配置"))
+	sb.WriteString(lipgloss.NewStyle().Foreground(tui.ColorPrimary).Bold(true).Render("  snell-v5 配置"))
 	sb.WriteString("\n\n")
-	sb.WriteString("  ")
-	sb.WriteString(labelStyle.Render(padCell("属性", labelWidth)))
-	sb.WriteString(labelStyle.Render("值"))
-	sb.WriteString("\n")
-	sb.WriteString("  ")
-	sb.WriteString(sepStyle.Render(strings.Repeat("─", labelWidth+20)))
-	sb.WriteString("\n")
-	for _, r := range rows {
-		sb.WriteString("  ")
-		sb.WriteString(labelStyle.Render(padCell(r.k, labelWidth)))
-		sb.WriteString(valStyle.Render(r.v))
-		sb.WriteString("\n")
-	}
-
+	sb.WriteString(renderTable([]string{"属性", "值"}, tableRows, width, false))
 	return sb.String()
 }
 
-func (v *ConfigView) renderShadowTLS() string {
+func (v *ConfigView) renderShadowTLS(width int) string {
 	bindings, err := service.ListShadowTLSBindings(v.Model.Store())
 	if err != nil {
 		return "  读取 shadow-tls 配置失败\n\n  " + err.Error()
@@ -324,21 +348,10 @@ func (v *ConfigView) renderShadowTLS() string {
 		return "  无 shadow-tls 配置"
 	}
 
-	titleStyle := lipgloss.NewStyle().Foreground(tui.ColorPrimary).Bold(true)
-	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
-	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
-	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
-
 	headers := []string{"#", "实例", "监听端口", "后端类型", "后端端口", "SNI", "密码"}
-	colWidths := make([]int, len(headers))
-	for i, h := range headers {
-		colWidths[i] = lipgloss.Width(h)
-	}
-
-	type stRow struct{ cells [7]string }
-	rows := make([]stRow, len(bindings))
+	rows := make([][]string, 0, len(bindings))
 	for i, b := range bindings {
-		rows[i].cells = [7]string{
+		rows = append(rows, []string{
 			fmt.Sprintf("%d", i+1),
 			b.ServiceName,
 			fmt.Sprintf("%d", b.ListenPort),
@@ -346,48 +359,12 @@ func (v *ConfigView) renderShadowTLS() string {
 			fmt.Sprintf("%d", b.BackendPort),
 			b.SNI,
 			b.Password,
-		}
-		for j, cell := range rows[i].cells {
-			if w := lipgloss.Width(cell); w > colWidths[j] {
-				colWidths[j] = w
-			}
-		}
-	}
-	for i := range colWidths {
-		colWidths[i] += 2
-	}
-
-	sepTotal := 0
-	for _, w := range colWidths {
-		sepTotal += w
+		})
 	}
 
 	var sb strings.Builder
-	sb.WriteString(titleStyle.Render("  shadow-tls 配置"))
+	sb.WriteString(lipgloss.NewStyle().Foreground(tui.ColorPrimary).Bold(true).Render("  shadow-tls 配置"))
 	sb.WriteString("\n\n")
-	sb.WriteString("  ")
-	for i, h := range headers {
-		if i == len(headers)-1 {
-			sb.WriteString(labelStyle.Render(h))
-		} else {
-			sb.WriteString(labelStyle.Render(padCell(h, colWidths[i])))
-		}
-	}
-	sb.WriteString("\n")
-	sb.WriteString("  ")
-	sb.WriteString(sepStyle.Render(strings.Repeat("─", sepTotal)))
-	sb.WriteString("\n")
-	for _, row := range rows {
-		sb.WriteString("  ")
-		for i, cell := range row.cells {
-			if i == len(row.cells)-1 {
-				sb.WriteString(valStyle.Render(cell))
-			} else {
-				sb.WriteString(valStyle.Render(padCell(cell, colWidths[i])))
-			}
-		}
-		sb.WriteString("\n")
-	}
-
+	sb.WriteString(renderTable(headers, rows, width, false))
 	return sb.String()
 }
