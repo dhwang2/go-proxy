@@ -540,13 +540,8 @@ func cmdInit() {
 	if proxyBin == "" {
 		proxyBin = "/usr/bin/gproxy"
 	}
-	if err := service.ProvisionWatchdog(ctx, proxyBin); err != nil {
+	if err := service.EnsureWatchdogRunning(ctx, proxyBin); err != nil {
 		fmt.Fprintf(os.Stderr, "warn: watchdog service: %v\n", err)
-	}
-
-	// Enable watchdog service.
-	if err := service.Enable(ctx, service.Watchdog); err != nil {
-		fmt.Fprintf(os.Stderr, "warn: enable watchdog: %v\n", err)
 	}
 
 	fmt.Println("initialization complete")

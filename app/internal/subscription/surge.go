@@ -25,7 +25,7 @@ func renderSurge(ib *store.Inbound, entry derived.MembershipEntry, targetHost, s
 			sni = cleaned
 		}
 	}
-	tag := entry.Tag + tagSuffix
+	tag := surgeProxyTag(surgeProtoLabel(ib.Type), entry.UserName, tagSuffix)
 
 	switch ib.Type {
 	case "vless":
@@ -74,7 +74,7 @@ func renderSnellSurge(entry derived.MembershipEntry, conf *store.SnellConfig, ta
 	if conf == nil || conf.PSK == "" {
 		return ""
 	}
-	tag := entry.Tag + tagSuffix
+	tag := surgeProxyTag("snell", entry.UserName, tagSuffix)
 	return fmt.Sprintf("%s = snell, %s, %d, psk=%s, version=5, reuse=true, tfo=true",
 		tag, FormatHost(targetHost), conf.Port(), conf.PSK)
 }
@@ -88,7 +88,7 @@ func renderShadowTLSShadowsocksSurge(ib *store.Inbound, entry derived.Membership
 	if version == 0 {
 		version = 3
 	}
-	tag := entry.Tag + tagSuffix
+	tag := surgeProxyTag("ss", entry.UserName, tagSuffix)
 	return fmt.Sprintf("%s = ss, %s, %d, encrypt-method=%s, password=\"%s\", shadow-tls-password=%s, shadow-tls-sni=%s, shadow-tls-version=%s, udp-relay=true",
 		tag, FormatHost(targetHost), binding.ListenPort, method, escapeSurgeQuoted(ssPassword(ib, entry.UserID)), binding.Password, binding.SNI, strconv.Itoa(version))
 }
@@ -101,9 +101,21 @@ func renderShadowTLSSnellSurge(entry derived.MembershipEntry, conf *store.SnellC
 	if version == 0 {
 		version = 3
 	}
-	tag := entry.Tag + tagSuffix
+	tag := surgeProxyTag("snell", entry.UserName, tagSuffix)
 	return fmt.Sprintf("%s = snell, %s, %d, psk=%s, version=5, reuse=true, tfo=true, shadow-tls-password=%s, shadow-tls-sni=%s, shadow-tls-version=%s",
 		tag, FormatHost(targetHost), binding.ListenPort, conf.PSK, binding.Password, binding.SNI, strconv.Itoa(version))
+}
+
+// surgeProtoLabel returns a short, user-facing protocol label for surge proxy names.
+func surgeProtoLabel(ibType string) string {
+	if ibType == "shadowsocks" {
+		return "ss"
+	}
+	return ibType
+}
+
+func surgeProxyTag(proto, userName, tagSuffix string) string {
+	return proto + "-" + userName + tagSuffix
 }
 
 func firstALPN(tls *store.TLSConfig) string {

@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"go-proxy/internal/service"
 	"go-proxy/internal/tui"
 	"go-proxy/internal/tui/components"
 	"go-proxy/internal/update"
@@ -124,5 +125,8 @@ func (v *SelfUpdateView) doCheck() tea.Msg {
 func (v *SelfUpdateView) doUpdate() tea.Msg {
 	ctx := context.Background()
 	err := update.SelfUpdate(ctx, v.check.DownloadURL)
+	if err == nil {
+		err = service.EnsureWatchdogRunningForCurrentBinary(ctx)
+	}
 	return selfUpdateDoneMsg{err: err}
 }

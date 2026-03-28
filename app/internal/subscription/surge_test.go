@@ -27,6 +27,9 @@ func TestRenderSurgeTUICIncludesRequiredParams(t *testing.T) {
 	}
 
 	got := renderSurge(ib, entry, "1.2.3.4", "example.com", "")
+	if !strings.HasPrefix(got, "tuic-alice = tuic-v5") {
+		t.Fatalf("renderSurge(tuic) tag = %q, want prefix %q", got, "tuic-alice = tuic-v5")
+	}
 	for _, want := range []string{
 		"password=pw",
 		"uuid=11111111-1111-1111-1111-111111111111",
@@ -51,6 +54,9 @@ func TestRenderSnellSurgeIncludesRequiredParams(t *testing.T) {
 	conf := &store.SnellConfig{Listen: "0.0.0.0:8443", PSK: "secret"}
 
 	got := renderSnellSurge(entry, conf, "1.2.3.4", "")
+	if !strings.HasPrefix(got, "snell-alice = snell") {
+		t.Fatalf("renderSnellSurge() tag = %q, want prefix %q", got, "snell-alice = snell")
+	}
 	for _, want := range []string{
 		"psk=secret",
 		"version=5",
@@ -88,6 +94,9 @@ func TestRenderShadowTLSShadowsocksSurgeIncludesShadowTLSParams(t *testing.T) {
 	}
 
 	got := renderShadowTLSShadowsocksSurge(ib, entry, binding, "1.2.3.4", "")
+	if !strings.HasPrefix(got, "ss-alice = ss") {
+		t.Fatalf("renderShadowTLSShadowsocksSurge() tag = %q, want prefix %q", got, "ss-alice = ss")
+	}
 	for _, want := range []string{
 		"8443",
 		"shadow-tls-password=shadow-pass",
@@ -120,6 +129,9 @@ func TestRenderShadowTLSSnellSurgeIncludesShadowTLSParams(t *testing.T) {
 	}
 
 	got := renderShadowTLSSnellSurge(entry, conf, binding, "1.2.3.4", "")
+	if !strings.HasPrefix(got, "snell-alice = snell") {
+		t.Fatalf("renderShadowTLSSnellSurge() tag = %q, want prefix %q", got, "snell-alice = snell")
+	}
 	for _, want := range []string{
 		"8443",
 		"psk=secret",

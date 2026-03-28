@@ -39,6 +39,10 @@ func RunWatchdog(ctx context.Context, cfg WatchdogConfig) error {
 					log.Printf("watchdog: failed to check %s: %v", svc, err)
 					continue
 				}
+				if st == nil || !st.Enabled {
+					failures[svc] = 0
+					continue
+				}
 				if st.Running {
 					failures[svc] = 0
 					continue

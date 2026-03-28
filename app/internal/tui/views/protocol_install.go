@@ -283,6 +283,9 @@ func (v *ProtocolInstallView) startInstallOrAddUser() tea.Cmd {
 				}
 				// Restart sing-box to load the updated user list.
 				_ = service.Restart(context.Background(), service.SingBox)
+				if err := service.EnsureWatchdogRunningForCurrentBinary(context.Background()); err != nil {
+					return protoInstallDoneMsg{result: "启动 watchdog 失败: " + err.Error()}
+				}
 				return protoInstallDoneMsg{
 					result:        formatAddUserSuccess(pt, result),
 					installResult: result,
@@ -432,6 +435,9 @@ func (v *ProtocolInstallView) doInstallWithPort(pt protocol.Type, port int) tea.
 	}
 	if err := v.Model.Store().Apply(); err != nil {
 		return protoInstallDoneMsg{result: "保存失败: " + err.Error()}
+	}
+	if err := service.EnsureWatchdogRunningForCurrentBinary(context.Background()); err != nil {
+		return protoInstallDoneMsg{result: "启动 watchdog 失败: " + err.Error()}
 	}
 	return protoInstallDoneMsg{
 		result:        formatInstallSuccess(pt, result, v.pendingDomain != ""),
