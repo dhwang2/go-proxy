@@ -252,7 +252,10 @@ func (v *NetworkView) handleFirewallMenu(id string) tea.Cmd {
 	v.rawDetail = ""
 	switch id {
 	case "apply":
-		return v.doFirewallApply
+		return tea.Batch(
+			v.SetInline(components.NewSpinner("正在应用防火墙收敛...")),
+			v.doFirewallApply,
+		)
 	case "custom-tcp":
 		v.step = networkFirewallTCPInput
 		return v.SetInline(components.NewTextInput("自定义 TCP 端口，逗号分隔，留空清空:", formatPorts(v.currentFirewallConfig().TCP)))
@@ -401,11 +404,14 @@ func (v *NetworkView) doFirewallSummary() tea.Msg {
 }
 
 func (v *NetworkView) doFirewallCurrentRules() tea.Msg {
-	rules, err := network.ListOpenPorts()
+	entries, err := network.CurrentFirewallPorts()
 	if err != nil {
 		return networkActionDoneMsg{result: "读取失败: " + err.Error()}
 	}
-	return networkActionDoneMsg{result: "当前防火墙规则\n\n" + rules}
+	if len(entries) == 0 {
+		return networkActionDoneMsg{result: "当前无防火墙规则"}
+	}
+	return networkActionDoneMsg{result: renderCurrentRulesTable(entries)}
 }
 
 func (v *NetworkView) doFirewallApply() tea.Msg {
@@ -416,34 +422,98 @@ func (v *NetworkView) doFirewallApply() tea.Msg {
 }
 
 func (v *NetworkView) renderFirewallSummary() string {
-	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
-	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
-	mutedStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
-
-	backend := "unsupported"
-	switch {
-	case network.HasNftables():
-		backend = "nftables"
-	case network.FirewallBackend() == "iptables":
-		backend = "iptables"
-	}
-
-	var sb strings.Builder
-	sb.WriteString("防火墙收敛\n\n")
-	sb.WriteString(fmt.Sprintf("  %s %s\n", labelStyle.Render("后端:"), valStyle.Render(backend)))
-	sb.WriteString(fmt.Sprintf("  %s %s\n", labelStyle.Render("自定义 TCP:"), valStyle.Render(formatPorts(v.currentFirewallConfig().TCP))))
-	sb.WriteString(fmt.Sprintf("  %s %s\n\n", labelStyle.Render("自定义 UDP:"), valStyle.Render(formatPorts(v.currentFirewallConfig().UDP))))
-	sb.WriteString(labelStyle.Render("  目标开放端口"))
-	sb.WriteString("\n")
-	sb.WriteString(mutedStyle.Render("  " + strings.Repeat("─", 36)))
-	sb.WriteString("\n")
 	entries, err := network.DescribeDesiredPorts(v.Model.Store())
 	if err != nil {
-		sb.WriteString("  读取失败: " + err.Error())
-		return sb.String()
+		return "  读取失败: " + err.Error()
 	}
-	for _, entry := range entries {
-		sb.WriteString(fmt.Sprintf("  • %s/%d [%s]\n", entry.Proto, entry.Port, strings.Join(entry.Services, ",")))
+	if len(entries) == 0 {
+		return "  无目标端口"
+	}
+	return renderDesiredPortsTable(entries)
+}
+
+func renderDesiredPortsTable(entries []network.DesiredPortEntry) string {
+	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
+	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
+	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
+
+	type row struct{ proto, port, source string }
+	rows := make([]row, len(entries))
+	protoW := lipgloss.Width("协议")
+	portW := lipgloss.Width("端口")
+	for i, e := range entries {
+		rows[i] = row{
+			proto:  e.Proto,
+			port:   strconv.Itoa(e.Port),
+			source: strings.Join(e.Services, ", "),
+		}
+		if w := lipgloss.Width(rows[i].proto); w > protoW {
+			protoW = w
+		}
+		if w := lipgloss.Width(rows[i].port); w > portW {
+			portW = w
+		}
+	}
+	protoW += 4
+	portW += 4
+
+	var sb strings.Builder
+	sb.WriteString("  ")
+	sb.WriteString(labelStyle.Render(padCell("协议", protoW)))
+	sb.WriteString(labelStyle.Render(padCell("端口", portW)))
+	sb.WriteString(labelStyle.Render("来源"))
+	sb.WriteString("\n  ")
+	sb.WriteString(sepStyle.Render(strings.Repeat("─", protoW+portW+18)))
+	sb.WriteString("\n")
+	for _, r := range rows {
+		sb.WriteString("  ")
+		sb.WriteString(valStyle.Render(padCell(r.proto, protoW)))
+		sb.WriteString(valStyle.Render(padCell(r.port, portW)))
+		sb.WriteString(valStyle.Render(r.source))
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
+func renderCurrentRulesTable(entries []network.CurrentPortEntry) string {
+	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
+	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
+	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
+
+	type row struct{ proto, port, action string }
+	rows := make([]row, len(entries))
+	protoW := lipgloss.Width("协议")
+	portW := lipgloss.Width("端口")
+	for i, e := range entries {
+		rows[i] = row{
+			proto:  e.Proto,
+			port:   strconv.Itoa(e.Port),
+			action: e.Action,
+		}
+		if w := lipgloss.Width(rows[i].proto); w > protoW {
+			protoW = w
+		}
+		if w := lipgloss.Width(rows[i].port); w > portW {
+			portW = w
+		}
+	}
+	protoW += 4
+	portW += 4
+
+	var sb strings.Builder
+	sb.WriteString("  ")
+	sb.WriteString(labelStyle.Render(padCell("协议", protoW)))
+	sb.WriteString(labelStyle.Render(padCell("端口", portW)))
+	sb.WriteString(labelStyle.Render("动作"))
+	sb.WriteString("\n  ")
+	sb.WriteString(sepStyle.Render(strings.Repeat("─", protoW+portW+18)))
+	sb.WriteString("\n")
+	for _, r := range rows {
+		sb.WriteString("  ")
+		sb.WriteString(valStyle.Render(padCell(r.proto, protoW)))
+		sb.WriteString(valStyle.Render(padCell(r.port, portW)))
+		sb.WriteString(valStyle.Render(r.action))
+		sb.WriteString("\n")
 	}
 	return sb.String()
 }

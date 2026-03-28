@@ -36,18 +36,17 @@ func Uninstall(ctx context.Context) error {
 		}
 	}
 
-	// Stop legacy static shadow-tls.service that IsInstalled may miss
-	// (the glob only matches shadow-tls-*.service, not the static name).
+	// Stop legacy static shadow-tls.service that IsInstalled may miss.
 	_ = systemctl(ctx, "stop", "shadow-tls")
 	_ = systemctl(ctx, "disable", "shadow-tls")
 
-	// Remove firewall rules (nftables table, iptables chains).
-	removeFirewallRules()
+	// Remove nftables tables.
+	removeNftTables()
 
 	// Revert sysctl changes (BBR settings in /etc/sysctl.conf).
 	revertSysctl()
 
-	// Remove unit files (include ShadowTLSService which may exist as a static unit).
+	// Remove unit files.
 	unitFiles := []string{
 		config.SingBoxService,
 		config.SnellService,
@@ -78,44 +77,23 @@ func Uninstall(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 
-	// Flush journald entries for managed units.
+	// Flush journald entries.
 	clearJournalEntries()
 
 	return errors.Join(errs...)
 }
 
-// removeFirewallRules removes all firewall rules created by this application.
-func removeFirewallRules() {
-	// Remove nftables tables.
-	if _, err := exec.LookPath("nft"); err == nil {
-		exec.Command("nft", "delete", "table", "inet", "proxy_firewall").Run()
-		exec.Command("nft", "delete", "table", "inet", "proxy-filter").Run()
+// removeNftTables removes all nftables tables created by this application.
+func removeNftTables() {
+	nft, err := exec.LookPath("nft")
+	if err != nil {
+		return
 	}
-
-	// Remove iptables chains.
-	for _, spec := range []struct {
-		cmd   string
-		chain string
-	}{
-		{"iptables", "PROXY_FIREWALL_INPUT"},
-		{"ip6tables", "PROXY_FIREWALL_INPUT6"},
-	} {
-		if _, err := exec.LookPath(spec.cmd); err != nil {
-			continue
-		}
-		// Detach from INPUT chain.
-		for exec.Command(spec.cmd, "-C", "INPUT", "-j", spec.chain).Run() == nil {
-			exec.Command(spec.cmd, "-D", "INPUT", "-j", spec.chain).Run()
-		}
-		// Flush and delete the chain.
-		exec.Command(spec.cmd, "-F", spec.chain).Run()
-		exec.Command(spec.cmd, "-X", spec.chain).Run()
-	}
+	exec.Command(nft, "delete", "table", "inet", "proxy_firewall").Run()
+	exec.Command(nft, "delete", "table", "inet", "proxy-filter").Run()
 }
 
 // revertSysctl removes gproxy-managed entries from /etc/sysctl.conf.
-// Only lines tagged with "# gproxy-managed" are removed; user-written entries
-// for the same keys are preserved.
 func revertSysctl() {
 	const path = "/etc/sysctl.conf"
 	data, err := os.ReadFile(path)
@@ -137,15 +115,12 @@ func revertSysctl() {
 		return
 	}
 
-	// Remove trailing empty lines.
 	for len(kept) > 0 && strings.TrimSpace(kept[len(kept)-1]) == "" {
 		kept = kept[:len(kept)-1]
 	}
 
 	result := strings.Join(kept, "\n") + "\n"
 	_ = os.WriteFile(path, []byte(result), 0644)
-
-	// Reload sysctl so kernel picks up the reverted values.
 	_ = exec.Command("sysctl", "-p").Run()
 }
 

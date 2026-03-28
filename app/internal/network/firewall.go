@@ -26,66 +26,173 @@ type DesiredPortEntry struct {
 	Services []string
 }
 
-type iptablesChainSnapshot struct {
-	cmdName   string
-	chainName string
-	exists    bool
-	positions []int
-	rules     [][]string
+// EnsureNft ensures the nft CLI is available, installing it if necessary.
+func EnsureNft() error {
+	if _, err := exec.LookPath("nft"); err == nil {
+		return nil
+	}
+	if out, err := exec.Command("apt", "install", "-y", "nftables").CombinedOutput(); err != nil {
+		return fmt.Errorf("install nftables: %s: %s", err, strings.TrimSpace(string(out)))
+	}
+	if _, err := exec.LookPath("nft"); err != nil {
+		return fmt.Errorf("nft not found after install")
+	}
+	return nil
 }
 
-// OpenPort opens a single port in the active firewall backend.
+// OpenPort opens a single port via nftables.
 func OpenPort(port int, proto string) error {
 	if proto == "" {
 		proto = "tcp"
 	}
-	portStr := strconv.Itoa(port)
-	if HasNftables() {
-		return nftOpenPort(portStr, proto)
+	if err := EnsureNft(); err != nil {
+		return err
 	}
-	return iptablesOpenPort(portStr, proto)
+	portStr := strconv.Itoa(port)
+	exec.Command("nft", "add", "table", "inet", "proxy-filter").Run()
+	exec.Command("nft", "add", "chain", "inet", "proxy-filter", "input",
+		"{ type filter hook input priority 0 ; policy accept ; }").Run()
+	if out, err := exec.Command("nft", "add", "rule", "inet", "proxy-filter", "input", proto, "dport", portStr, "accept").CombinedOutput(); err != nil {
+		return fmt.Errorf("nft add rule: %s: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
-// ClosePort closes a single port in the active firewall backend.
+// ClosePort closes a single port via nftables.
 func ClosePort(port int, proto string) error {
 	if proto == "" {
 		proto = "tcp"
 	}
-	portStr := strconv.Itoa(port)
-	if HasNftables() {
-		return nftClosePort(portStr, proto)
+	if err := EnsureNft(); err != nil {
+		return err
 	}
-	return iptablesClosePort(portStr, proto)
+	portStr := strconv.Itoa(port)
+	out, err := exec.Command("nft", "-a", "list", "chain", "inet", "proxy-filter", "input").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("nft list: %s", err)
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.Contains(line, "dport "+portStr) && strings.Contains(line, proto) {
+			parts := strings.Fields(line)
+			for i, part := range parts {
+				if part == "handle" && i+1 < len(parts) {
+					return exec.Command("nft", "delete", "rule", "inet", "proxy-filter", "input", "handle", parts[i+1]).Run()
+				}
+			}
+		}
+	}
+	return nil
 }
 
-// ListOpenPorts returns the raw firewall rules from the active backend.
+// ListOpenPorts returns the raw nftables ruleset.
 func ListOpenPorts() (string, error) {
-	if HasNftables() {
-		out, err := exec.Command("nft", "list", "ruleset").CombinedOutput()
-		return string(out), err
+	if err := EnsureNft(); err != nil {
+		return "", err
 	}
-	out, err := exec.Command("iptables", "-L", "-n", "--line-numbers").CombinedOutput()
+	out, err := exec.Command("nft", "list", "ruleset").CombinedOutput()
 	return string(out), err
 }
 
-func FirewallBackend() string {
-	if HasNftables() {
-		return "nftables"
+// CurrentPortEntry represents a port rule currently active in nftables.
+type CurrentPortEntry struct {
+	Proto  string
+	Port   int
+	Action string
+}
+
+// CurrentFirewallPorts parses the nftables ruleset and returns active port rules.
+func CurrentFirewallPorts() ([]CurrentPortEntry, error) {
+	raw, err := ListOpenPorts()
+	if err != nil {
+		return nil, err
 	}
-	if HasIptables() {
-		return "iptables"
+	return parseNftPorts(raw), nil
+}
+
+func parseNftPorts(raw string) []CurrentPortEntry {
+	var entries []CurrentPortEntry
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		proto, ports, action := parseNftPortLine(line)
+		if proto == "" {
+			continue
+		}
+		for _, port := range ports {
+			entries = append(entries, CurrentPortEntry{Proto: proto, Port: port, Action: action})
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Port != entries[j].Port {
+			return entries[i].Port < entries[j].Port
+		}
+		return entries[i].Proto < entries[j].Proto
+	})
+	return entries
+}
+
+func parseNftPortLine(line string) (proto string, ports []int, action string) {
+	// Match lines like: tcp dport { 22, 80, 443 } accept
+	// or: udp dport 8388 accept
+	for _, p := range []string{"tcp", "udp"} {
+		if !strings.HasPrefix(line, p+" dport") {
+			continue
+		}
+		proto = p
+		rest := strings.TrimPrefix(line, p+" dport")
+		rest = strings.TrimSpace(rest)
+
+		// Extract action (last word).
+		fields := strings.Fields(rest)
+		if len(fields) == 0 {
+			return "", nil, ""
+		}
+		action = fields[len(fields)-1]
+
+		// Extract port set.
+		if idx := strings.Index(rest, "{"); idx >= 0 {
+			end := strings.Index(rest, "}")
+			if end < 0 {
+				return "", nil, ""
+			}
+			for _, tok := range strings.Split(rest[idx+1:end], ",") {
+				if port, err := strconv.Atoi(strings.TrimSpace(tok)); err == nil && port > 0 {
+					ports = append(ports, port)
+				}
+			}
+		} else if len(fields) >= 2 {
+			if port, err := strconv.Atoi(fields[0]); err == nil && port > 0 {
+				ports = append(ports, port)
+			}
+		}
+		return proto, ports, action
+	}
+	return "", nil, ""
+}
+
+// FirewallBackend returns "nftables" if nft is available (or can be installed).
+func FirewallBackend() string {
+	if EnsureNft() == nil {
+		return "nftables"
 	}
 	return "unsupported"
 }
 
-// HasNftables returns whether nftables is available and usable.
-func HasNftables() bool {
-	_, err := exec.LookPath("nft")
-	return err == nil
+// HasManagedConvergence checks if the proxy_firewall nftables table exists.
+func HasManagedConvergence() bool {
+	if _, err := exec.LookPath("nft"); err != nil {
+		return false
+	}
+	return exec.Command("nft", "list", "table", "inet", "proxy_firewall").Run() == nil
 }
 
-func HasIptables() bool {
-	return hasIptables("iptables")
+// RemoveFirewallRules removes all nftables tables created by this application.
+func RemoveFirewallRules() {
+	nft, err := exec.LookPath("nft")
+	if err != nil {
+		return
+	}
+	exec.Command(nft, "delete", "table", "inet", "proxy_firewall").Run()
+	exec.Command(nft, "delete", "table", "inet", "proxy-filter").Run()
 }
 
 func DesiredFirewallPorts(s *store.Store) ([]FirewallPortSpec, error) {
@@ -183,6 +290,9 @@ func DesiredFirewallPorts(s *store.Store) ([]FirewallPortSpec, error) {
 }
 
 func ApplyFirewallConvergence(s *store.Store) error {
+	if err := EnsureNft(); err != nil {
+		return err
+	}
 	specs, err := DesiredFirewallPorts(s)
 	if err != nil {
 		return err
@@ -197,15 +307,7 @@ func ApplyFirewallConvergence(s *store.Store) error {
 			tcpPorts = append(tcpPorts, spec.Port)
 		}
 	}
-
-	switch FirewallBackend() {
-	case "nftables":
-		return nftApplyPorts(tcpPorts, udpPorts)
-	case "iptables":
-		return iptablesApplyPorts(tcpPorts, udpPorts)
-	default:
-		return fmt.Errorf("未检测到可用的 nftables/iptables")
-	}
+	return nftApplyPorts(tcpPorts, udpPorts)
 }
 
 func ApplyConvergence(s *store.Store) error {
@@ -276,19 +378,6 @@ func CollectSSHPorts() []int {
 	return ports
 }
 
-func HasManagedConvergence() bool {
-	if HasNftables() && exec.Command("nft", "list", "table", "inet", "proxy_firewall").Run() == nil {
-		return true
-	}
-	if hasIptables("iptables") && exec.Command("iptables", "-S", "PROXY_FIREWALL_INPUT").Run() == nil {
-		return true
-	}
-	if hasIptables("ip6tables") && exec.Command("ip6tables", "-S", "PROXY_FIREWALL_INPUT6").Run() == nil {
-		return true
-	}
-	return false
-}
-
 func normalizeFirewallProto(proto string) string {
 	proto = strings.ToLower(strings.TrimSpace(proto))
 	if proto == "udp" {
@@ -305,35 +394,6 @@ func requiresACMEPorts() bool {
 		return true
 	}
 	return false
-}
-
-func nftOpenPort(port, proto string) error {
-	exec.Command("nft", "add", "table", "inet", "proxy-filter").Run()
-	exec.Command("nft", "add", "chain", "inet", "proxy-filter", "input",
-		"{ type filter hook input priority 0 ; policy accept ; }").Run()
-	cmd := exec.Command("nft", "add", "rule", "inet", "proxy-filter", "input", proto, "dport", port, "accept")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("nft add rule: %s: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-func nftClosePort(port, proto string) error {
-	out, err := exec.Command("nft", "-a", "list", "chain", "inet", "proxy-filter", "input").CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("nft list: %s", err)
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		if strings.Contains(line, "dport "+port) && strings.Contains(line, proto) {
-			parts := strings.Fields(line)
-			for i, part := range parts {
-				if part == "handle" && i+1 < len(parts) {
-					return exec.Command("nft", "delete", "rule", "inet", "proxy-filter", "input", "handle", parts[i+1]).Run()
-				}
-			}
-		}
-	}
-	return nil
 }
 
 func nftApplyPorts(tcpPorts, udpPorts []int) error {
@@ -379,241 +439,6 @@ func nftApplyPorts(tcpPorts, udpPorts []int) error {
 		return fmt.Errorf("nft apply: %s: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
-}
-
-func iptablesOpenPort(port, proto string) error {
-	cmd := exec.Command("iptables", "-I", "INPUT", "-p", proto, "--dport", port, "-j", "ACCEPT")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("iptables: %s: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-func iptablesClosePort(port, proto string) error {
-	cmd := exec.Command("iptables", "-D", "INPUT", "-p", proto, "--dport", port, "-j", "ACCEPT")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("iptables: %s: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-func iptablesApplyPorts(tcpPorts, udpPorts []int) error {
-	snap4, err := captureIPTablesChain("iptables", "PROXY_FIREWALL_INPUT")
-	if err != nil {
-		return err
-	}
-	var snap6 *iptablesChainSnapshot
-	if hasIptables("ip6tables") {
-		captured, err := captureIPTablesChain("ip6tables", "PROXY_FIREWALL_INPUT6")
-		if err != nil {
-			return err
-		}
-		snap6 = &captured
-	}
-
-	if err := applySingleIPTablesChain("iptables", "PROXY_FIREWALL_INPUT", tcpPorts, udpPorts, "icmp"); err != nil {
-		_ = restoreIPTablesChain(snap4)
-		return err
-	}
-	if snap6 != nil {
-		if err := applySingleIPTablesChain("ip6tables", "PROXY_FIREWALL_INPUT6", tcpPorts, udpPorts, "ipv6-icmp"); err != nil {
-			_ = restoreIPTablesChain(*snap6)
-			_ = restoreIPTablesChain(snap4)
-			return err
-		}
-	}
-	return nil
-}
-
-func applySingleIPTablesChain(cmdName, chainName string, tcpPorts, udpPorts []int, icmpProto string) error {
-	tmpChain := chainName + "_NEW"
-	restoreTmp := true
-	defer func() {
-		if restoreTmp {
-			_ = cleanupIPTablesChain(cmdName, tmpChain)
-		}
-	}()
-
-	_ = cleanupIPTablesChain(cmdName, tmpChain)
-	if out, err := exec.Command(cmdName, "-N", tmpChain).CombinedOutput(); err != nil {
-		return fmt.Errorf("%s create %s: %s: %s", cmdName, tmpChain, err, strings.TrimSpace(string(out)))
-	}
-	if err := appendRule(cmdName, tmpChain, "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"); err != nil {
-		return err
-	}
-	if err := appendRule(cmdName, tmpChain, "-i", "lo", "-j", "ACCEPT"); err != nil {
-		return err
-	}
-	if err := appendRule(cmdName, tmpChain, "-p", icmpProto, "-j", "ACCEPT"); err != nil {
-		return err
-	}
-	for _, port := range tcpPorts {
-		if err := appendRule(cmdName, tmpChain, "-p", "tcp", "--dport", strconv.Itoa(port), "-j", "ACCEPT"); err != nil {
-			return err
-		}
-	}
-	for _, port := range udpPorts {
-		if err := appendRule(cmdName, tmpChain, "-p", "udp", "--dport", strconv.Itoa(port), "-j", "ACCEPT"); err != nil {
-			return err
-		}
-	}
-	if err := appendRule(cmdName, tmpChain, "-j", "DROP"); err != nil {
-		return err
-	}
-	if _, err := exec.Command(cmdName, "-C", "INPUT", "-j", tmpChain).CombinedOutput(); err != nil {
-		if out, err := exec.Command(cmdName, "-I", "INPUT", "1", "-j", tmpChain).CombinedOutput(); err != nil {
-			return fmt.Errorf("%s attach %s: %s: %s", cmdName, tmpChain, err, strings.TrimSpace(string(out)))
-		}
-	}
-	for exec.Command(cmdName, "-C", "INPUT", "-j", chainName).Run() == nil {
-		if out, err := exec.Command(cmdName, "-D", "INPUT", "-j", chainName).CombinedOutput(); err != nil {
-			return fmt.Errorf("%s detach %s: %s: %s", cmdName, chainName, err, strings.TrimSpace(string(out)))
-		}
-	}
-	exec.Command(cmdName, "-F", chainName).Run()
-	exec.Command(cmdName, "-X", chainName).Run()
-	if out, err := exec.Command(cmdName, "-E", tmpChain, chainName).CombinedOutput(); err != nil {
-		return fmt.Errorf("%s rename %s: %s: %s", cmdName, tmpChain, err, strings.TrimSpace(string(out)))
-	}
-	if _, err := exec.Command(cmdName, "-C", "INPUT", "-j", chainName).CombinedOutput(); err != nil {
-		if out, err := exec.Command(cmdName, "-I", "INPUT", "1", "-j", chainName).CombinedOutput(); err != nil {
-			return fmt.Errorf("%s attach %s: %s: %s", cmdName, chainName, err, strings.TrimSpace(string(out)))
-		}
-	}
-	for exec.Command(cmdName, "-C", "INPUT", "-j", tmpChain).Run() == nil {
-		exec.Command(cmdName, "-D", "INPUT", "-j", tmpChain).Run()
-	}
-	restoreTmp = false
-	return nil
-}
-
-func captureIPTablesChain(cmdName, chainName string) (iptablesChainSnapshot, error) {
-	snapshot := iptablesChainSnapshot{
-		cmdName:   cmdName,
-		chainName: chainName,
-	}
-	out, err := exec.Command(cmdName, "-S", chainName).CombinedOutput()
-	if err == nil {
-		snapshot.exists = true
-		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "-N ") {
-				continue
-			}
-			snapshot.rules = append(snapshot.rules, strings.Fields(line))
-		}
-	} else {
-		msg := strings.TrimSpace(string(out))
-		if !strings.Contains(msg, "No chain/target/match by that name") &&
-			!strings.Contains(msg, "No chain/target/match") &&
-			msg != "" {
-			return snapshot, fmt.Errorf("%s snapshot %s: %s: %s", cmdName, chainName, err, msg)
-		}
-	}
-	positions, err := captureIPTablesJumpPositions(cmdName, chainName)
-	if err != nil {
-		return snapshot, err
-	}
-	snapshot.positions = positions
-	return snapshot, nil
-}
-
-func restoreIPTablesChain(snapshot iptablesChainSnapshot) error {
-	if err := cleanupIPTablesChain(snapshot.cmdName, snapshot.chainName+"_NEW"); err != nil {
-		return err
-	}
-	if err := detachIPTablesJump(snapshot.cmdName, snapshot.chainName); err != nil {
-		return err
-	}
-	if err := cleanupIPTablesChain(snapshot.cmdName, snapshot.chainName); err != nil {
-		return err
-	}
-	if !snapshot.exists {
-		return nil
-	}
-	if out, err := exec.Command(snapshot.cmdName, "-N", snapshot.chainName).CombinedOutput(); err != nil {
-		return fmt.Errorf("%s restore create %s: %s: %s", snapshot.cmdName, snapshot.chainName, err, strings.TrimSpace(string(out)))
-	}
-	for _, rule := range snapshot.rules {
-		if out, err := exec.Command(snapshot.cmdName, rule...).CombinedOutput(); err != nil {
-			return fmt.Errorf("%s restore %s: %s: %s", snapshot.cmdName, strings.Join(rule, " "), err, strings.TrimSpace(string(out)))
-		}
-	}
-	if err := attachIPTablesJumpPositions(snapshot.cmdName, snapshot.chainName, snapshot.positions); err != nil {
-		return err
-	}
-	return nil
-}
-
-func captureIPTablesJumpPositions(cmdName, chainName string) ([]int, error) {
-	out, err := exec.Command(cmdName, "-S", "INPUT").CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("%s snapshot INPUT: %s: %s", cmdName, err, strings.TrimSpace(string(out)))
-	}
-	var positions []int
-	position := 0
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "-A INPUT ") {
-			continue
-		}
-		position++
-		fields := strings.Fields(line)
-		for i := 0; i < len(fields)-1; i++ {
-			if fields[i] == "-j" && fields[i+1] == chainName {
-				positions = append(positions, position)
-				break
-			}
-		}
-	}
-	return positions, nil
-}
-
-func attachIPTablesJumpPositions(cmdName, chainName string, positions []int) error {
-	if len(positions) == 0 {
-		return nil
-	}
-	sort.Sort(sort.Reverse(sort.IntSlice(positions)))
-	for _, position := range positions {
-		if position < 1 {
-			position = 1
-		}
-		if out, err := exec.Command(cmdName, "-I", "INPUT", strconv.Itoa(position), "-j", chainName).CombinedOutput(); err != nil {
-			return fmt.Errorf("%s restore attach %s@%d: %s: %s", cmdName, chainName, position, err, strings.TrimSpace(string(out)))
-		}
-	}
-	return nil
-}
-
-func cleanupIPTablesChain(cmdName, chainName string) error {
-	if err := detachIPTablesJump(cmdName, chainName); err != nil {
-		return err
-	}
-	exec.Command(cmdName, "-F", chainName).Run()
-	exec.Command(cmdName, "-X", chainName).Run()
-	return nil
-}
-
-func detachIPTablesJump(cmdName, chainName string) error {
-	for exec.Command(cmdName, "-C", "INPUT", "-j", chainName).Run() == nil {
-		if out, err := exec.Command(cmdName, "-D", "INPUT", "-j", chainName).CombinedOutput(); err != nil {
-			return fmt.Errorf("%s detach %s: %s: %s", cmdName, chainName, err, strings.TrimSpace(string(out)))
-		}
-	}
-	return nil
-}
-
-func appendRule(cmdName, chainName string, args ...string) error {
-	fullArgs := append([]string{"-A", chainName}, args...)
-	if out, err := exec.Command(cmdName, fullArgs...).CombinedOutput(); err != nil {
-		return fmt.Errorf("%s %s: %s: %s", cmdName, strings.Join(fullArgs, " "), err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-func hasIptables(cmdName string) bool {
-	_, err := exec.LookPath(cmdName)
-	return err == nil
 }
 
 func joinPorts(ports []int, sep string) string {

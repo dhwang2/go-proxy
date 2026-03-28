@@ -271,22 +271,46 @@ func (v *ConfigView) renderSnell() string {
 	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
 	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
 
+	type kv struct{ k, v string }
+	boolStr := func(b bool) string {
+		if b {
+			return "true"
+		}
+		return "false"
+	}
+	rows := []kv{
+		{"监听地址", conf.Listen},
+		{"PSK", conf.PSK},
+		{"IPv6", boolStr(conf.IPv6)},
+		{"UDP", boolStr(conf.UDP)},
+		{"Obfs", conf.Obfs},
+		{"配置路径", config.SnellConfigFile},
+	}
+
+	labelWidth := lipgloss.Width("属性")
+	for _, r := range rows {
+		if w := lipgloss.Width(r.k); w > labelWidth {
+			labelWidth = w
+		}
+	}
+	labelWidth += 2
+
 	var sb strings.Builder
 	sb.WriteString(titleStyle.Render("  snell-v5 配置"))
 	sb.WriteString("\n\n")
-	sb.WriteString(labelStyle.Render("  概览"))
+	sb.WriteString("  ")
+	sb.WriteString(labelStyle.Render(padCell("属性", labelWidth)))
+	sb.WriteString(labelStyle.Render("值"))
 	sb.WriteString("\n")
-	sb.WriteString(sepStyle.Render("  " + strings.Repeat("─", 40)))
+	sb.WriteString("  ")
+	sb.WriteString(sepStyle.Render(strings.Repeat("─", labelWidth+20)))
 	sb.WriteString("\n")
-	sb.WriteString(fmt.Sprintf("  %-12s %s\n",
-		labelStyle.Render("监听地址:"),
-		valStyle.Render(conf.Listen)))
-	sb.WriteString(fmt.Sprintf("  %-12s %s\n",
-		labelStyle.Render("PSK:"),
-		valStyle.Render(conf.PSK)))
-	sb.WriteString(fmt.Sprintf("  %-12s %s\n",
-		labelStyle.Render("配置路径:"),
-		valStyle.Render(config.SnellConfigFile)))
+	for _, r := range rows {
+		sb.WriteString("  ")
+		sb.WriteString(labelStyle.Render(padCell(r.k, labelWidth)))
+		sb.WriteString(valStyle.Render(r.v))
+		sb.WriteString("\n")
+	}
 
 	return sb.String()
 }
@@ -303,20 +327,66 @@ func (v *ConfigView) renderShadowTLS() string {
 	titleStyle := lipgloss.NewStyle().Foreground(tui.ColorPrimary).Bold(true)
 	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
 	valStyle := lipgloss.NewStyle().Foreground(tui.ColorValSys)
+	sepStyle := lipgloss.NewStyle().Foreground(tui.ColorMuted)
+
+	headers := []string{"#", "实例", "监听端口", "后端类型", "后端端口", "SNI", "密码"}
+	colWidths := make([]int, len(headers))
+	for i, h := range headers {
+		colWidths[i] = lipgloss.Width(h)
+	}
+
+	type stRow struct{ cells [7]string }
+	rows := make([]stRow, len(bindings))
+	for i, b := range bindings {
+		rows[i].cells = [7]string{
+			fmt.Sprintf("%d", i+1),
+			b.ServiceName,
+			fmt.Sprintf("%d", b.ListenPort),
+			b.BackendProto,
+			fmt.Sprintf("%d", b.BackendPort),
+			b.SNI,
+			b.Password,
+		}
+		for j, cell := range rows[i].cells {
+			if w := lipgloss.Width(cell); w > colWidths[j] {
+				colWidths[j] = w
+			}
+		}
+	}
+	for i := range colWidths {
+		colWidths[i] += 2
+	}
+
+	sepTotal := 0
+	for _, w := range colWidths {
+		sepTotal += w
+	}
 
 	var sb strings.Builder
 	sb.WriteString(titleStyle.Render("  shadow-tls 配置"))
 	sb.WriteString("\n\n")
-	for i, binding := range bindings {
-		if i > 0 {
-			sb.WriteString("\n")
+	sb.WriteString("  ")
+	for i, h := range headers {
+		if i == len(headers)-1 {
+			sb.WriteString(labelStyle.Render(h))
+		} else {
+			sb.WriteString(labelStyle.Render(padCell(h, colWidths[i])))
 		}
-		sb.WriteString(fmt.Sprintf("  %-12s %s\n", labelStyle.Render("实例:"), valStyle.Render(binding.ServiceName)))
-		sb.WriteString(fmt.Sprintf("  %-12s %s\n", labelStyle.Render("监听端口:"), valStyle.Render(fmt.Sprintf("%d", binding.ListenPort))))
-		sb.WriteString(fmt.Sprintf("  %-12s %s\n", labelStyle.Render("后端类型:"), valStyle.Render(binding.BackendProto)))
-		sb.WriteString(fmt.Sprintf("  %-12s %s\n", labelStyle.Render("后端端口:"), valStyle.Render(fmt.Sprintf("%d", binding.BackendPort))))
-		sb.WriteString(fmt.Sprintf("  %-12s %s\n", labelStyle.Render("SNI:"), valStyle.Render(binding.SNI)))
-		sb.WriteString(fmt.Sprintf("  %-12s %s\n", labelStyle.Render("密码:"), valStyle.Render(binding.Password)))
+	}
+	sb.WriteString("\n")
+	sb.WriteString("  ")
+	sb.WriteString(sepStyle.Render(strings.Repeat("─", sepTotal)))
+	sb.WriteString("\n")
+	for _, row := range rows {
+		sb.WriteString("  ")
+		for i, cell := range row.cells {
+			if i == len(row.cells)-1 {
+				sb.WriteString(valStyle.Render(cell))
+			} else {
+				sb.WriteString(valStyle.Render(padCell(cell, colWidths[i])))
+			}
+		}
+		sb.WriteString("\n")
 	}
 
 	return sb.String()

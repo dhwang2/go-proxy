@@ -12,7 +12,7 @@ const (
 	// ConfDir holds generated configuration files.
 	ConfDir = WorkDir + "/conf"
 
-	// LogDir holds service and script logs.
+	// LogDir holds service logs.
 	LogDir = WorkDir + "/logs"
 
 	// CaddyCertDir is the root certificate storage directory used by caddy-sub
@@ -56,6 +56,5 @@ var (
 	SnellLog     = filepath.Join(LogDir, "snell-v5.service.log")
 	ShadowTLSLog = filepath.Join(LogDir, "shadow-tls.service.log")
 	CaddySubLog  = filepath.Join(LogDir, "caddy-sub.service.log")
-	ScriptLog    = filepath.Join(LogDir, "proxy-script.log")
 	WatchdogLog  = filepath.Join(LogDir, "proxy-watchdog.log")
 )

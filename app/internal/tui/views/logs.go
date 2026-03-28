@@ -36,9 +36,8 @@ func NewLogsView(model *tui.Model) *LogsView {
 	v := &LogsView{}
 	v.Model = model
 	v.Menu = tui.NewMenu("", []tui.MenuItem{
-		{Key: '1', Label: "󰌱 查看脚本日志", ID: "script"},
-		{Key: '2', Label: "󰌱 查看 Watchdog 日志", ID: "watchdog"},
-		{Key: '3', Label: "󰌱 查看服务日志", ID: "service"},
+		{Key: '1', Label: "󰌱 查看 Watchdog 日志", ID: "watchdog"},
+		{Key: '2', Label: "󰌱 查看服务日志", ID: "service"},
 	})
 	return v
 }
@@ -246,13 +245,6 @@ func (v *LogsView) renderViewport() string {
 func (v *LogsView) triggerMenuAction(id string) tea.Cmd {
 	v.Menu = v.Menu.SetActiveID(id)
 	switch id {
-	case "script":
-		v.step = logsResult
-		v.viewportReady = false
-		return tea.Batch(
-			v.SetInline(components.NewSpinner("加载日志...")),
-			func() tea.Msg { return v.readScriptLog() },
-		)
 	case "watchdog":
 		v.step = logsResult
 		v.viewportReady = false
@@ -324,16 +316,6 @@ func (v *LogsView) buildServiceMenu() tui.MenuModel {
 	}
 
 	return tui.NewMenu("查看服务日志", items)
-}
-
-// readScriptLog reads the script log file directly.
-func (v *LogsView) readScriptLog() tea.Msg {
-	content, source := logs.ReadLog(config.ScriptLog, "proxy-script", 30)
-	title := "脚本日志"
-	if source != "" {
-		title += " (" + source + ")"
-	}
-	return logsContentMsg{content: title + "\n\n" + colorizeLogOutput(content)}
 }
 
 // readWatchdogLog reads watchdog log from file or journalctl.

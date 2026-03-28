@@ -374,14 +374,6 @@ func (v *ProtocolRemoveView) shadowTLSCleanupTarget(tag, userName string) *shado
 	return nil
 }
 
-func padProtocolRemoveCell(text string, width int) string {
-	padding := width - lipgloss.Width(text)
-	if padding < 0 {
-		padding = 0
-	}
-	return text + strings.Repeat(" ", padding)
-}
-
 func (v *ProtocolRemoveView) renderRemoveTable() string {
 	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
 	valStyle := lipgloss.NewStyle().Foreground(tui.ColorBlack)
@@ -407,8 +399,8 @@ func (v *ProtocolRemoveView) renderRemoveTable() string {
 	var sb strings.Builder
 	sb.WriteString("  ")
 	sb.WriteString(labelStyle.Render("#  "))
-	sb.WriteString(labelStyle.Render(padProtocolRemoveCell("协议", protocolWidth)))
-	sb.WriteString(labelStyle.Render(padProtocolRemoveCell("端口", portWidth)))
+	sb.WriteString(labelStyle.Render(padCell("协议", protocolWidth)))
+	sb.WriteString(labelStyle.Render(padCell("端口", portWidth)))
 	sb.WriteString(labelStyle.Render("用户"))
 	sb.WriteString("\n")
 	sb.WriteString("  ")
@@ -417,8 +409,8 @@ func (v *ProtocolRemoveView) renderRemoveTable() string {
 
 	for i, row := range v.rows {
 		line := "  " + string(row.Key) + ". " +
-			padProtocolRemoveCell(row.Protocol, protocolWidth) +
-			padProtocolRemoveCell(row.Port, portWidth) +
+			padCell(row.Protocol, protocolWidth) +
+			padCell(row.Port, portWidth) +
 			row.User
 		if i == v.Menu.Cursor() && !v.Menu.IsDimmed() {
 			sb.WriteString(selectedStyle.Render(line))
