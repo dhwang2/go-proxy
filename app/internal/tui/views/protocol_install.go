@@ -142,9 +142,14 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.step = protoInstallResult
 		v.lastResult = msg.installResult
 		if msg.installResult != nil && v.shouldPromptShadowTLS(v.pendingType) {
-			v.step = protoInstallShadowTLSPrompt
-			resultText := msg.result + "\n\n是否配置 shadow-tls 保护此端口?"
-			return v, v.SetInline(components.NewConfirm(resultText))
+			backendType := v.shadowTLSBackendType(v.pendingType)
+			backendPort := msg.installResult.Port
+			existing, _ := service.FindShadowTLSBindingByBackend(v.Model.Store(), backendType, backendPort)
+			if existing == nil {
+				v.step = protoInstallShadowTLSPrompt
+				resultText := msg.result + "\n\n是否配置 shadow-tls 保护此端口?"
+				return v, v.SetInline(components.NewConfirm(resultText))
+			}
 		}
 		return v, v.SetInline(components.NewResult(msg.result))
 

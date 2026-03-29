@@ -24,13 +24,13 @@ const (
 	networkFirewallMenu
 	networkFirewallTCPInput
 	networkFirewallUDPInput
+	networkFail2BanMenu
 )
 
 type NetworkView struct {
 	tui.SplitViewBase
 	step           networkStep
 	pendingAction  string
-	fail2banState  string
 	subMenu        tui.MenuModel
 	viewport       viewport.Model
 	viewportReady  bool
@@ -96,15 +96,15 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		if v.step == networkFirewallMenu {
 			return v, v.handleFirewallMenu(msg.ID)
 		}
+		if v.step == networkFail2BanMenu {
+			return v, v.handleFail2BanMenu(msg.ID)
+		}
 		v.SetFocus(false)
 		return v, v.triggerMenuAction(msg.ID)
 	case tui.InputResultMsg:
 		return v.handleFirewallInput(msg)
 	case networkActionDoneMsg:
 		v.SetFocus(false)
-		if msg.state != "" {
-			v.fail2banState = msg.state
-		}
 		if msg.needConfirm {
 			v.step = networkConfirm
 			return v, v.SetInline(components.NewConfirm(msg.result))
@@ -119,16 +119,40 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 			return v, nil
 		}
+		if v.pendingAction == "fail2ban-status" {
+			v.ClearInline()
+			v.step = networkResult
+			if msg.render != nil {
+				v.showFirewallDetail(msg.render)
+			} else {
+				v.showFirewallDetail(func(int) string { return msg.result })
+			}
+			return v, nil
+		}
 		v.step = networkResult
 		return v, v.SetInline(components.NewResult(msg.result))
 	case tui.ConfirmResultMsg:
 		if msg.Confirmed {
 			switch v.pendingAction {
-			case "fail2ban":
-				return v, v.doFail2BanAction
+			case "fail2ban-enable":
+				return v, tea.Batch(
+					v.SetInline(components.NewSpinner("开启 fail2ban...")),
+					v.doFail2BanEnable,
+				)
+			case "fail2ban-disable":
+				return v, tea.Batch(
+					v.SetInline(components.NewSpinner("关闭 fail2ban...")),
+					v.doFail2BanDisable,
+				)
 			default:
 				return v, v.doEnableBBR
 			}
+		}
+		// Cancelled: return to fail2ban sub-menu or main menu
+		if v.pendingAction == "fail2ban-enable" || v.pendingAction == "fail2ban-disable" {
+			v.step = networkFail2BanMenu
+			v.ClearInline()
+			return v, nil
 		}
 		v.step = networkMenu
 		v.SetFocus(true)
@@ -139,6 +163,10 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.renderedDetail = ""
 		if v.pendingAction == "firewall" {
 			v.step = networkFirewallMenu
+			return v, nil
+		}
+		if v.pendingAction == "fail2ban-status" || v.pendingAction == "fail2ban-enable" || v.pendingAction == "fail2ban-disable" {
+			v.step = networkFail2BanMenu
 			return v, nil
 		}
 		v.step = networkMenu
@@ -154,9 +182,20 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			case networkFirewallTCPInput, networkFirewallUDPInput:
 				v.step = networkFirewallMenu
 				return v, nil
+			case networkFail2BanMenu:
+				v.step = networkMenu
+				v.SetFocus(true)
+				return v, nil
 			case networkResult:
 				if v.pendingAction == "firewall" {
 					v.step = networkFirewallMenu
+					v.viewportReady = false
+					v.detailBuilder = nil
+					v.renderedDetail = ""
+					return v, nil
+				}
+				if v.pendingAction == "fail2ban-status" || v.pendingAction == "fail2ban-enable" || v.pendingAction == "fail2ban-disable" {
+					v.step = networkFail2BanMenu
 					v.viewportReady = false
 					v.detailBuilder = nil
 					v.renderedDetail = ""
@@ -166,7 +205,7 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, tui.BackCmd
 		}
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			if v.HandleSplitArrows(keyMsg, v.step == networkMenu, v.HasInline() || v.viewportReady || v.step == networkFirewallMenu) {
+			if v.HandleSplitArrows(keyMsg, v.step == networkMenu, v.HasInline() || v.viewportReady || v.step == networkFirewallMenu || v.step == networkFail2BanMenu) {
 				return v, nil
 			}
 		}
@@ -175,7 +214,7 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			var cmd tea.Cmd
 			v.Menu, cmd = v.Menu.Update(msg)
 			return v, cmd
-		case networkFirewallMenu:
+		case networkFirewallMenu, networkFail2BanMenu:
 			var cmd tea.Cmd
 			v.subMenu, cmd = v.subMenu.Update(msg)
 			return v, cmd
@@ -198,7 +237,7 @@ func (v *NetworkView) View() string {
 		if v.step == networkResult && v.viewportReady {
 			return v.viewport.View()
 		}
-		if v.step == networkFirewallMenu {
+		if v.step == networkFirewallMenu || v.step == networkFail2BanMenu {
 			return tui.RenderSubMenuBody(v.subMenu.View(), v.Model.ContentWidth())
 		}
 		return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
@@ -215,7 +254,7 @@ func (v *NetworkView) View() string {
 		tui.InSplitPanel = true
 		detailContent = v.ViewInline()
 		tui.InSplitPanel = false
-	} else if v.step == networkFirewallMenu {
+	} else if v.step == networkFirewallMenu || v.step == networkFail2BanMenu {
 		detailContent = v.subMenu.View()
 	} else {
 		detailContent = lipgloss.NewStyle().Foreground(tui.ColorMuted).Render("加载中...")
@@ -243,7 +282,13 @@ func (v *NetworkView) triggerMenuAction(id string) tea.Cmd {
 		})
 		return nil
 	case "fail2ban":
-		return v.doFail2BanStatus
+		v.step = networkFail2BanMenu
+		v.subMenu = tui.NewMenu("fail2ban 防护", []tui.MenuItem{
+			{Key: '1', Label: "󰋽 查看状态", ID: "status"},
+			{Key: '2', Label: "󰒃 开启防护", ID: "enable"},
+			{Key: '3', Label: "󰒄 关闭防护", ID: "disable"},
+		})
+		return nil
 	}
 	return nil
 }
@@ -332,7 +377,6 @@ func (v *NetworkView) handleFirewallInput(msg tui.InputResultMsg) (tui.View, tea
 type networkActionDoneMsg struct {
 	result      string
 	needConfirm bool
-	state       string
 	render      func(int) string
 }
 
@@ -351,54 +395,50 @@ func (v *NetworkView) doBBRStatus() tea.Msg {
 	}
 }
 
+func (v *NetworkView) handleFail2BanMenu(id string) tea.Cmd {
+	switch id {
+	case "status":
+		v.pendingAction = "fail2ban-status"
+		return tea.Batch(
+			v.SetInline(components.NewSpinner("查询 fail2ban 状态...")),
+			v.doFail2BanStatus,
+		)
+	case "enable":
+		v.pendingAction = "fail2ban-enable"
+		return v.SetInline(components.NewConfirm("开启 fail2ban SSH 防护？"))
+	case "disable":
+		v.pendingAction = "fail2ban-disable"
+		return v.SetInline(components.NewConfirm("关闭 fail2ban 防护？"))
+	}
+	return nil
+}
+
 func (v *NetworkView) doFail2BanStatus() tea.Msg {
-	installed, running, err := network.Fail2BanStatus()
+	info, err := network.Fail2BanStatus()
 	if err != nil {
-		return networkActionDoneMsg{result: fmt.Sprintf("fail2ban 状态\n\n读取失败: %s", err)}
+		return networkActionDoneMsg{result: "读取失败: " + err.Error()}
 	}
-	if !installed {
-		return networkActionDoneMsg{
-			result:      "fail2ban 未安装，是否安装并启用？",
-			needConfirm: true,
-			state:       "install",
-		}
-	}
-	if !running {
-		return networkActionDoneMsg{
-			result:      "fail2ban 已安装但未运行，是否启用？",
-			needConfirm: true,
-			state:       "enable",
-		}
-	}
+	width := v.currentViewportWidth()
 	return networkActionDoneMsg{
-		result:      "fail2ban 正在运行，是否停止并禁用？",
-		needConfirm: true,
-		state:       "disable",
+		render: func(w int) string {
+			return renderFail2BanStatusTable(info, w)
+		},
+		result: renderFail2BanStatusTable(info, width),
 	}
 }
 
-func (v *NetworkView) doFail2BanAction() tea.Msg {
-	switch v.fail2banState {
-	case "install":
-		if err := network.Fail2BanInstall(); err != nil {
-			return networkActionDoneMsg{result: "安装 fail2ban 失败: " + err.Error()}
-		}
-		if err := network.Fail2BanEnable(); err != nil {
-			return networkActionDoneMsg{result: "启用 fail2ban 失败: " + err.Error()}
-		}
-		return networkActionDoneMsg{result: "fail2ban 已安装并启用"}
-	case "enable":
-		if err := network.Fail2BanEnable(); err != nil {
-			return networkActionDoneMsg{result: "启用 fail2ban 失败: " + err.Error()}
-		}
-		return networkActionDoneMsg{result: "fail2ban 已启用"}
-	case "disable":
-		if err := network.Fail2BanDisable(); err != nil {
-			return networkActionDoneMsg{result: "禁用 fail2ban 失败: " + err.Error()}
-		}
-		return networkActionDoneMsg{result: "fail2ban 已停止并禁用"}
+func (v *NetworkView) doFail2BanEnable() tea.Msg {
+	if err := network.Fail2BanEnable(); err != nil {
+		return networkActionDoneMsg{result: "启用 fail2ban 失败: " + err.Error()}
 	}
-	return networkActionDoneMsg{result: "未知操作"}
+	return networkActionDoneMsg{result: "fail2ban 已启用"}
+}
+
+func (v *NetworkView) doFail2BanDisable() tea.Msg {
+	if err := network.Fail2BanDisable(); err != nil {
+		return networkActionDoneMsg{result: "禁用 fail2ban 失败: " + err.Error()}
+	}
+	return networkActionDoneMsg{result: "fail2ban 已停止并禁用"}
 }
 
 func (v *NetworkView) doEnableBBR() tea.Msg {
@@ -471,6 +511,42 @@ func renderCurrentRulesTable(entries []network.CurrentPortEntry, width int) stri
 		rows = append(rows, []string{e.Proto, strconv.Itoa(e.Port), e.Action})
 	}
 	return renderTable([]string{"协议", "端口", "动作"}, rows, width, false)
+}
+
+func renderFail2BanStatusTable(info network.Fail2BanInfo, width int) string {
+	serviceStatus := "未安装"
+	if info.Installed {
+		if info.Running {
+			serviceStatus = "运行中"
+		} else {
+			serviceStatus = "已停止"
+		}
+	}
+	jailStatus := "未启用"
+	if info.SSHJailEnabled {
+		jailStatus = "已启用"
+	}
+	rows := [][]string{
+		{"服务状态", serviceStatus},
+		{"SSH Jail", jailStatus},
+	}
+	if info.MaxRetry != "" {
+		rows = append(rows, []string{"最大重试", info.MaxRetry})
+	}
+	if info.BanTime != "" {
+		rows = append(rows, []string{"封禁时长", info.BanTime + "s"})
+	}
+	if info.FindTime != "" {
+		rows = append(rows, []string{"检测时窗", info.FindTime + "s"})
+	}
+	rows = append(rows,
+		[]string{"当前封禁", fmt.Sprintf("%d", info.CurrentlyBanned)},
+		[]string{"累计封禁", fmt.Sprintf("%d", info.TotalBanned)},
+	)
+	if len(info.BannedIPs) > 0 {
+		rows = append(rows, []string{"封禁 IP", strings.Join(info.BannedIPs, "\n")})
+	}
+	return renderTable([]string{"项目", "值"}, rows, width, false)
 }
 
 func renderBBRStatusTable(current string, enabled bool, width int) string {
