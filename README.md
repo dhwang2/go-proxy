@@ -49,3 +49,10 @@ go-proxy/
 │   └── install.sh
 └── README.md
 ```
+
+## Private Dev Repo
+
+The private `go-proxy-dev` repository carries additional AI companion files that are not part of the public mirror:
+
+- `.claude/` — Claude Code rules, skills, and agent definitions
+- `.codex/` — Codex-oriented mirrors of repo rules, verification playbooks, and agent-role mappings
