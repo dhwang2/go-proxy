@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -22,8 +23,8 @@ const (
 	networkConfirm
 	networkResult
 	networkFirewallMenu
-	networkFirewallTCPInput
-	networkFirewallUDPInput
+	networkFirewallPreview
+	networkFirewallCustomInput
 	networkFail2BanMenu
 )
 
@@ -43,7 +44,7 @@ func NewNetworkView(model *tui.Model) *NetworkView {
 	v.Model = model
 	v.Menu = tui.NewMenu("", []tui.MenuItem{
 		{Key: '1', Label: "󰓅 BBR 网络优化", ID: "bbr"},
-		{Key: '2', Label: "󰒃 服务器防火墙收敛", ID: "firewall"},
+		{Key: '2', Label: "󰒃 防火墙收敛", ID: "firewall"},
 		{Key: '3', Label: "󰒃 fail2ban 防护", ID: "fail2ban"},
 	})
 	return v
@@ -56,6 +57,7 @@ func (v *NetworkView) Init() tea.Cmd {
 	v.viewportReady = false
 	v.detailBuilder = nil
 	v.renderedDetail = ""
+	v.subMenu = firewallSubMenu()
 	v.InitSplit()
 	return nil
 }
@@ -91,10 +93,17 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	}
 	switch msg := msg.(type) {
 	case tui.MenuCursorChangeMsg:
+		if v.step == networkFirewallPreview && v.viewportReady {
+			v.renderedDetail = v.renderFirewallPreview(v.currentViewportWidth())
+			v.viewport.SetContent(v.renderedDetail)
+		}
 		return v, nil
 	case tui.MenuSelectMsg:
 		if v.step == networkFirewallMenu {
 			return v, v.handleFirewallMenu(msg.ID)
+		}
+		if v.step == networkFirewallPreview {
+			return v, v.handleFirewallPreviewMenu(msg.ID)
 		}
 		if v.step == networkFail2BanMenu {
 			return v, v.handleFail2BanMenu(msg.ID)
@@ -163,6 +172,7 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.renderedDetail = ""
 		if v.pendingAction == "firewall" {
 			v.step = networkFirewallMenu
+			v.subMenu = firewallSubMenu()
 			return v, nil
 		}
 		if v.pendingAction == "fail2ban-status" || v.pendingAction == "fail2ban-enable" || v.pendingAction == "fail2ban-disable" {
@@ -179,7 +189,14 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				v.step = networkMenu
 				v.SetFocus(true)
 				return v, nil
-			case networkFirewallTCPInput, networkFirewallUDPInput:
+			case networkFirewallPreview:
+				v.step = networkFirewallMenu
+				v.viewportReady = false
+				v.detailBuilder = nil
+				v.renderedDetail = ""
+				v.subMenu = firewallSubMenu()
+				return v, nil
+			case networkFirewallCustomInput:
 				v.step = networkFirewallMenu
 				return v, nil
 			case networkFail2BanMenu:
@@ -192,6 +209,7 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 					v.viewportReady = false
 					v.detailBuilder = nil
 					v.renderedDetail = ""
+					v.subMenu = firewallSubMenu()
 					return v, nil
 				}
 				if v.pendingAction == "fail2ban-status" || v.pendingAction == "fail2ban-enable" || v.pendingAction == "fail2ban-disable" {
@@ -205,7 +223,7 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, tui.BackCmd
 		}
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			if v.HandleSplitArrows(keyMsg, v.step == networkMenu, v.HasInline() || v.viewportReady || v.step == networkFirewallMenu || v.step == networkFail2BanMenu) {
+			if v.HandleSplitArrows(keyMsg, v.step == networkMenu, v.HasInline() || v.viewportReady || v.step == networkFirewallMenu || v.step == networkFirewallPreview || v.step == networkFail2BanMenu) {
 				return v, nil
 			}
 		}
@@ -214,7 +232,7 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			var cmd tea.Cmd
 			v.Menu, cmd = v.Menu.Update(msg)
 			return v, cmd
-		case networkFirewallMenu, networkFail2BanMenu:
+		case networkFirewallMenu, networkFirewallPreview, networkFail2BanMenu:
 			var cmd tea.Cmd
 			v.subMenu, cmd = v.subMenu.Update(msg)
 			return v, cmd
@@ -234,7 +252,7 @@ func (v *NetworkView) View() string {
 		if v.HasInline() {
 			return v.ViewInline()
 		}
-		if v.step == networkResult && v.viewportReady {
+		if (v.step == networkResult || v.step == networkFirewallPreview) && v.viewportReady {
 			return v.viewport.View()
 		}
 		if v.step == networkFirewallMenu || v.step == networkFail2BanMenu {
@@ -248,7 +266,7 @@ func (v *NetworkView) View() string {
 
 	menuContent := v.Menu.View()
 	var detailContent string
-	if v.step == networkResult && v.viewportReady {
+	if (v.step == networkResult || v.step == networkFirewallPreview) && v.viewportReady {
 		detailContent = v.viewport.View()
 	} else if v.HasInline() {
 		tui.InSplitPanel = true
@@ -273,13 +291,7 @@ func (v *NetworkView) triggerMenuAction(id string) tea.Cmd {
 		return v.doBBRStatus
 	case "firewall":
 		v.step = networkFirewallMenu
-		v.subMenu = tui.NewMenu("服务器防火墙收敛", []tui.MenuItem{
-			{Key: '1', Label: "󰆓 应用防火墙收敛", ID: "apply"},
-			{Key: '2', Label: "󰏘 设置自定义 TCP 端口", ID: "custom-tcp"},
-			{Key: '3', Label: "󰏘 设置自定义 UDP 端口", ID: "custom-udp"},
-			{Key: '4', Label: "󰍹 查看目标端口", ID: "view"},
-			{Key: '5', Label: "󰡱 查看当前规则", ID: "current"},
-		})
+		v.subMenu = firewallSubMenu()
 		return nil
 	case "fail2ban":
 		v.step = networkFail2BanMenu
@@ -300,20 +312,34 @@ func (v *NetworkView) handleFirewallMenu(id string) tea.Cmd {
 	v.renderedDetail = ""
 	switch id {
 	case "apply":
+		v.step = networkFirewallPreview
+		v.subMenu = tui.NewMenu("", []tui.MenuItem{
+			{Key: '1', Label: "收敛以上端口", ID: "converge"},
+			{Key: '2', Label: "释放以上端口", ID: "release"},
+		})
+		v.showFirewallDetail(v.renderFirewallPreview)
+		return nil
+	case "custom":
+		v.step = networkFirewallCustomInput
+		return v.SetInline(components.NewTextInput("自定义端口，格式如 443、53/udp、8443/tcp+udp，留空清空:", formatCustomPorts(v.currentFirewallConfig().Ports)))
+	case "current":
+		return v.doFirewallCurrentRules
+	}
+	return nil
+}
+
+func (v *NetworkView) handleFirewallPreviewMenu(id string) tea.Cmd {
+	switch id {
+	case "converge":
 		return tea.Batch(
 			v.SetInline(components.NewSpinner("正在应用防火墙收敛...")),
 			v.doFirewallApply,
 		)
-	case "custom-tcp":
-		v.step = networkFirewallTCPInput
-		return v.SetInline(components.NewTextInput("自定义 TCP 端口，逗号分隔，留空清空:", formatPorts(v.currentFirewallConfig().TCP)))
-	case "custom-udp":
-		v.step = networkFirewallUDPInput
-		return v.SetInline(components.NewTextInput("自定义 UDP 端口，逗号分隔，留空清空:", formatPorts(v.currentFirewallConfig().UDP)))
-	case "view":
-		return v.doFirewallSummary
-	case "current":
-		return v.doFirewallCurrentRules
+	case "release":
+		return tea.Batch(
+			v.SetInline(components.NewSpinner("正在释放防火墙收敛...")),
+			v.doFirewallRelease,
+		)
 	}
 	return nil
 }
@@ -321,7 +347,7 @@ func (v *NetworkView) handleFirewallMenu(id string) tea.Cmd {
 func (v *NetworkView) handleFirewallInput(msg tui.InputResultMsg) (tui.View, tea.Cmd) {
 	if msg.Cancelled {
 		switch v.step {
-		case networkFirewallTCPInput, networkFirewallUDPInput:
+		case networkFirewallCustomInput:
 			v.step = networkFirewallMenu
 			v.ClearInline()
 			return v, nil
@@ -330,13 +356,13 @@ func (v *NetworkView) handleFirewallInput(msg tui.InputResultMsg) (tui.View, tea
 	}
 
 	switch v.step {
-	case networkFirewallTCPInput:
-		ports, err := parsePortCSV(msg.Value)
+	case networkFirewallCustomInput:
+		ports, err := parseCustomPorts(msg.Value)
 		if err != nil {
 			return v, v.SetInline(components.NewResult("设置失败: " + err.Error()))
 		}
 		cfg := v.currentFirewallConfig()
-		cfg.TCP = ports
+		cfg.Ports = ports
 		v.Model.Store().Firewall = cfg
 		v.Model.Store().MarkDirty(store.FileFirewall)
 		if err := v.Model.Store().Apply(); err != nil {
@@ -346,28 +372,7 @@ func (v *NetworkView) handleFirewallInput(msg tui.InputResultMsg) (tui.View, tea
 		}
 		v.step = networkResult
 		v.showFirewallDetail(func(width int) string {
-			return "自定义 TCP 端口已更新\n\n" + v.renderFirewallSummary(width)
-		})
-		return v, nil
-	case networkFirewallUDPInput:
-		ports, err := parsePortCSV(msg.Value)
-		if err != nil {
-			v.step = networkResult
-			v.showFirewallDetail(func(int) string { return "设置失败: " + err.Error() })
-			return v, nil
-		}
-		cfg := v.currentFirewallConfig()
-		cfg.UDP = ports
-		v.Model.Store().Firewall = cfg
-		v.Model.Store().MarkDirty(store.FileFirewall)
-		if err := v.Model.Store().Apply(); err != nil {
-			v.step = networkResult
-			v.showFirewallDetail(func(int) string { return "保存失败: " + err.Error() })
-			return v, nil
-		}
-		v.step = networkResult
-		v.showFirewallDetail(func(width int) string {
-			return "自定义 UDP 端口已更新\n\n" + v.renderFirewallSummary(width)
+			return "自定义端口已更新\n\n" + v.renderFirewallSummary(width)
 		})
 		return v, nil
 	}
@@ -452,14 +457,6 @@ func (v *NetworkView) doEnableBBR() tea.Msg {
 	return networkActionDoneMsg{result: renderBBRStatusTable(current, enabled, v.Model.ContentWidth())}
 }
 
-func (v *NetworkView) doFirewallSummary() tea.Msg {
-	return networkActionDoneMsg{
-		render: func(width int) string {
-			return v.renderFirewallSummary(width)
-		},
-	}
-}
-
 func (v *NetworkView) doFirewallCurrentRules() tea.Msg {
 	entries, err := network.CurrentFirewallPorts()
 	if err != nil {
@@ -486,6 +483,15 @@ func (v *NetworkView) doFirewallApply() tea.Msg {
 	}
 }
 
+func (v *NetworkView) doFirewallRelease() tea.Msg {
+	network.RemoveFirewallRules()
+	return networkActionDoneMsg{
+		render: func(width int) string {
+			return "防火墙收敛已释放\n\n" + v.renderFirewallSummary(width)
+		},
+	}
+}
+
 func (v *NetworkView) renderFirewallSummary(width int) string {
 	entries, err := network.DescribeDesiredPorts(v.Model.Store())
 	if err != nil {
@@ -497,20 +503,97 @@ func (v *NetworkView) renderFirewallSummary(width int) string {
 	return renderDesiredPortsTable(entries, width)
 }
 
+func (v *NetworkView) renderFirewallPreview(width int) string {
+	menu := v.subMenu.SetWidth(width)
+	return "将要收敛以下目标端口\n\n" + v.renderFirewallSummary(width) + "\n\n" + strings.TrimRight(menu.View(), "\n")
+}
+
 func renderDesiredPortsTable(entries []network.DesiredPortEntry, width int) string {
-	rows := make([][]string, 0, len(entries))
-	for _, e := range entries {
-		rows = append(rows, []string{e.Proto, strconv.Itoa(e.Port), strings.Join(e.Services, ", ")})
+	type mergedEntry struct {
+		Port     int
+		Protos   map[string]bool
+		Services []string
 	}
-	return renderTable([]string{"协议", "端口", "来源"}, rows, width, false)
+	byPort := make(map[int]*mergedEntry)
+	var portOrder []int
+	for _, e := range entries {
+		me, ok := byPort[e.Port]
+		if !ok {
+			me = &mergedEntry{Port: e.Port, Protos: make(map[string]bool)}
+			byPort[e.Port] = me
+			portOrder = append(portOrder, e.Port)
+		}
+		proto := strings.ToUpper(e.Proto)
+		me.Protos[proto] = true
+		me.Services = append(me.Services, e.Services...)
+	}
+	sort.Ints(portOrder)
+	rows := make([][]string, 0, len(portOrder))
+	for _, port := range portOrder {
+		me := byPort[port]
+		proto := mergedProtoLabel(me.Protos)
+		seen := make(map[string]bool)
+		var svcs []string
+		for _, s := range me.Services {
+			if !seen[s] {
+				seen[s] = true
+				svcs = append(svcs, s)
+			}
+		}
+		rows = append(rows, []string{strconv.Itoa(port), proto, strings.Join(svcs, ", ")})
+	}
+	return renderTable([]string{"端口", "协议", "来源"}, rows, width, false)
 }
 
 func renderCurrentRulesTable(entries []network.CurrentPortEntry, width int) string {
-	rows := make([][]string, 0, len(entries))
-	for _, e := range entries {
-		rows = append(rows, []string{e.Proto, strconv.Itoa(e.Port), e.Action})
+	type mergedEntry struct {
+		Port   int
+		Protos map[string]bool
+		Action string
 	}
-	return renderTable([]string{"协议", "端口", "动作"}, rows, width, false)
+	// key by port+action to avoid merging rows with different actions
+	type mergeKey struct {
+		Port   int
+		Action string
+	}
+	byKey := make(map[mergeKey]*mergedEntry)
+	var ordered []*mergedEntry
+	for _, e := range entries {
+		proto := strings.ToUpper(e.Proto)
+		k := mergeKey{e.Port, e.Action}
+		me, ok := byKey[k]
+		if !ok {
+			me = &mergedEntry{Port: e.Port, Protos: make(map[string]bool), Action: e.Action}
+			byKey[k] = me
+			ordered = append(ordered, me)
+		}
+		me.Protos[proto] = true
+	}
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Port < ordered[j].Port })
+	rows := make([][]string, 0, len(ordered))
+	for _, me := range ordered {
+		proto := mergedProtoLabel(me.Protos)
+		rows = append(rows, []string{strconv.Itoa(me.Port), proto, me.Action})
+	}
+	return renderTable([]string{"端口", "协议", "动作"}, rows, width, false)
+}
+
+func mergedProtoLabel(protos map[string]bool) string {
+	hasTCP := protos["TCP"]
+	hasUDP := protos["UDP"]
+	if hasTCP && hasUDP {
+		return "TCP+UDP"
+	}
+	if hasTCP {
+		return "TCP"
+	}
+	if hasUDP {
+		return "UDP"
+	}
+	for p := range protos {
+		return p
+	}
+	return ""
 }
 
 func renderFail2BanStatusTable(info network.Fail2BanInfo, width int) string {
@@ -572,39 +655,121 @@ func (v *NetworkView) currentFirewallConfig() *store.FirewallConfig {
 	return v.Model.Store().Firewall
 }
 
-func parsePortCSV(value string) ([]int, error) {
+func parseCustomPorts(value string) ([]store.FirewallPort, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return nil, nil
 	}
 	tokens := strings.FieldsFunc(value, func(r rune) bool {
-		return r == ',' || r == ' ' || r == '，'
+		return r == ',' || r == ' ' || r == '，' || r == '\n' || r == '\t' || r == ';' || r == '；'
 	})
-	ports := make([]int, 0, len(tokens))
-	seen := make(map[int]bool, len(tokens))
+	ports := make([]store.FirewallPort, 0, len(tokens))
 	for _, token := range tokens {
-		port, err := strconv.Atoi(strings.TrimSpace(token))
-		if err != nil || port < 1 || port > 65535 {
-			return nil, fmt.Errorf("端口号无效: %s", token)
+		parsed, err := parseCustomPortToken(token)
+		if err != nil {
+			return nil, err
 		}
-		if seen[port] {
-			continue
-		}
-		seen[port] = true
-		ports = append(ports, port)
+		ports = append(ports, parsed...)
 	}
-	return ports, nil
+	cfg := &store.FirewallConfig{Ports: ports}
+	cfg.Normalize()
+	return cfg.Ports, nil
 }
 
-func formatPorts(ports []int) string {
+func parseCustomPortToken(token string) ([]store.FirewallPort, error) {
+	token = strings.ToLower(strings.TrimSpace(token))
+	if token == "" {
+		return nil, nil
+	}
+	port, protoSpec, ok := splitCustomPortToken(token, "/")
+	if !ok {
+		port, protoSpec, ok = splitCustomPortToken(token, ":")
+	}
+	if !ok {
+		portValue, err := strconv.Atoi(token)
+		if err != nil || portValue < 1 || portValue > 65535 {
+			return nil, fmt.Errorf("端口号无效: %s", token)
+		}
+		return []store.FirewallPort{{Proto: "tcp", Port: portValue}}, nil
+	}
+	protos, err := parseCustomPortProtos(protoSpec)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]store.FirewallPort, 0, len(protos))
+	for _, proto := range protos {
+		out = append(out, store.FirewallPort{Proto: proto, Port: port})
+	}
+	return out, nil
+}
+
+func splitCustomPortToken(token, sep string) (int, string, bool) {
+	parts := strings.Split(token, sep)
+	if len(parts) != 2 {
+		return 0, "", false
+	}
+	left := strings.TrimSpace(parts[0])
+	right := strings.TrimSpace(parts[1])
+	if port, err := strconv.Atoi(left); err == nil && port >= 1 && port <= 65535 {
+		return port, right, true
+	}
+	if port, err := strconv.Atoi(right); err == nil && port >= 1 && port <= 65535 {
+		return port, left, true
+	}
+	return 0, "", false
+}
+
+func parseCustomPortProtos(value string) ([]string, error) {
+	value = strings.ReplaceAll(strings.ToLower(strings.TrimSpace(value)), " ", "")
+	switch value {
+	case "tcp":
+		return []string{"tcp"}, nil
+	case "udp":
+		return []string{"udp"}, nil
+	case "tcp+udp", "udp+tcp", "both":
+		return []string{"tcp", "udp"}, nil
+	default:
+		return nil, fmt.Errorf("协议无效: %s", value)
+	}
+}
+
+func formatCustomPorts(ports []store.FirewallPort) string {
 	if len(ports) == 0 {
-		return "无"
+		return ""
 	}
-	values := make([]string, 0, len(ports))
-	for _, port := range ports {
-		values = append(values, strconv.Itoa(port))
+	byPort := make(map[int]map[string]bool)
+	var order []int
+	for _, entry := range ports {
+		protos, ok := byPort[entry.Port]
+		if !ok {
+			protos = make(map[string]bool)
+			byPort[entry.Port] = protos
+			order = append(order, entry.Port)
+		}
+		protos[entry.Proto] = true
 	}
-	return strings.Join(values, ",")
+	sort.Ints(order)
+	values := make([]string, 0, len(order))
+	for _, port := range order {
+		protos := byPort[port]
+		switch {
+		case protos["tcp"] && protos["udp"]:
+			values = append(values, fmt.Sprintf("%d/tcp+udp", port))
+		case protos["udp"]:
+			values = append(values, fmt.Sprintf("%d/udp", port))
+		default:
+			values = append(values, fmt.Sprintf("%d/tcp", port))
+		}
+	}
+	return strings.Join(values, ", ")
+}
+
+func firewallSubMenu() tui.MenuModel {
+	return tui.NewMenu("防火墙收敛", []tui.MenuItem{
+		{Key: '1', Label: "󰆓 应用防火墙收敛", ID: "apply"},
+		{Key: '2', Label: "󰏘 设置自定义端口", ID: "custom"},
+		{Key: '3', Label: "󰡱 查看当前规则", ID: "current"},
+	})
 }
 
 func (v *NetworkView) currentViewportWidth() int {

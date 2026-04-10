@@ -267,11 +267,8 @@ func DesiredFirewallPorts(s *store.Store) ([]FirewallPortSpec, error) {
 	}
 
 	if s.Firewall != nil {
-		for _, port := range s.Firewall.TCP {
-			addPort(port, "tcp", "custom")
-		}
-		for _, port := range s.Firewall.UDP {
-			addPort(port, "udp", "custom")
+		for _, port := range s.Firewall.Ports {
+			addPort(port.Port, port.Proto, "custom")
 		}
 	}
 

@@ -1,6 +1,7 @@
 package views
 
 import (
+	"strings"
 	"testing"
 
 	"go-proxy/internal/protocol"
@@ -56,5 +57,21 @@ func TestResetMenuStateRestoresMenuFocus(t *testing.T) {
 	}
 	if !view.Split.FocusLeft() {
 		t.Fatal("split should return focus to the left menu after resetMenuState")
+	}
+}
+
+func TestProtocolInstallMenuDoesNotContainTink(t *testing.T) {
+	model := tui.NewModel(&store.Store{
+		SingBox:      &store.SingBoxConfig{},
+		UserMeta:     store.NewUserManagement(),
+		UserTemplate: &store.UserRouteTemplates{Templates: map[string][]store.TemplateRule{}},
+	}, "dev")
+	view := NewProtocolInstallView(&model)
+
+	view.resetMenuState(44, 20)
+
+	menu := strings.ToLower(view.Menu.View())
+	if strings.Contains(menu, "tink") {
+		t.Fatalf("menu = %q, want no tink entry", menu)
 	}
 }

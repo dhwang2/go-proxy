@@ -118,6 +118,8 @@ func CommonPorts(pt Type) []int {
 		return []int{443, 1443, 8443, 10443}
 	case Shadowsocks:
 		return []int{443, 8388, 8443, 9443}
+	case ShadowTLS:
+		return []int{8443, 443, 9443, 10443}
 	case TUIC:
 		return nil // uses random high port
 	default:

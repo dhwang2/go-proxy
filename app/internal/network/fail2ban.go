@@ -90,7 +90,7 @@ enabled = true
 port = ssh
 filter = sshd
 maxretry = 5
-bantime = 3600
+bantime = 86400
 findtime = 600
 `
 

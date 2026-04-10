@@ -11,10 +11,17 @@ import (
 	"go-proxy/internal/store"
 )
 
+// uriFragment returns the URI fragment (#name) using a unique inbound-aware format.
+func uriFragment(ibType, userName, tag string) string {
+	proto := surgeProtoLabel(ibType)
+	return surgeProxyTag(proto, userName, tag)
+}
+
 // renderURI generates a protocol share URI for an inbound membership.
 func renderURI(ib *store.Inbound, entry derived.MembershipEntry, host string) string {
 	fmtHost := FormatHost(host)
 	sni := ib.ServerName()
+	fragment := uriFragment(ib.Type, entry.UserName, entry.Tag)
 
 	switch ib.Type {
 	case "vless":
@@ -39,7 +46,7 @@ func renderURI(ib *store.Inbound, entry derived.MembershipEntry, host string) st
 			params.Set("flow", u.Flow)
 		}
 		return fmt.Sprintf("vless://%s@%s:%d?%s#%s",
-			entry.UserID, fmtHost, ib.ListenPort, params.Encode(), entry.Tag)
+			entry.UserID, fmtHost, ib.ListenPort, params.Encode(), fragment)
 
 	case "tuic":
 		password := ""
@@ -53,7 +60,7 @@ func renderURI(ib *store.Inbound, entry derived.MembershipEntry, host string) st
 		params.Set("udp_relay_mode", "native")
 		params.Set("allow_insecure", "1")
 		return fmt.Sprintf("tuic://%s:%s@%s:%d?%s#%s",
-			entry.UserID, password, fmtHost, ib.ListenPort, params.Encode(), entry.Tag)
+			entry.UserID, password, fmtHost, ib.ListenPort, params.Encode(), fragment)
 
 	case "trojan":
 		params := url.Values{}
@@ -64,13 +71,13 @@ func renderURI(ib *store.Inbound, entry derived.MembershipEntry, host string) st
 			params.Set("alpn", strings.Join(ib.TLS.ALPN, ","))
 		}
 		return fmt.Sprintf("trojan://%s@%s:%d?%s#%s",
-			entry.UserID, fmtHost, ib.ListenPort, params.Encode(), entry.Tag)
+			entry.UserID, fmtHost, ib.ListenPort, params.Encode(), fragment)
 
 	case "anytls":
 		params := url.Values{}
 		params.Set("sni", sni)
 		return fmt.Sprintf("anytls://%s@%s:%d?%s#%s",
-			entry.UserID, fmtHost, ib.ListenPort, params.Encode(), entry.Tag)
+			entry.UserID, fmtHost, ib.ListenPort, params.Encode(), fragment)
 
 	case "shadowsocks":
 		method := ib.Method
@@ -80,7 +87,7 @@ func renderURI(ib *store.Inbound, entry derived.MembershipEntry, host string) st
 		password := ssPassword(ib, entry.UserID)
 		auth := base64.RawURLEncoding.EncodeToString([]byte(method + ":" + password))
 		return fmt.Sprintf("ss://%s@%s:%d#%s",
-			auth, fmtHost, ib.ListenPort, entry.Tag)
+			auth, fmtHost, ib.ListenPort, fragment)
 
 	default:
 		return fmt.Sprintf("# unsupported: %s", ib.Type)

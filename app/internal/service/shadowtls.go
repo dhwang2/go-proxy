@@ -118,8 +118,8 @@ func ListShadowTLSBindings(s *store.Store) ([]ShadowTLSBinding, error) {
 		if binding.BackendProto == "" || binding.BackendProto == "unknown" {
 			binding.BackendProto = shadowTLSBackendProtoFromServiceName(serviceName)
 		}
-		if binding.BackendProto == "" || binding.BackendProto == "unknown" {
-			continue
+		if binding.BackendProto == "" {
+			binding.BackendProto = "unknown"
 		}
 		bindings = append(bindings, binding)
 	}

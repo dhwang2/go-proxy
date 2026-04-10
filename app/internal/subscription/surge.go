@@ -3,8 +3,10 @@ package subscription
 import (
 	"fmt"
 	"net"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"go-proxy/internal/crypto"
 	"go-proxy/internal/derived"
@@ -114,8 +116,35 @@ func surgeProtoLabel(ibType string) string {
 	return ibType
 }
 
+var (
+	serverNameOnce  sync.Once
+	serverNameValue string
+)
+
+func serverName() string {
+	serverNameOnce.Do(func() {
+		name, _ := os.Hostname()
+		if idx := strings.IndexByte(name, '.'); idx > 0 {
+			name = name[:idx]
+		}
+		serverNameValue = name
+	})
+	return serverNameValue
+}
+
 func surgeProxyTag(proto, userName, tagSuffix string) string {
-	return proto + "-" + userName + tagSuffix
+	sn := serverName()
+	suffix := strings.TrimPrefix(tagSuffix, "-")
+	parts := []string{}
+	if sn != "" {
+		parts = append(parts, sn)
+	}
+	parts = append(parts, proto)
+	if suffix != "" {
+		parts = append(parts, suffix)
+	}
+	parts = append(parts, userName)
+	return strings.Join(parts, "-")
 }
 
 func firstALPN(tls *store.TLSConfig) string {
