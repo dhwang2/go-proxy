@@ -23,6 +23,7 @@ type UninstallView struct {
 	confirmPrompt string
 	tableHeader   string
 	previewBody   string
+	resultMessage string
 	viewport      viewport.Model
 	ready         bool
 }
@@ -93,10 +94,12 @@ func (v *UninstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case uninstallDoneMsg:
 		v.step = uninstallResult
+		v.resultMessage = msg.result
+		v.ClearInline()
 		if msg.success {
-			v.model.SetExitMessage("卸载完成，所有服务和配置已移除")
+			v.model.SetExitMessage("所有功能已删除")
 		}
-		return v, v.SetInline(components.NewResult(msg.result))
+		return v, nil
 
 	case tui.ResultDismissedMsg:
 		return v, tea.Quit
@@ -113,6 +116,12 @@ func (v *UninstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 				var cmd tea.Cmd
 				v.viewport, cmd = v.viewport.Update(msg)
 				return v, cmd
+			}
+			return v, nil
+		}
+		if v.step == uninstallResult {
+			if msg.Type == tea.KeyEnter || msg.Type == tea.KeyEsc {
+				return v, tea.Quit
 			}
 			return v, nil
 		}
@@ -135,6 +144,13 @@ func (v *UninstallView) View() string {
 			return header + "\n" + divider + "\n" + v.tableHeader + "\n" + v.previewBody
 		}
 		return header + "\n" + divider + "\n" + v.tableHeader + "\n" + v.viewport.View()
+	}
+	if v.step == uninstallResult {
+		lines := strings.Split(v.resultMessage, "\n")
+		for i, line := range lines {
+			lines[i] = "  " + line
+		}
+		return strings.Join(lines, "\n")
 	}
 	return ""
 }
@@ -231,9 +247,9 @@ func (v *UninstallView) doUninstall() tea.Msg {
 
 	if len(errs) > 0 {
 		return uninstallDoneMsg{
-			result:  "卸载完成（部分错误）:\n" + strings.Join(errs, "\n"),
+			result:  "所有功能已删除（部分错误）:\n" + strings.Join(errs, "\n"),
 			success: true,
 		}
 	}
-	return uninstallDoneMsg{result: "卸载完成，所有服务和配置已移除", success: true}
+	return uninstallDoneMsg{result: "所有功能已删除", success: true}
 }

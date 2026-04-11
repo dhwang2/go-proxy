@@ -93,7 +93,7 @@ func TestFirewallApplyShowsPreviewAndActions(t *testing.T) {
 	if !strings.Contains(content, "将要收敛以下目标端口") {
 		t.Fatalf("content = %q, want preview title", content)
 	}
-	if !strings.Contains(content, "收敛以上端口") || !strings.Contains(content, "释放以上端口") {
+	if !strings.Contains(content, "收敛防火墙") || !strings.Contains(content, "释放防火墙收敛") {
 		t.Fatalf("content = %q, want preview actions", content)
 	}
 	if !strings.Contains(content, "端口") || !strings.Contains(content, "协议") {
@@ -122,7 +122,7 @@ func TestFirewallPreviewEscRestoresFirewallMenu(t *testing.T) {
 	if !strings.Contains(menu, "应用防火墙收敛") || !strings.Contains(menu, "设置自定义端口") || !strings.Contains(menu, "查看当前规则") {
 		t.Fatalf("menu = %q, want restored firewall menu", menu)
 	}
-	if strings.Contains(menu, "收敛以上端口") || strings.Contains(menu, "释放以上端口") {
+	if strings.Contains(menu, "收敛防火墙") || strings.Contains(menu, "释放防火墙收敛") {
 		t.Fatalf("menu = %q, want preview actions cleared", menu)
 	}
 }
@@ -147,7 +147,10 @@ func TestFirewallResultDismissedRestoresFirewallMenu(t *testing.T) {
 		t.Fatalf("step = %v, want networkFirewallMenu", view.step)
 	}
 	menu := view.subMenu.View()
-	if !strings.Contains(menu, "应用防火墙收敛") || strings.Contains(menu, "收敛以上端口") {
+	if !strings.Contains(menu, "应用防火墙收敛") || strings.Contains(menu, "收敛防火墙（仅开放") {
 		t.Fatalf("menu = %q, want restored firewall menu", menu)
+	}
+	if strings.Contains(menu, "释放防火墙收敛") {
+		t.Fatalf("menu = %q, want preview action 释放防火墙收敛 cleared", menu)
 	}
 }

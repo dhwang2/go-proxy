@@ -183,6 +183,9 @@ func (v *NetworkView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.SetFocus(true)
 		return v, nil
 	default:
+		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEnter && v.step == networkResult {
+			return v.Update(tui.ResultDismissedMsg{})
+		}
 		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEsc {
 			switch v.step {
 			case networkFirewallMenu:
@@ -314,8 +317,8 @@ func (v *NetworkView) handleFirewallMenu(id string) tea.Cmd {
 	case "apply":
 		v.step = networkFirewallPreview
 		v.subMenu = tui.NewMenu("", []tui.MenuItem{
-			{Key: '1', Label: "收敛以上端口", ID: "converge"},
-			{Key: '2', Label: "释放以上端口", ID: "release"},
+			{Key: '1', Label: "收敛防火墙（仅开放以上端口）", ID: "converge"},
+			{Key: '2', Label: "释放防火墙收敛", ID: "release"},
 		})
 		v.showFirewallDetail(v.renderFirewallPreview)
 		return nil
