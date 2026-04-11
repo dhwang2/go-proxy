@@ -121,7 +121,7 @@ var (
 	serverNameValue string
 )
 
-func serverName() string {
+var serverName = func() string {
 	serverNameOnce.Do(func() {
 		name, _ := os.Hostname()
 		if idx := strings.IndexByte(name, '.'); idx > 0 {

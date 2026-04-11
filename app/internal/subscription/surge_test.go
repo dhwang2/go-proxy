@@ -1,6 +1,7 @@
 package subscription
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -8,6 +9,15 @@ import (
 	"go-proxy/internal/service"
 	"go-proxy/internal/store"
 )
+
+func TestMain(m *testing.M) {
+	// Stub serverName so hostname-prefixed surge tags are deterministic.
+	prev := serverName
+	serverName = func() string { return "" }
+	code := m.Run()
+	serverName = prev
+	os.Exit(code)
+}
 
 func TestRenderSurgeTUICIncludesRequiredParams(t *testing.T) {
 	ib := &store.Inbound{
