@@ -330,14 +330,14 @@ func (v *RoutingView) View() string {
 		case routingChainMenu, routingChainDeleteSelect, routingConfigMenu, routingConfigAddUser,
 			routingConfigAddOutbound, routingConfigDeleteUser, routingConfigModifyUser,
 			routingConfigModifyOutbound, routingDirect, routingTestUser:
-			return tui.RenderSubMenuBody(v.subMenu.View(), v.Model.ContentWidth())
+			return v.subMenu.View()
 		default:
-			return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
+			return v.Menu.View()
 		}
 	}
 
 	if v.step == routingMenu {
-		return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
+		return v.Menu.View()
 	}
 
 	menuContent := v.Menu.View()

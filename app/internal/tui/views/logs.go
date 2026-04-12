@@ -207,17 +207,17 @@ func (v *LogsView) View() string {
 			return v.ViewInline()
 		}
 		if v.step == logsServiceSelect {
-			return tui.RenderSubMenuBody(v.serviceMenu.View(), v.Model.ContentWidth())
+			return v.serviceMenu.View()
 		}
 		if v.step == logsResult && v.viewportReady {
 			return v.renderViewport()
 		}
-		return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
+		return v.Menu.View()
 	}
 
 	// Split mode: main menu step has no split content.
 	if v.step == logsMenu {
-		return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
+		return v.Menu.View()
 	}
 
 	// LEFT: always main menu.

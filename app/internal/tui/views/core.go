@@ -132,7 +132,7 @@ func (v *CoreView) View() string {
 		if v.HasInline() {
 			return v.ViewInline()
 		}
-		return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
+		return v.Menu.View()
 	}
 
 	menuContent := v.Menu.View()

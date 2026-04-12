@@ -252,20 +252,20 @@ func (v *ProtocolRemoveView) View() string {
 			return v.ViewInline()
 		}
 		if v.step == protoRemoveUserSelect {
-			return tui.RenderSubMenuBody(v.userMenu.View(), v.Model.ContentWidth())
+			return v.userMenu.View()
 		}
 		if v.step == protoRemoveMenu && v.tableHeader != "" {
-			return tui.RenderSubMenuBody(v.renderRemoveTable(), v.Model.ContentWidth())
+			return v.renderRemoveTable()
 		}
-		return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
+		return v.Menu.View()
 	}
 
 	// Split mode: main menu step has no split content.
 	if v.step == protoRemoveMenu {
 		if v.tableHeader != "" {
-			return tui.RenderSubMenuBody(v.renderRemoveTable(), v.Model.ContentWidth())
+			return v.renderRemoveTable()
 		}
-		return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
+		return v.Menu.View()
 	}
 
 	// LEFT: always table/menu.

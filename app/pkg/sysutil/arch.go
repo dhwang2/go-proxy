@@ -13,8 +13,3 @@ func Arch() string {
 		return runtime.GOARCH
 	}
 }
-
-// OS returns the current operating system string.
-func OS() string {
-	return runtime.GOOS
-}

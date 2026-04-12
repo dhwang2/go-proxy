@@ -124,7 +124,7 @@ func (b *SplitViewBase) RenderSplitView(isMenuStep bool, menuContent string, det
 		if b.HasInline() {
 			return b.ViewInline()
 		}
-		return RenderSubMenuBody(menuContent, b.Model.ContentWidth())
+		return menuContent
 	}
 	return b.Split.View(menuContent, detailContent)
 }

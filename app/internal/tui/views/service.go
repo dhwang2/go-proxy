@@ -3,7 +3,6 @@ package views
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -173,9 +172,9 @@ func (v *ServiceView) View() string {
 			return v.ViewInline()
 		}
 		if v.step == svcMenuIndividual {
-			return tui.RenderSubMenuBody(v.subMenu.View(), v.Model.ContentWidth())
+			return v.subMenu.View()
 		}
-		return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
+		return v.Menu.View()
 	}
 
 	var menuContent string
@@ -417,26 +416,4 @@ func (v *ServiceView) buildActionMenu(svcName service.Name) tui.MenuModel {
 		{Key: '3', Label: "󰐊 启动", ID: "start"},
 	}
 	return tui.NewMenu(title, items)
-}
-
-// snellPort extracts the port number from a listen address like "0.0.0.0:8448".
-func snellPort(listen string) int {
-	if idx := strings.LastIndex(listen, ":"); idx >= 0 {
-		if p, err := strconv.Atoi(listen[idx+1:]); err == nil {
-			return p
-		}
-	}
-	return 0
-}
-
-// protocolServiceName maps a protocol type to its systemd service name.
-func protocolServiceName(protoType string) service.Name {
-	switch protoType {
-	case "vless", "trojan", "shadowsocks", "tuic", "anytls", "ss":
-		return service.SingBox
-	case "snell":
-		return service.Snell
-	default:
-		return service.SingBox
-	}
 }

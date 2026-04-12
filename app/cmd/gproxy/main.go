@@ -413,7 +413,7 @@ func cmdNetwork() {
 		}
 		fmt.Printf("congestion_control=%s enabled=%t\n", current, enabled)
 	case "firewall":
-		if err := network.ApplyConvergence(s); err != nil {
+		if err := network.ApplyFirewallConvergence(s); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}

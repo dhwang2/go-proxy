@@ -11,10 +11,3 @@ type TemplateRule struct {
 	Outbound string `json:"outbound"`
 	Domains  string `json:"domains,omitempty"`
 }
-
-// NewUserRouteTemplates returns an initialized empty UserRouteTemplates.
-func NewUserRouteTemplates() *UserRouteTemplates {
-	return &UserRouteTemplates{
-		Templates: make(map[string][]TemplateRule),
-	}
-}

@@ -259,12 +259,12 @@ func (v *NetworkView) View() string {
 			return v.viewport.View()
 		}
 		if v.step == networkFirewallMenu || v.step == networkFail2BanMenu {
-			return tui.RenderSubMenuBody(v.subMenu.View(), v.Model.ContentWidth())
+			return v.subMenu.View()
 		}
-		return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
+		return v.Menu.View()
 	}
 	if v.step == networkMenu {
-		return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
+		return v.Menu.View()
 	}
 
 	menuContent := v.Menu.View()
@@ -476,7 +476,7 @@ func (v *NetworkView) doFirewallCurrentRules() tea.Msg {
 }
 
 func (v *NetworkView) doFirewallApply() tea.Msg {
-	if err := network.ApplyConvergence(v.Model.Store()); err != nil {
+	if err := network.ApplyFirewallConvergence(v.Model.Store()); err != nil {
 		return networkActionDoneMsg{result: "应用防火墙收敛失败: " + err.Error()}
 	}
 	return networkActionDoneMsg{

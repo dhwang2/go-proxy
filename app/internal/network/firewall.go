@@ -40,50 +40,6 @@ func EnsureNft() error {
 	return nil
 }
 
-// OpenPort opens a single port via nftables.
-func OpenPort(port int, proto string) error {
-	if proto == "" {
-		proto = "tcp"
-	}
-	if err := EnsureNft(); err != nil {
-		return err
-	}
-	portStr := strconv.Itoa(port)
-	exec.Command("nft", "add", "table", "inet", "proxy-filter").Run()
-	exec.Command("nft", "add", "chain", "inet", "proxy-filter", "input",
-		"{ type filter hook input priority 0 ; policy accept ; }").Run()
-	if out, err := exec.Command("nft", "add", "rule", "inet", "proxy-filter", "input", proto, "dport", portStr, "accept").CombinedOutput(); err != nil {
-		return fmt.Errorf("nft add rule: %s: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-// ClosePort closes a single port via nftables.
-func ClosePort(port int, proto string) error {
-	if proto == "" {
-		proto = "tcp"
-	}
-	if err := EnsureNft(); err != nil {
-		return err
-	}
-	portStr := strconv.Itoa(port)
-	out, err := exec.Command("nft", "-a", "list", "chain", "inet", "proxy-filter", "input").CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("nft list: %s", err)
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		if strings.Contains(line, "dport "+portStr) && strings.Contains(line, proto) {
-			parts := strings.Fields(line)
-			for i, part := range parts {
-				if part == "handle" && i+1 < len(parts) {
-					return exec.Command("nft", "delete", "rule", "inet", "proxy-filter", "input", "handle", parts[i+1]).Run()
-				}
-			}
-		}
-	}
-	return nil
-}
-
 // ListOpenPorts returns the raw nftables ruleset.
 func ListOpenPorts() (string, error) {
 	if err := EnsureNft(); err != nil {
@@ -167,14 +123,6 @@ func parseNftPortLine(line string) (proto string, ports []int, action string) {
 		return proto, ports, action
 	}
 	return "", nil, ""
-}
-
-// FirewallBackend returns "nftables" if nft is available (or can be installed).
-func FirewallBackend() string {
-	if EnsureNft() == nil {
-		return "nftables"
-	}
-	return "unsupported"
 }
 
 // HasManagedConvergence checks if the proxy_firewall nftables table exists.
@@ -305,10 +253,6 @@ func ApplyFirewallConvergence(s *store.Store) error {
 		}
 	}
 	return nftApplyPorts(tcpPorts, udpPorts)
-}
-
-func ApplyConvergence(s *store.Store) error {
-	return ApplyFirewallConvergence(s)
 }
 
 func DescribeDesiredPorts(s *store.Store) ([]DesiredPortEntry, error) {

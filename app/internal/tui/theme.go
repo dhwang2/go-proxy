@@ -41,10 +41,6 @@ var (
 				Bold(true).
 				Align(lipgloss.Center)
 
-	HeaderSubStyle = lipgloss.NewStyle().
-			Foreground(ColorMuted).
-			Align(lipgloss.Center)
-
 	LabelStyle = lipgloss.NewStyle().
 			Foreground(ColorLabel).
 			Bold(true)
@@ -150,20 +146,6 @@ func RenderFooterHint(hint string, width int) string {
 	}
 
 	return lipgloss.NewStyle().Width(width).Align(lipgloss.Right).Render(result.String())
-}
-
-// RenderSubMenuFrame wraps sub-menu content with separators and a hint line.
-func RenderSubMenuFrame(content, hint string, width int) string {
-	sep := SeparatorDouble(width)
-	hintRendered := RenderFooterHint(hint, width)
-
-	return lipgloss.JoinVertical(lipgloss.Center, sep, content, sep, hintRendered, sep)
-}
-
-// RenderSubMenuBody wraps sub-menu content with separators only (no hint line).
-// Used in split-panel mode where the hint is positioned at the panel bottom.
-func RenderSubMenuBody(content string, width int) string {
-	return lipgloss.JoinVertical(lipgloss.Left, content)
 }
 
 // FormatUserCount renders the user count with red warning color if zero.

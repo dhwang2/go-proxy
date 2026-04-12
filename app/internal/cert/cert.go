@@ -51,14 +51,14 @@ func WriteDomain(domain string) error {
 }
 
 // DefaultEmail returns a default Let's Encrypt email address.
-func DefaultEmail(_ string) string {
+func DefaultEmail() string {
 	return "user@gmail.com"
 }
 
 // GenerateCaddyfile creates a Caddyfile for TLS certificate issuance.
 func GenerateCaddyfile(domain, email string) error {
 	if email == "" {
-		email = DefaultEmail(domain)
+		email = DefaultEmail()
 	}
 	content := fmt.Sprintf(`{
     email %s
@@ -207,7 +207,7 @@ func refreshManagedFirewall() error {
 	if err != nil {
 		return err
 	}
-	return network.ApplyConvergence(s)
+	return network.ApplyFirewallConvergence(s)
 }
 
 // EnsureCertificate orchestrates the full certificate issuance flow:

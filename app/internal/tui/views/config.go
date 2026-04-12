@@ -138,7 +138,7 @@ func (v *ConfigView) View() string {
 			return v.ViewInline()
 		}
 		if v.step == configMenu {
-			return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
+			return v.Menu.View()
 		}
 		return v.renderViewport()
 	}

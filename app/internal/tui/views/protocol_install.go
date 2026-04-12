@@ -225,7 +225,7 @@ func (v *ProtocolInstallView) View() string {
 		if v.HasInline() {
 			return v.ViewInline()
 		}
-		return tui.RenderSubMenuBody(v.Menu.View(), v.Model.ContentWidth())
+		return v.Menu.View()
 	}
 
 	menuContent := v.Menu.View()
@@ -430,7 +430,7 @@ func (v *ProtocolInstallView) handleDomainInput(domain string) (tui.View, tea.Cm
 	}
 	// Need to issue cert — ask for email first.
 	v.step = protoInstallEmail
-	return v, v.SetInline(components.NewTextInput("邮箱 (用于 Let's Encrypt):", cert.DefaultEmail(domain)))
+	return v, v.SetInline(components.NewTextInput("邮箱 (用于 Let's Encrypt):", cert.DefaultEmail()))
 }
 
 // handleEmailInput processes the submitted email and starts cert issuance.

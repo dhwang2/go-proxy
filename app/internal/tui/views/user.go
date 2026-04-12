@@ -180,7 +180,7 @@ func (v *UserView) View() string {
 		if v.HasInline() {
 			return v.ViewInline()
 		}
-		return tui.RenderSubMenuBody(v.Menu.View(), v.Split.TotalWidth())
+		return v.Menu.View()
 	}
 
 	// Sub-split: left = menu, right = inline component or hint.
@@ -267,14 +267,6 @@ func (v *UserView) doDelete(name string) tea.Msg {
 	return userActionDoneMsg{result: "已删除用户: " + name}
 }
 
-func padDisplayCell(text string, width int) string {
-	padding := width - lipgloss.Width(text)
-	if padding < 0 {
-		padding = 0
-	}
-	return text + strings.Repeat(" ", padding)
-}
-
 func (v *UserView) renderUserListTable() string {
 	labelStyle := lipgloss.NewStyle().Foreground(tui.ColorLabel).Bold(true)
 	nameStyle := lipgloss.NewStyle().Foreground(tui.ColorBlack).Bold(true)
@@ -291,7 +283,7 @@ func (v *UserView) renderUserListTable() string {
 
 	var sb strings.Builder
 	sb.WriteString("  ")
-	sb.WriteString(labelStyle.Render(padDisplayCell("用户列表", nameWidth)))
+	sb.WriteString(labelStyle.Render(padCell("用户列表", nameWidth)))
 	sb.WriteString(labelStyle.Render("协议"))
 	sb.WriteString("\n")
 	sb.WriteString("  ")
@@ -305,7 +297,7 @@ func (v *UserView) renderUserListTable() string {
 
 	for _, row := range v.rows {
 		sb.WriteString("  ")
-		sb.WriteString(nameStyle.Render(padDisplayCell(row.Name, nameWidth)))
+		sb.WriteString(nameStyle.Render(padCell(row.Name, nameWidth)))
 		sb.WriteString(valStyle.Render(row.Protocol))
 		sb.WriteString("\n")
 	}
