@@ -11,9 +11,9 @@ release-arm:
 	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o gproxy-arm64 ./cmd/gproxy
 
 test:
-	go test ./...
+	OVERLAY=$$(./scripts/generate-test-overlay.sh); go test -overlay "$$OVERLAY" ./...
 
 clean:
-	rm -f gproxy gproxy-arm64
+	rm -f gproxy gproxy-arm64 .test-overlay.json
 
 .PHONY: build release release-arm test clean
