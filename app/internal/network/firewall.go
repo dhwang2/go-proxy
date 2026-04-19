@@ -31,7 +31,7 @@ func EnsureNft() error {
 	if _, err := exec.LookPath("nft"); err == nil {
 		return nil
 	}
-	if out, err := exec.Command("apt", "install", "-y", "nftables").CombinedOutput(); err != nil {
+	if out, err := exec.Command("apt-get", "install", "-y", "nftables").CombinedOutput(); err != nil {
 		return fmt.Errorf("install nftables: %s: %s", err, strings.TrimSpace(string(out)))
 	}
 	if _, err := exec.LookPath("nft"); err != nil {

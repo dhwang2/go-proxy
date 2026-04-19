@@ -121,10 +121,6 @@ func downloadComponent(ctx context.Context, comp core.Component, destPath string
 
 	url := check.DownloadURL
 	if url == "" {
-		// If no update check diff (new install), get URL from latest release directly.
-		url = check.DownloadURL
-	}
-	if url == "" {
 		step.Err = fmt.Errorf("no download URL found for %s", comp)
 		return step
 	}

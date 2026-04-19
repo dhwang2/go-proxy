@@ -146,24 +146,16 @@ func ShadowTLSServiceNames() ([]string, error) {
 }
 
 func writeShadowTLSUnit(ctx context.Context, unitPath, logPath, backendProto string, listenPort int, password, sni string, backendPort int) error {
-	unit := fmt.Sprintf(`[Unit]
-Description=Shadow-TLS v3 Service
-After=network.target
-
-[Service]
-Type=simple
-Environment=GPROXY_SHADOWTLS_BACKEND=%s
-Environment=GPROXY_SHADOWTLS_BACKEND_PORT=%d
-ExecStart=%s --v3 server --listen 0.0.0.0:%d --server 127.0.0.1:%d --tls %s --password %s
-Restart=on-failure
-RestartSec=10s
-StandardOutput=append:%s
-StandardError=append:%s
-
-[Install]
-WantedBy=multi-user.target
-`, backendProto, backendPort, config.ShadowTLSBin, listenPort, backendPort, sni, password, logPath, logPath)
-	return provisionUnit(ctx, unitPath, unit)
+	return provisionUnit(ctx, unitPath, renderUnit(unitSpec{
+		Description: "Shadow-TLS v3 Service",
+		Environment: []string{
+			fmt.Sprintf("GPROXY_SHADOWTLS_BACKEND=%s", backendProto),
+			fmt.Sprintf("GPROXY_SHADOWTLS_BACKEND_PORT=%d", backendPort),
+		},
+		ExecStart: fmt.Sprintf("%s --v3 server --listen 0.0.0.0:%d --server 127.0.0.1:%d --tls %s --password %s",
+			config.ShadowTLSBin, listenPort, backendPort, sni, password),
+		LogPath: logPath,
+	}))
 }
 
 func shadowTLSUnitPaths() ([]string, error) {

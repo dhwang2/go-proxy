@@ -172,7 +172,7 @@ func Install(s *store.Store, params InstallParams) (*InstallResult, error) {
 		result.Credential = cred
 
 	case Trojan:
-		ib, cred, err := buildTrojanInbound(tag, params, false)
+		ib, cred, err := buildTrojanInbound(tag, params)
 		if err != nil {
 			return nil, err
 		}
@@ -365,7 +365,7 @@ func buildTUICInbound(tag string, p InstallParams) (*store.Inbound, string, erro
 	return ib, uuid, nil
 }
 
-func buildTrojanInbound(tag string, p InstallParams, _ bool) (*store.Inbound, string, error) {
+func buildTrojanInbound(tag string, p InstallParams) (*store.Inbound, string, error) {
 	password, err := crypto.GeneratePassword(16)
 	if err != nil {
 		return nil, "", err
