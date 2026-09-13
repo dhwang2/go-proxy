@@ -349,6 +349,14 @@ func (v *ProtocolRemoveView) doRemove(tag, userName string) error {
 	if err := v.Model.Store().Apply(); err != nil {
 		return err
 	}
+	if tag == store.SnellTag {
+		if err := service.Stop(context.Background(), service.Snell); err != nil {
+			return err
+		}
+		if err := service.Disable(context.Background(), service.Snell); err != nil {
+			return err
+		}
+	}
 	if cleanup != nil {
 		if err := service.RemoveShadowTLSBindingByBackend(context.Background(), cleanup.backendProto, cleanup.backendPort); err != nil {
 			return err

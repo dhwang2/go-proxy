@@ -300,7 +300,7 @@ func componentService(comp core.Component) string {
 	case core.CompSingBox:
 		return "sing-box"
 	case core.CompSnell:
-		return "snell-v5"
+		return "snell-v6"
 	case core.CompShadowTLS:
 		return "shadow-tls"
 	case core.CompCaddy:

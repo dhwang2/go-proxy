@@ -298,9 +298,9 @@ func (v *LogsView) buildServiceMenu() tui.MenuModel {
 		key++
 	}
 
-	// Add snell-v5 if config exists.
-	if v.Model.Store().SnellConf != nil && !seen["snell-v5"] {
-		items = append(items, tui.MenuItem{Key: key, Label: "snell-v5", ID: "snell-v5"})
+	// Add snell-v6 if config exists.
+	if v.Model.Store().SnellConf != nil && !seen["snell-v6"] {
+		items = append(items, tui.MenuItem{Key: key, Label: "snell-v6", ID: "snell-v6"})
 		key++
 	}
 

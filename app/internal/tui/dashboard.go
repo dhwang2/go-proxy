@@ -216,7 +216,7 @@ var (
 
 const serviceStatusTTL = 10 * time.Second
 
-var dashboardServices = []string{"sing-box", "snell-v5", "shadow-tls", "caddy-sub", "proxy-watchdog"}
+var dashboardServices = []string{"sing-box", "snell-v6", "shadow-tls", "caddy-sub", "proxy-watchdog"}
 
 // Pre-rendered dot styles to avoid per-frame allocation.
 var (
@@ -313,7 +313,7 @@ func renderCompactServiceStatus() string {
 			return "stls"
 		case "caddy-sub":
 			return "cdy"
-		case "snell-v5":
+		case "snell-v6":
 			return "snl"
 		case "proxy-watchdog":
 			return "wdog"

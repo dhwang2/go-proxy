@@ -239,8 +239,8 @@ install_singbox_core() {
 
 install_snell() {
   local arch="$1"
-  local version="5.0.1"
-  echo "installing snell-v5 v${version}..."
+  local version="6.0.0rc2"
+  echo "installing snell-v6 v${version}..."
 
   mkdir -p "${BIN_DIR}"
   local snell_arch="${arch}"

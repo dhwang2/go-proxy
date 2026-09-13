@@ -257,9 +257,9 @@ func (v *ServiceView) doStatusTable() tea.Msg {
 						stlsKey = fmt.Sprintf("ss|%d", port)
 						stlsProto = "ss+shadow-tls-v3"
 						stlsBack = "ss"
-					case "snell", "snell-v5":
+					case "snell", "snell-v6":
 						stlsKey = fmt.Sprintf("snell|%d", port)
-						stlsProto = "snell-v5+shadow-tls-v3"
+						stlsProto = "snell-v6+shadow-tls-v3"
 						stlsBack = "snell"
 					}
 					if stlsKey != "" {
@@ -295,7 +295,7 @@ func (v *ServiceView) doStatusTable() tea.Msg {
 		svcName service.Name
 	}{
 		{"sing-box", service.SingBox},
-		{"snell-v5", service.Snell},
+		{"snell-v6", service.Snell},
 		{"shadow-tls", service.ShadowTLS},
 		{"caddy-sub", service.CaddySub},
 		{"watchdog", service.Watchdog},

@@ -14,8 +14,8 @@ func ServiceLogSource(svc string) (logFile, unit string) {
 	switch svc {
 	case "sing-box":
 		return config.SingBoxLog, "sing-box"
-	case "snell-v5":
-		return config.SnellLog, "snell-v5"
+	case "snell-v6":
+		return config.SnellLog, "snell-v6"
 	case "shadow-tls":
 		return config.ShadowTLSLog, "shadow-tls"
 	case "caddy-sub":

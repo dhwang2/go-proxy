@@ -69,12 +69,30 @@ func TestRenderSnellSurgeIncludesRequiredParams(t *testing.T) {
 	}
 	for _, want := range []string{
 		"psk=secret",
-		"version=5",
+		"version=6",
 		"reuse=true",
 		"tfo=true",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("renderSnellSurge() missing %q in %q", want, got)
+		}
+	}
+}
+
+func TestSurgeIPv6HostsAreUnbracketed(t *testing.T) {
+	entry := derived.MembershipEntry{UserName: "alice", UserID: "secret"}
+	ib := &store.Inbound{Type: "shadowsocks", ListenPort: 1443, Method: "aes-128-gcm"}
+	conf := &store.SnellConfig{Listen: "0.0.0.0:1443", PSK: "secret"}
+	binding := service.ShadowTLSBinding{ListenPort: 8443, Password: "shadow-pass", SNI: "example.com", Version: 3}
+	host := "2001:db8::1"
+	for name, got := range map[string]string{
+		"sing-box":         renderSurge(ib, entry, host, "example.com", ""),
+		"snell":            renderSnellSurge(entry, conf, host, ""),
+		"shadow-tls-ss":    renderShadowTLSShadowsocksSurge(ib, entry, binding, host, ""),
+		"shadow-tls-snell": renderShadowTLSSnellSurge(entry, conf, binding, host, ""),
+	} {
+		if !strings.Contains(got, ", "+host+", ") || strings.Contains(got, "["+host+"]") {
+			t.Errorf("%s IPv6 host is not a bare address: %s", name, got)
 		}
 	}
 }
@@ -145,6 +163,7 @@ func TestRenderShadowTLSSnellSurgeIncludesShadowTLSParams(t *testing.T) {
 	for _, want := range []string{
 		"8443",
 		"psk=secret",
+		"version=6",
 		"shadow-tls-password=shadow-pass",
 		"shadow-tls-sni=www.microsoft.com",
 		"shadow-tls-version=3",

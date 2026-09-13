@@ -69,7 +69,7 @@ func ProvisionSingBox(ctx context.Context) error {
 // ProvisionSnell writes the snell systemd unit file.
 func ProvisionSnell(ctx context.Context) error {
 	return provisionUnit(ctx, config.SnellService, renderUnit(unitSpec{
-		Description: "Snell v5 Proxy Service",
+		Description: "Snell v6 Proxy Service",
 		ExecStart:   fmt.Sprintf("%s -c %s", config.SnellBin, config.SnellConfigFile),
 		LogPath:     config.SnellLog,
 	}))

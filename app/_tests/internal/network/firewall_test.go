@@ -86,3 +86,26 @@ func TestDesiredFirewallPortsIncludesCustomPorts(t *testing.T) {
 		t.Fatalf("custom ports missing from desired firewall ports: %#v", specs)
 	}
 }
+
+func TestSnellV6FirewallUsesTCPOnly(t *testing.T) {
+	s := &store.Store{
+		SingBox:   &store.SingBoxConfig{},
+		SnellConf: &store.SnellConfig{Listen: "0.0.0.0:18443", PSK: "test-password"},
+	}
+	ports, err := DesiredFirewallPorts(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, port := range ports {
+		if port.Port == 18443 {
+			found = true
+			if port.Proto != "tcp" || strings.Join(port.Sources, ",") != "snell-v6" {
+				t.Errorf("unexpected Snell v6 port: %#v", port)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("missing Snell TCP listener")
+	}
+}

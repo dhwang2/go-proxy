@@ -19,7 +19,7 @@ func setupTestDir(t *testing.T) func() {
 	config.UserMetaFile = filepath.Join(dir, "user-management.json")
 	config.UserRouteFile = filepath.Join(dir, "user-route-rules.json")
 	config.UserTemplateFile = filepath.Join(dir, "user-route-templates.json")
-	config.SnellConfigFile = filepath.Join(dir, "snell-v5.conf")
+	config.SnellConfigFile = filepath.Join(dir, "snell-v6.conf")
 	config.SingBoxBin = "/nonexistent/sing-box" // skip validation
 
 	os.MkdirAll(filepath.Join(dir, "conf"), 0755)
@@ -126,11 +126,11 @@ func TestSnellRoundtrip(t *testing.T) {
 	if conf.PSK != "testpsk123" {
 		t.Errorf("PSK = %q, want testpsk123", conf.PSK)
 	}
-	if conf.Obfs != "off" {
-		t.Errorf("Obfs = %q, want off", conf.Obfs)
-	}
 
 	output := string(conf.MarshalSnellConfig())
+	if strings.Contains(output, "obfs =") || strings.Contains(output, "udp =") {
+		t.Fatalf("removed Snell options in config: %s", output)
+	}
 	if !strings.HasPrefix(output, "[snell-server]\n") {
 		t.Fatalf("MarshalSnellConfig() header = %q, want [snell-server]", output)
 	}
@@ -141,7 +141,7 @@ func TestSnellRoundtrip(t *testing.T) {
 	if conf2.Listen != conf.Listen || conf2.PSK != conf.PSK {
 		t.Error("roundtrip mismatch")
 	}
-	if conf2.Obfs != "off" || conf2.IPv6 || conf2.UDP {
+	if conf2.IPv6 {
 		t.Fatalf("roundtrip snell defaults mismatch: %+v", conf2)
 	}
 }

@@ -82,7 +82,7 @@ var specs = map[Type]Spec{
 		DedicatedPort: true, NeedsTLS: false,
 	},
 	Snell: {
-		Type: Snell, DisplayName: "snell-v5", SingBoxType: "",
+		Type: Snell, DisplayName: "snell-v6", SingBoxType: "",
 		DedicatedPort: true, NeedsTLS: false, ExternalBin: "snell-server",
 	},
 	ShadowTLS: {

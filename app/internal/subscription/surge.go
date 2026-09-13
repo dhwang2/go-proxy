@@ -18,7 +18,7 @@ import (
 // targetHost is the IP/host to connect to; sniHost is used for SNI (original domain or configured SNI).
 // tagSuffix is appended to the proxy tag (e.g. "-v4", "-v6", or "").
 func renderSurge(ib *store.Inbound, entry derived.MembershipEntry, targetHost, sniHost, tagSuffix string) string {
-	fmtHost := FormatHost(targetHost)
+	fmtHost := targetHost
 	sni := ib.ServerName()
 	if sni == "" {
 		cleaned := SanitizeServerName(sniHost)
@@ -77,8 +77,8 @@ func renderSnellSurge(entry derived.MembershipEntry, conf *store.SnellConfig, ta
 		return ""
 	}
 	tag := surgeProxyTag("snell", entry.UserName, tagSuffix)
-	return fmt.Sprintf("%s = snell, %s, %d, psk=%s, version=5, reuse=true, tfo=true",
-		tag, FormatHost(targetHost), conf.Port(), conf.PSK)
+	return fmt.Sprintf("%s = snell, %s, %d, psk=%s, version=6, reuse=true, tfo=true",
+		tag, targetHost, conf.Port(), conf.PSK)
 }
 
 func renderShadowTLSShadowsocksSurge(ib *store.Inbound, entry derived.MembershipEntry, binding service.ShadowTLSBinding, targetHost, tagSuffix string) string {
@@ -92,7 +92,7 @@ func renderShadowTLSShadowsocksSurge(ib *store.Inbound, entry derived.Membership
 	}
 	tag := surgeProxyTag("ss", entry.UserName, tagSuffix)
 	return fmt.Sprintf("%s = ss, %s, %d, encrypt-method=%s, password=\"%s\", shadow-tls-password=%s, shadow-tls-sni=%s, shadow-tls-version=%s, udp-relay=true",
-		tag, FormatHost(targetHost), binding.ListenPort, method, escapeSurgeQuoted(ssPassword(ib, entry.UserID)), binding.Password, binding.SNI, strconv.Itoa(version))
+		tag, targetHost, binding.ListenPort, method, escapeSurgeQuoted(ssPassword(ib, entry.UserID)), binding.Password, binding.SNI, strconv.Itoa(version))
 }
 
 func renderShadowTLSSnellSurge(entry derived.MembershipEntry, conf *store.SnellConfig, binding service.ShadowTLSBinding, targetHost, tagSuffix string) string {
@@ -104,8 +104,8 @@ func renderShadowTLSSnellSurge(entry derived.MembershipEntry, conf *store.SnellC
 		version = 3
 	}
 	tag := surgeProxyTag("snell", entry.UserName, tagSuffix)
-	return fmt.Sprintf("%s = snell, %s, %d, psk=%s, version=5, reuse=true, tfo=true, shadow-tls-password=%s, shadow-tls-sni=%s, shadow-tls-version=%s",
-		tag, FormatHost(targetHost), binding.ListenPort, conf.PSK, binding.Password, binding.SNI, strconv.Itoa(version))
+	return fmt.Sprintf("%s = snell, %s, %d, psk=%s, version=6, reuse=true, tfo=true, shadow-tls-password=%s, shadow-tls-sni=%s, shadow-tls-version=%s",
+		tag, targetHost, binding.ListenPort, conf.PSK, binding.Password, binding.SNI, strconv.Itoa(version))
 }
 
 // surgeProtoLabel returns a short, user-facing protocol label for surge proxy names.

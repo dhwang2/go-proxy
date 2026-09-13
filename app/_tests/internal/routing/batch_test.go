@@ -18,7 +18,7 @@ func setupRoutingStore(t *testing.T) *store.Store {
 	config.UserRouteFile = filepath.Join(dir, "user-route-rules.json")
 	config.UserTemplateFile = filepath.Join(dir, "user-route-templates.json")
 	config.FirewallConfigFile = filepath.Join(dir, "firewall-ports.json")
-	config.SnellConfigFile = filepath.Join(dir, "snell-v5.conf")
+	config.SnellConfigFile = filepath.Join(dir, "snell-v6.conf")
 	config.SingBoxBin = "/nonexistent/sing-box"
 
 	if err := os.MkdirAll(filepath.Dir(config.SingBoxConfig), 0o755); err != nil {

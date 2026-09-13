@@ -180,7 +180,7 @@ func (v *UninstallView) renderPreview(width int) tableSections {
 func (v *UninstallView) previewRows() [][]string {
 	rows := [][]string{
 		{"服务", "sing-box", config.SingBoxService},
-		{"服务", "snell-v5", config.SnellService},
+		{"服务", "snell-v6", config.SnellService},
 		{"服务", "shadow-tls", config.ShadowTLSService},
 		{"服务", "caddy-sub", config.CaddySubService},
 		{"服务", "watchdog", config.WatchdogService},
@@ -189,7 +189,7 @@ func (v *UninstallView) previewRows() [][]string {
 		{"二进制", "shadow-tls", config.ShadowTLSBin},
 		{"二进制", "caddy", config.CaddyBin},
 		{"配置", "sing-box.json", config.SingBoxConfig},
-		{"配置", "snell-v5.conf", config.SnellConfigFile},
+		{"配置", "snell-v6.conf", config.SnellConfigFile},
 		{"配置", "user-management.json", config.UserMetaFile},
 		{"配置", "user-route-rules.json", config.UserRouteFile},
 		{"配置", "user-route-templates.json", config.UserTemplateFile},
@@ -198,7 +198,7 @@ func (v *UninstallView) previewRows() [][]string {
 		{"配置", "Caddyfile", config.CaddyFile},
 		{"配置", ".domain", config.DomainFile},
 		{"日志", "sing-box.service.log", config.SingBoxLog},
-		{"日志", "snell-v5.service.log", config.SnellLog},
+		{"日志", "snell-v6.service.log", config.SnellLog},
 		{"日志", "shadow-tls.service.log", config.ShadowTLSLog},
 		{"日志", "caddy-sub.service.log", config.CaddySubLog},
 		{"日志", "proxy-watchdog.log", config.WatchdogLog},

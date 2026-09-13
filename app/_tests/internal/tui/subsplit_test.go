@@ -22,10 +22,10 @@ func TestSubSplitEnablesAtRightPanelContentWidth(t *testing.T) {
 
 func TestSubSplitAutoFitsLeftPaneToLongestLine(t *testing.T) {
 	m := NewSubSplit(60, 20)
-	left := "  1. ss\n  2. vless\n  3. tuic\n  4. trojan\n  5. anytls\n  6. snell-v5"
+	left := "  1. ss\n  2. vless\n  3. tuic\n  4. trojan\n  5. anytls\n  6. snell-v6"
 	_ = m.View(left, "")
 
-	wantMin := lipgloss.Width("  6. snell-v5")
+	wantMin := lipgloss.Width("  6. snell-v6")
 	if m.LeftWidth() < wantMin {
 		t.Fatalf("left width = %d, want >= %d", m.LeftWidth(), wantMin)
 	}

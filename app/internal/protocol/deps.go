@@ -17,7 +17,7 @@ type DepStep struct {
 }
 
 // ProvisionDeps ensures all runtime dependencies for a protocol are in place:
-// binary downloaded, systemd service created, service enabled and started.
+// binary downloaded and systemd service created.
 // It returns a slice of steps taken (for progress display).
 func ProvisionDeps(ctx context.Context, protoType Type, params InstallParams) []DepStep {
 	spec := specs[protoType]
@@ -87,7 +87,6 @@ func ensureSnell(ctx context.Context) []DepStep {
 		steps = append(steps, step)
 	}
 
-	steps = append(steps, enableAndStart(ctx, service.Snell)...)
 	return steps
 }
 

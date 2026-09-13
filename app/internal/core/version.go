@@ -55,7 +55,13 @@ func DetectVersion(ctx context.Context, binPath string, component Component) Ver
 		cmd = exec.CommandContext(execCtx, binPath, "--version")
 	}
 
-	out, err := cmd.Output()
+	var out []byte
+	var err error
+	if component == CompSnell {
+		out, err = cmd.CombinedOutput()
+	} else {
+		out, err = cmd.Output()
+	}
 	if err != nil {
 		return info
 	}
@@ -82,6 +88,11 @@ func parseVersion(output string, component Component) string {
 		// "shadow-tls 0.2.25" -> extract last field as version
 		if parts := strings.Fields(output); len(parts) >= 1 {
 			return parts[len(parts)-1]
+		}
+	case CompSnell:
+		_, version, _ := strings.Cut(output, "snell-server ")
+		if parts := strings.Fields(version); len(parts) > 0 {
+			return parts[0]
 		}
 	default:
 		// First line, first word.

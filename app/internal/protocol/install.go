@@ -109,8 +109,6 @@ type InstallParams struct {
 	CongestionControl string // e.g., "bbr", "cubic"
 	// Snell parameters.
 	SnellIPv6 bool
-	SnellObfs string // "off", "http", "tls"
-	SnellUDP  bool
 }
 
 // InstallResult holds the output of a protocol installation.
@@ -459,16 +457,10 @@ func buildSnellConfig(p InstallParams) (*store.SnellConfig, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	obfs := p.SnellObfs
-	if obfs == "" {
-		obfs = "off"
-	}
 	conf := &store.SnellConfig{
 		Listen: fmt.Sprintf("0.0.0.0:%d", p.Port),
 		PSK:    psk,
 		IPv6:   p.SnellIPv6,
-		Obfs:   obfs,
-		UDP:    p.SnellUDP,
 	}
 	return conf, psk, nil
 }

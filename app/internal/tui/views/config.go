@@ -36,7 +36,7 @@ func NewConfigView(model *tui.Model) *ConfigView {
 	v.Model = model
 	v.Menu = tui.NewMenu("", []tui.MenuItem{
 		{Key: '1', Label: "󰈔 sing-box", ID: "singbox"},
-		{Key: '2', Label: "󰈔 snell-v5", ID: "snell"},
+		{Key: '2', Label: "󰈔 snell-v6", ID: "snell"},
 		{Key: '3', Label: "󰈔 shadow-tls", ID: "shadowtls"},
 	})
 	return v
@@ -309,7 +309,7 @@ func renderOrderedSingBoxJSON(c *store.SingBoxConfig) string {
 func (v *ConfigView) renderSnell(width int) string {
 	conf := v.Model.Store().SnellConf
 	if conf == nil {
-		return "  snell-v5 未安装\n\n  配置文件: " + config.SnellConfigFile
+		return "  snell-v6 未安装\n\n  配置文件: " + config.SnellConfigFile
 	}
 
 	type kv struct{ k, v string }
@@ -323,8 +323,6 @@ func (v *ConfigView) renderSnell(width int) string {
 		{"监听地址", conf.Listen},
 		{"PSK", conf.PSK},
 		{"IPv6", boolStr(conf.IPv6)},
-		{"UDP", boolStr(conf.UDP)},
-		{"Obfs", conf.Obfs},
 		{"配置路径", config.SnellConfigFile},
 	}
 	tableRows := make([][]string, 0, len(rows))
@@ -333,7 +331,7 @@ func (v *ConfigView) renderSnell(width int) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(lipgloss.NewStyle().Foreground(tui.ColorPrimary).Bold(true).Render("  snell-v5 配置"))
+	sb.WriteString(lipgloss.NewStyle().Foreground(tui.ColorPrimary).Bold(true).Render("  snell-v6 配置"))
 	sb.WriteString("\n\n")
 	sb.WriteString(renderTable([]string{"属性", "值"}, tableRows, width, false))
 	return sb.String()

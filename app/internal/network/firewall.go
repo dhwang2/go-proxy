@@ -187,10 +187,7 @@ func DesiredFirewallPorts(s *store.Store) ([]FirewallPortSpec, error) {
 			addPort(info.Port, "udp", "ss")
 		case store.SnellTag:
 			if !protectedBackends[fmt.Sprintf("snell/%d", info.Port)] {
-				addPort(info.Port, "tcp", "snell-v5")
-			}
-			if s.SnellConf != nil && s.SnellConf.UDP {
-				addPort(info.Port, "udp", "snell-v5")
+				addPort(info.Port, "tcp", "snell-v6")
 			}
 		default:
 			addPort(info.Port, "tcp", info.Type)

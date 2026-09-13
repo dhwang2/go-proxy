@@ -27,7 +27,7 @@ var (
 	UserRouteFile      = filepath.Join(WorkDir, "user-route-rules.json")
 	UserTemplateFile   = filepath.Join(WorkDir, "user-route-templates.json")
 	FirewallConfigFile = filepath.Join(WorkDir, "firewall-ports.json")
-	SnellConfigFile    = filepath.Join(WorkDir, "snell-v5.conf")
+	SnellConfigFile    = filepath.Join(WorkDir, "snell-v6.conf")
 	SubscriptionFile   = filepath.Join(WorkDir, "subscription.txt")
 	CaddyFile          = filepath.Join(WorkDir, "Caddyfile")
 	DomainFile         = filepath.Join(WorkDir, ".domain")
@@ -44,7 +44,7 @@ var (
 // Systemd unit file paths.
 const (
 	SingBoxService   = "/etc/systemd/system/sing-box.service"
-	SnellService     = "/etc/systemd/system/snell-v5.service"
+	SnellService     = "/etc/systemd/system/snell-v6.service"
 	ShadowTLSService = "/etc/systemd/system/shadow-tls.service"
 	CaddySubService  = "/etc/systemd/system/caddy-sub.service"
 	WatchdogService  = "/etc/systemd/system/proxy-watchdog.service"
@@ -53,7 +53,7 @@ const (
 // Log file paths.
 var (
 	SingBoxLog   = filepath.Join(LogDir, "sing-box.service.log")
-	SnellLog     = filepath.Join(LogDir, "snell-v5.service.log")
+	SnellLog     = filepath.Join(LogDir, "snell-v6.service.log")
 	ShadowTLSLog = filepath.Join(LogDir, "shadow-tls.service.log")
 	CaddySubLog  = filepath.Join(LogDir, "caddy-sub.service.log")
 	WatchdogLog  = filepath.Join(LogDir, "proxy-watchdog.log")

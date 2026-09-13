@@ -30,8 +30,6 @@ type ProtocolInstallView struct {
 	pendingEmail      string
 	lastResult        *protocol.InstallResult
 	pendingSnellIPv6  bool
-	pendingSnellObfs  string
-	pendingSnellUDP   bool
 	pendingCongestion string
 	pendingSSMethod   string
 }
@@ -49,8 +47,6 @@ const (
 	protoInstallShadowTLSPrompt
 	protoInstallShadowTLSPort
 	protoInstallSnellIPv6
-	protoInstallSnellObfs
-	protoInstallSnellUDP
 	protoInstallOptions
 )
 
@@ -111,10 +107,6 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v.handleDomainInput(msg.Value)
 		case protoInstallEmail:
 			return v.handleEmailInput(msg.Value)
-		case protoInstallSnellObfs:
-			v.pendingSnellObfs = msg.Value
-			v.step = protoInstallSnellUDP
-			return v, v.SetInline(components.NewConfirm("启用 UDP?"))
 		case protoInstallShadowTLSPort:
 			port, err := strconv.Atoi(strings.TrimSpace(msg.Value))
 			if err != nil || port <= 0 || port > 65535 {
@@ -176,10 +168,6 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		switch v.step {
 		case protoInstallSnellIPv6:
 			v.pendingSnellIPv6 = msg.Confirmed
-			v.step = protoInstallSnellObfs
-			return v, v.SetInline(components.NewSelectList("Obfs 模式:", []string{"off", "http", "tls"}))
-		case protoInstallSnellUDP:
-			v.pendingSnellUDP = msg.Confirmed
 			return v, v.proceedAfterOptions()
 		case protoInstallShadowTLSPrompt:
 			if msg.Confirmed && v.lastResult != nil {
@@ -272,8 +260,6 @@ func (v *ProtocolInstallView) resetMenuState(contentWidth, contentHeight int) {
 	v.pendingEmail = ""
 	v.lastResult = nil
 	v.pendingSnellIPv6 = false
-	v.pendingSnellObfs = ""
-	v.pendingSnellUDP = false
 	v.pendingCongestion = ""
 	v.pendingSSMethod = ""
 	v.SetFocus(true)
@@ -488,8 +474,6 @@ func (v *ProtocolInstallView) doInstallWithPort(pt protocol.Type, port int) tea.
 		SSMethod:          v.pendingSSMethod,
 		CongestionControl: v.pendingCongestion,
 		SnellIPv6:         v.pendingSnellIPv6,
-		SnellObfs:         v.pendingSnellObfs,
-		SnellUDP:          v.pendingSnellUDP,
 	}
 
 	// Provision dependencies (download binaries, create systemd services).
@@ -513,6 +497,14 @@ func (v *ProtocolInstallView) doInstallWithPort(pt protocol.Type, port int) tea.
 	}
 	if err := v.Model.Store().Apply(); err != nil {
 		return protoInstallDoneMsg{result: "保存失败: " + err.Error()}
+	}
+	if pt == protocol.Snell {
+		if err := service.Enable(ctx, service.Snell); err != nil {
+			return protoInstallDoneMsg{result: "启用 snell 失败: " + err.Error()}
+		}
+		if err := service.Restart(ctx, service.Snell); err != nil {
+			return protoInstallDoneMsg{result: "启动 snell 失败: " + err.Error()}
+		}
 	}
 	if err := service.EnsureWatchdogRunningForCurrentBinary(context.Background()); err != nil {
 		return protoInstallDoneMsg{result: "启动 watchdog 失败: " + err.Error()}

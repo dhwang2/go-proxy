@@ -16,7 +16,7 @@ type Name string
 
 const (
 	SingBox   Name = "sing-box"
-	Snell     Name = "snell-v5"
+	Snell     Name = "snell-v6"
 	ShadowTLS Name = "shadow-tls"
 	CaddySub  Name = "caddy-sub"
 	Watchdog  Name = "proxy-watchdog"

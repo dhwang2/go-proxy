@@ -31,7 +31,7 @@ const (
 	FileUserRoutes   = "user-route-rules.json"
 	FileUserTemplate = "user-route-templates.json"
 	FileFirewall     = "firewall-ports.json"
-	FileSnellConf    = "snell-v5.conf"
+	FileSnellConf    = "snell-v6.conf"
 )
 
 // Load reads all configuration files from disk into memory.
@@ -84,7 +84,7 @@ func Load() (*Store, error) {
 	s.Firewall = fw
 	s.Firewall.Normalize()
 
-	// snell-v5.conf (optional)
+	// snell-v6.conf (optional)
 	if data, err := os.ReadFile(config.SnellConfigFile); err == nil {
 		sc, err := ParseSnellConfig(string(data))
 		if err == nil {
