@@ -24,9 +24,6 @@ func renderSingBox(ib *store.Inbound, entry derived.MembershipEntry, host string
 		if u := ib.FindUser(entry.UserName); u != nil && u.Flow != "" {
 			out["flow"] = u.Flow
 		}
-		if ib.TLS != nil {
-			out["tls"] = buildClientTLS(ib.TLS)
-		}
 
 	case "tuic":
 		out["uuid"] = entry.UserID
@@ -34,21 +31,9 @@ func renderSingBox(ib *store.Inbound, entry derived.MembershipEntry, host string
 			out["password"] = u.Password
 		}
 		out["congestion_control"] = "bbr"
-		if ib.TLS != nil {
-			out["tls"] = buildClientTLS(ib.TLS)
-		}
-
-	case "trojan":
-		out["password"] = entry.UserID
-		if ib.TLS != nil {
-			out["tls"] = buildClientTLS(ib.TLS)
-		}
 
 	case "anytls":
 		out["password"] = entry.UserID
-		if ib.TLS != nil {
-			out["tls"] = buildClientTLS(ib.TLS)
-		}
 
 	case "shadowsocks":
 		method := ib.Method
@@ -57,13 +42,22 @@ func renderSingBox(ib *store.Inbound, entry derived.MembershipEntry, host string
 		}
 		out["method"] = method
 		out["password"] = ssPassword(ib, entry.UserID)
+	default:
+		return ""
+	}
+	if ib.TLS != nil {
+		tls, err := buildClientTLS(ib.TLS)
+		if err != nil {
+			return ""
+		}
+		out["tls"] = tls
 	}
 
 	data, _ := json.MarshalIndent(out, "", "  ")
 	return string(data)
 }
 
-func buildClientTLS(tls *store.TLSConfig) map[string]any {
+func buildClientTLS(tls *store.TLSConfig) (map[string]any, error) {
 	t := map[string]any{
 		"enabled":     true,
 		"server_name": tls.ServerName,
@@ -72,15 +66,21 @@ func buildClientTLS(tls *store.TLSConfig) map[string]any {
 		t["alpn"] = tls.ALPN
 	}
 	if tls.Reality != nil && tls.Reality.Enabled {
+		publicKey, err := crypto.RealityPublicKey(tls.Reality.PrivateKey)
+		if err != nil {
+			return nil, err
+		}
 		reality := map[string]any{
-			"enabled": true,
+			"enabled":    true,
+			"public_key": publicKey,
 		}
 		if len(tls.Reality.ShortID) > 0 {
 			reality["short_id"] = tls.Reality.ShortID[0]
 		}
 		t["reality"] = reality
+		t["utls"] = map[string]any{"enabled": true, "fingerprint": "chrome"}
 	}
-	return t
+	return t, nil
 }
 
 // ssPassword composes the Shadowsocks 2022 password (server_key:user_key for multi-user).

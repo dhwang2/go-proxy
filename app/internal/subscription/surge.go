@@ -45,16 +45,6 @@ func renderSurge(ib *store.Inbound, entry derived.MembershipEntry, targetHost, s
 		return fmt.Sprintf("%s = tuic-v5, %s, %d, password=%s, uuid=%s, alpn=h3, sni=%s, skip-cert-verify=false, congestion-controller=bbr, udp-relay=true",
 			tag, fmtHost, ib.ListenPort, user.Password, uuid, sni)
 
-	case "trojan":
-		params := []string{
-			fmt.Sprintf("%s = trojan, %s, %d, password=%s, sni=%s", tag, fmtHost, ib.ListenPort, entry.UserID, sni),
-		}
-		if alpn := firstALPN(ib.TLS); alpn != "" {
-			params = append(params, "alpn="+alpn)
-		}
-		params = append(params, "skip-cert-verify=false", "udp-relay=true")
-		return strings.Join(params, ", ")
-
 	case "anytls":
 		return fmt.Sprintf("%s = anytls, %s, %d, password=%s, sni=%s, skip-cert-verify=false, reuse=true",
 			tag, fmtHost, ib.ListenPort, entry.UserID, sni)
@@ -145,18 +135,6 @@ func surgeProxyTag(proto, userName, tagSuffix string) string {
 	}
 	parts = append(parts, userName)
 	return strings.Join(parts, "-")
-}
-
-func firstALPN(tls *store.TLSConfig) string {
-	if tls == nil || len(tls.ALPN) == 0 {
-		return ""
-	}
-	for _, alpn := range tls.ALPN {
-		if trimmed := strings.TrimSpace(alpn); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
 }
 
 func escapeSurgeQuoted(s string) string {

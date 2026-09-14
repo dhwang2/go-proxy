@@ -356,6 +356,8 @@ func (v *ProtocolRemoveView) doRemove(tag, userName string) error {
 		if err := service.Disable(context.Background(), service.Snell); err != nil {
 			return err
 		}
+	} else if err := service.Restart(context.Background(), service.SingBox); err != nil {
+		return err
 	}
 	if cleanup != nil {
 		if err := service.RemoveShadowTLSBindingByBackend(context.Background(), cleanup.backendProto, cleanup.backendPort); err != nil {

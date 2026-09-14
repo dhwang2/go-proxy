@@ -49,7 +49,7 @@ func AddUserToExisting(s *store.Store, ib *store.Inbound, userName string) (*Ins
 		s.MarkDirty(store.FileSingBox)
 		return &InstallResult{Tag: ib.Tag, Port: ib.ListenPort, Credential: uuid}, nil
 
-	case "trojan", "anytls":
+	case "anytls":
 		password, err := crypto.GeneratePassword(16)
 		if err != nil {
 			return nil, err
@@ -168,23 +168,6 @@ func Install(s *store.Store, params InstallParams) (*InstallResult, error) {
 		}
 		s.SingBox.Inbounds = append(s.SingBox.Inbounds, *ib)
 		result.Credential = cred
-
-	case Trojan:
-		ib, cred, err := buildTrojanInbound(tag, params)
-		if err != nil {
-			return nil, err
-		}
-		s.SingBox.Inbounds = append(s.SingBox.Inbounds, *ib)
-		result.Credential = cred
-
-	case TrojanReality:
-		ib, cred, pubKey, err := buildTrojanRealityInbound(tag, params)
-		if err != nil {
-			return nil, err
-		}
-		s.SingBox.Inbounds = append(s.SingBox.Inbounds, *ib)
-		result.Credential = cred
-		result.PublicKey = pubKey
 
 	case AnyTLS:
 		ib, cred, err := buildAnyTLSInbound(tag, params)
@@ -361,48 +344,6 @@ func buildTUICInbound(tag string, p InstallParams) (*store.Inbound, string, erro
 		TLS: tls,
 	}
 	return ib, uuid, nil
-}
-
-func buildTrojanInbound(tag string, p InstallParams) (*store.Inbound, string, error) {
-	password, err := crypto.GeneratePassword(16)
-	if err != nil {
-		return nil, "", err
-	}
-	tls := buildStandardTLS(p)
-	tls.ALPN = []string{"h2", "http/1.1"}
-	ib := &store.Inbound{
-		Type:       "trojan",
-		Tag:        tag,
-		Listen:     "0.0.0.0",
-		ListenPort: p.Port,
-		Users: []store.User{
-			{Name: p.UserName, Password: password},
-		},
-		TLS: tls,
-	}
-	return ib, password, nil
-}
-
-func buildTrojanRealityInbound(tag string, p InstallParams) (*store.Inbound, string, string, error) {
-	password, err := crypto.GeneratePassword(16)
-	if err != nil {
-		return nil, "", "", err
-	}
-	tls, pubKey, err := buildRealityTLS(p)
-	if err != nil {
-		return nil, "", "", err
-	}
-	ib := &store.Inbound{
-		Type:       "trojan",
-		Tag:        tag,
-		Listen:     "0.0.0.0",
-		ListenPort: p.Port,
-		Users: []store.User{
-			{Name: p.UserName, Password: password},
-		},
-		TLS: tls,
-	}
-	return ib, password, pubKey, nil
 }
 
 func buildAnyTLSInbound(tag string, p InstallParams) (*store.Inbound, string, error) {

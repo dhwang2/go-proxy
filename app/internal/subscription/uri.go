@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/url"
-	"strings"
 
 	"go-proxy/internal/crypto"
 	"go-proxy/internal/derived"
@@ -33,6 +32,11 @@ func renderURI(ib *store.Inbound, entry derived.MembershipEntry, host string) st
 				params.Set("security", "reality")
 				params.Set("fp", "chrome")
 				if r := ib.TLS.Reality; r != nil {
+					publicKey, err := crypto.RealityPublicKey(r.PrivateKey)
+					if err != nil {
+						return ""
+					}
+					params.Set("pbk", publicKey)
 					if len(r.ShortID) > 0 {
 						params.Set("sid", r.ShortID[0])
 					}
@@ -61,17 +65,6 @@ func renderURI(ib *store.Inbound, entry derived.MembershipEntry, host string) st
 		params.Set("allow_insecure", "1")
 		return fmt.Sprintf("tuic://%s:%s@%s:%d?%s#%s",
 			entry.UserID, password, fmtHost, ib.ListenPort, params.Encode(), fragment)
-
-	case "trojan":
-		params := url.Values{}
-		params.Set("security", "tls")
-		params.Set("sni", sni)
-		params.Set("type", "tcp")
-		if ib.TLS != nil && len(ib.TLS.ALPN) > 0 {
-			params.Set("alpn", strings.Join(ib.TLS.ALPN, ","))
-		}
-		return fmt.Sprintf("trojan://%s@%s:%d?%s#%s",
-			entry.UserID, fmtHost, ib.ListenPort, params.Encode(), fragment)
 
 	case "anytls":
 		params := url.Values{}

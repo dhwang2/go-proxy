@@ -15,29 +15,27 @@ import (
 type Type string
 
 const (
-	VLESS         Type = "vless"
-	VLESSReality  Type = "vless-reality"
-	TUIC          Type = "tuic"
-	Trojan        Type = "trojan"
-	TrojanReality Type = "trojan-reality"
-	AnyTLS        Type = "anytls"
-	Shadowsocks   Type = "shadowsocks"
-	Snell         Type = "snell"
-	ShadowTLS     Type = "shadow-tls"
+	VLESS        Type = "vless"
+	VLESSReality Type = "vless-reality"
+	TUIC         Type = "tuic"
+	AnyTLS       Type = "anytls"
+	Shadowsocks  Type = "shadowsocks"
+	Snell        Type = "snell"
+	ShadowTLS    Type = "shadow-tls"
 )
 
 // AllTypes returns all supported protocol types.
 func AllTypes() []Type {
 	return []Type{
-		VLESS, VLESSReality, TUIC, Trojan, TrojanReality,
+		VLESS, VLESSReality, TUIC,
 		AnyTLS, Shadowsocks, Snell, ShadowTLS,
 	}
 }
 
-// InstallableTypes returns the 6 user-facing protocols in shell-proxy menu order.
+// InstallableTypes returns the user-facing protocols in menu order.
 // Reality/ShadowTLS variants are sub-options during the install flow, not top-level choices.
 func InstallableTypes() []Type {
-	return []Type{Shadowsocks, VLESS, TUIC, Trojan, AnyTLS, Snell}
+	return []Type{Shadowsocks, VLESS, TUIC, AnyTLS, Snell}
 }
 
 // Spec describes protocol characteristics.
@@ -64,14 +62,6 @@ var specs = map[Type]Spec{
 	TUIC: {
 		Type: TUIC, DisplayName: "tuic", SingBoxType: "tuic",
 		DedicatedPort: true, NeedsTLS: true,
-	},
-	Trojan: {
-		Type: Trojan, DisplayName: "trojan", SingBoxType: "trojan",
-		DedicatedPort: false, NeedsTLS: true,
-	},
-	TrojanReality: {
-		Type: TrojanReality, DisplayName: "trojan + reality", SingBoxType: "trojan",
-		DedicatedPort: true, NeedsTLS: true, UsesReality: true,
 	},
 	AnyTLS: {
 		Type: AnyTLS, DisplayName: "anytls", SingBoxType: "anytls",
@@ -112,7 +102,7 @@ func InboundTag(protoType Type, port int) string {
 // CommonPorts returns the preferred port candidates for a protocol type.
 func CommonPorts(pt Type) []int {
 	switch pt {
-	case Trojan, VLESS, AnyTLS:
+	case VLESS, VLESSReality, AnyTLS:
 		return []int{443, 2053, 2083, 2087, 2096, 8443, 9443}
 	case Snell:
 		return []int{443, 1443, 8443, 10443}

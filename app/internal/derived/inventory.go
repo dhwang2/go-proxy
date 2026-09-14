@@ -4,7 +4,7 @@ import "go-proxy/internal/store"
 
 // ProtocolInfo describes an installed protocol.
 type ProtocolInfo struct {
-	Type       string // inbound type (vless, tuic, trojan, shadowsocks, anytls)
+	Type       string // inbound type (vless, tuic, shadowsocks, anytls)
 	Tag        string // inbound tag
 	Port       int    // listen port
 	UserCount  int    // number of users

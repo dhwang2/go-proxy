@@ -273,7 +273,6 @@ func (v *LogsView) buildServiceMenu() tui.MenuModel {
 	// Map protocol types to systemd service names.
 	serviceMap := map[string]string{
 		"vless":       "sing-box",
-		"trojan":      "sing-box",
 		"shadowsocks": "sing-box",
 		"tuic":        "sing-box",
 		"anytls":      "sing-box",

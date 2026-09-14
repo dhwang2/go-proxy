@@ -82,7 +82,7 @@ func newUserForInbound(ib *store.Inbound, name string) (*store.User, error) {
 		}
 		return &store.User{Name: name, UUID: uuid, Password: pw}, nil
 
-	case "trojan", "anytls":
+	case "anytls":
 		pw, err := crypto.GeneratePassword(16)
 		if err != nil {
 			return nil, err

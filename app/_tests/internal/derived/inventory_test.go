@@ -48,8 +48,8 @@ func TestMembershipFallsBackToSingleActiveInboundUserForSnell(t *testing.T) {
 		SingBox: &store.SingBoxConfig{
 			Inbounds: []store.Inbound{
 				{
-					Type: "trojan",
-					Tag:  "trojan_2053",
+					Type: "anytls",
+					Tag:  "anytls_2053",
 					Users: []store.User{
 						{Name: "alice", Password: "secret"},
 					},

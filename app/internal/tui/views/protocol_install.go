@@ -27,6 +27,7 @@ type ProtocolInstallView struct {
 	pendingUser       string
 	pendingPort       int
 	pendingDomain     string
+	pendingSNI        string
 	pendingEmail      string
 	lastResult        *protocol.InstallResult
 	pendingSnellIPv6  bool
@@ -48,6 +49,8 @@ const (
 	protoInstallShadowTLSPort
 	protoInstallSnellIPv6
 	protoInstallOptions
+	protoInstallReality
+	protoInstallRealitySNI
 )
 
 func NewProtocolInstallView(model *tui.Model) *ProtocolInstallView {
@@ -105,6 +108,16 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v.handlePortInput(msg.Value)
 		case protoInstallDomain:
 			return v.handleDomainInput(msg.Value)
+		case protoInstallRealitySNI:
+			if !cert.IsValidDomain(msg.Value) {
+				return v, v.SetInline(components.NewTextInput("握手域名无效，请重新输入:", msg.Value))
+			}
+			v.pendingSNI = msg.Value
+			pt, port := v.pendingType, v.pendingPort
+			return v, tea.Batch(
+				v.SetInline(components.NewSpinner("安装中...")),
+				func() tea.Msg { return v.doInstallWithPort(pt, port) },
+			)
 		case protoInstallEmail:
 			return v.handleEmailInput(msg.Value)
 		case protoInstallShadowTLSPort:
@@ -166,6 +179,11 @@ func (v *ProtocolInstallView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 
 	case tui.ConfirmResultMsg:
 		switch v.step {
+		case protoInstallReality:
+			if msg.Confirmed {
+				v.pendingType = protocol.VLESSReality
+			}
+			return v, v.selectUser()
 		case protoInstallSnellIPv6:
 			v.pendingSnellIPv6 = msg.Confirmed
 			return v, v.proceedAfterOptions()
@@ -232,13 +250,22 @@ func (v *ProtocolInstallView) View() string {
 }
 
 // triggerMenuAction executes the action for the given menu item ID.
-// Selects user first, then port (shell-proxy order).
+// Selects the VLESS security mode before matching an existing inbound.
 func (v *ProtocolInstallView) triggerMenuAction(id string) tea.Cmd {
 	v.pendingType = protocol.Type(id)
 	v.pendingUser = ""
 	v.pendingPort = 0
 	v.pendingDomain = ""
+	v.pendingSNI = ""
 	v.pendingEmail = ""
+	if v.pendingType == protocol.VLESS {
+		v.step = protoInstallReality
+		return v.SetInline(components.NewConfirm("是否安装 Reality 功能?"))
+	}
+	return v.selectUser()
+}
+
+func (v *ProtocolInstallView) selectUser() tea.Cmd {
 	names := derived.UserNames(v.Model.Store())
 	if len(names) == 0 {
 		return v.SetInline(components.NewResult("请先添加用户"))
@@ -257,6 +284,7 @@ func (v *ProtocolInstallView) resetMenuState(contentWidth, contentHeight int) {
 	v.pendingUser = ""
 	v.pendingPort = 0
 	v.pendingDomain = ""
+	v.pendingSNI = ""
 	v.pendingEmail = ""
 	v.lastResult = nil
 	v.pendingSnellIPv6 = false
@@ -381,6 +409,10 @@ func (v *ProtocolInstallView) handlePortInput(portStr string) (tui.View, tea.Cmd
 // proceedAfterOptions advances to domain input (if TLS needed) or directly to install.
 func (v *ProtocolInstallView) proceedAfterOptions() tea.Cmd {
 	spec := protocol.Specs()[v.pendingType]
+	if spec.UsesReality {
+		v.step = protoInstallRealitySNI
+		return v.SetInline(components.NewTextInput("Reality 握手域名 (SNI):", "www.apple.com"))
+	}
 	if spec.NeedsTLS && !spec.UsesReality {
 		v.step = protoInstallDomain
 		existing := cert.ReadDomain()
@@ -471,6 +503,7 @@ func (v *ProtocolInstallView) doInstallWithPort(pt protocol.Type, port int) tea.
 		Port:              port,
 		UserName:          v.pendingUser,
 		Domain:            v.pendingDomain,
+		SNI:               v.pendingSNI,
 		SSMethod:          v.pendingSSMethod,
 		CongestionControl: v.pendingCongestion,
 		SnellIPv6:         v.pendingSnellIPv6,
@@ -505,6 +538,8 @@ func (v *ProtocolInstallView) doInstallWithPort(pt protocol.Type, port int) tea.
 		if err := service.Restart(ctx, service.Snell); err != nil {
 			return protoInstallDoneMsg{result: "启动 snell 失败: " + err.Error()}
 		}
+	} else if err := service.Restart(ctx, service.SingBox); err != nil {
+		return protoInstallDoneMsg{result: "启动 sing-box 失败: " + err.Error()}
 	}
 	if err := service.EnsureWatchdogRunningForCurrentBinary(context.Background()); err != nil {
 		return protoInstallDoneMsg{result: "启动 watchdog 失败: " + err.Error()}

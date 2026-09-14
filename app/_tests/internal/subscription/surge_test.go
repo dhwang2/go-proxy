@@ -179,8 +179,8 @@ func TestRenderInfersLegacySnellOwnerFromSingleActiveInboundUser(t *testing.T) {
 		SingBox: &store.SingBoxConfig{
 			Inbounds: []store.Inbound{
 				{
-					Type:       "trojan",
-					Tag:        "trojan_443",
+					Type:       "anytls",
+					Tag:        "anytls_443",
 					ListenPort: 443,
 					Users: []store.User{
 						{Name: "u1", Password: "secret"},

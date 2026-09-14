@@ -25,6 +25,18 @@ func GenerateRealityKeypair() (*RealityKeypair, error) {
 	}, nil
 }
 
+func RealityPublicKey(privateKey string) (string, error) {
+	data, err := base64.RawURLEncoding.DecodeString(privateKey)
+	if err != nil {
+		return "", fmt.Errorf("decode reality private key: %w", err)
+	}
+	key, err := ecdh.X25519().NewPrivateKey(data)
+	if err != nil {
+		return "", fmt.Errorf("parse reality private key: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes()), nil
+}
+
 // GenerateShortID generates a random hex short ID for Reality (8 hex chars).
 func GenerateShortID() (string, error) {
 	b := make([]byte, 4)
