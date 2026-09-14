@@ -109,3 +109,32 @@ func TestSnellV6FirewallUsesTCPOnly(t *testing.T) {
 		t.Fatal("missing Snell TCP listener")
 	}
 }
+
+func TestFirewallConvergencePreservesDHCPv6(t *testing.T) {
+	dir := t.TempDir()
+	rulesPath := filepath.Join(dir, "rules.nft")
+	script := "#!/bin/sh\ncase \"$1\" in\nlist) exit 0;;\n-f) cp \"$2\" \"$GPROXY_TEST_NFT_RULES\";;\n*) exit 1;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(dir, "nft"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GPROXY_TEST_NFT_RULES", rulesPath)
+	for _, udpPorts := range [][]int{nil, {27200}} {
+		if err := nftApplyPorts([]int{22, 443}, udpPorts); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(rulesPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rules := string(data)
+		dhcp := strings.Index(rules, "meta nfproto ipv6 udp sport 547 udp dport 546 accept")
+		drop := strings.Index(rules, "counter drop")
+		if dhcp < 0 || drop < dhcp {
+			t.Fatal("DHCPv6 replies must be accepted before the final drop, independently of proxy UDP ports")
+		}
+		if !strings.Contains(rules, "delete table inet proxy_firewall") || !strings.Contains(rules, "tcp dport { 22, 443 } accept") {
+			t.Fatal("convergence must replace the old table and retain SSH/proxy ports")
+		}
+	}
+}

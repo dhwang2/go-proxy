@@ -346,6 +346,7 @@ func nftApplyPorts(tcpPorts, udpPorts []int) error {
 	builder.WriteString("    iifname \"lo\" accept\n")
 	builder.WriteString("    ip protocol icmp accept\n")
 	builder.WriteString("    ip6 nexthdr ipv6-icmp accept\n")
+	builder.WriteString("    meta nfproto ipv6 udp sport 547 udp dport 546 accept\n")
 	if len(tcpPorts) > 0 {
 		builder.WriteString("    tcp dport { ")
 		builder.WriteString(joinPorts(tcpPorts, ", "))
