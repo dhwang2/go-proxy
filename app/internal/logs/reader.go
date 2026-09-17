@@ -1,62 +1,101 @@
 package logs
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"go-proxy/internal/config"
 )
 
-// ServiceLogSource returns the log file path and systemd unit for a service.
+var ErrOutputLimit = errors.New("log output exceeds byte limit")
+
 func ServiceLogSource(svc string) (logFile, unit string) {
 	switch svc {
 	case "sing-box":
-		return config.SingBoxLog, "sing-box"
+		return config.SingBoxLog, svc
 	case "snell-v6":
-		return config.SnellLog, "snell-v6"
+		return config.SnellLog, svc
 	case "shadow-tls":
-		return config.ShadowTLSLog, "shadow-tls"
+		return config.ShadowTLSLog, svc
 	case "caddy-sub":
-		return config.CaddySubLog, "caddy-sub"
-	default:
-		return "", svc
+		return config.CaddySubLog, svc
+	case "proxy-watchdog":
+		return config.WatchdogLog, svc
 	}
+	if strings.HasPrefix(svc, "shadow-tls-") {
+		return filepath.Join(config.LogDir, svc+".service.log"), svc
+	}
+	return "", svc
 }
 
-// ReadLog tries to read a log file, falls back to journalctl.
-// Returns (content, source_note).
-func ReadLog(logFile, unit string, lines int) (string, string) {
-	// Try log file first.
+func command(ctx context.Context, logFile, unit string, lines int, follow bool) (*exec.Cmd, string, error) {
 	if logFile != "" {
-		if info, err := os.Stat(logFile); err == nil && info.Size() > 0 {
-			content := TailFile(logFile, lines)
-			if content != "" {
-				return content, logFile
+		st, err := os.Stat(logFile)
+		if err != nil && !os.IsNotExist(err) {
+			return nil, "", err
+		}
+		if err == nil && st.Size() > 0 {
+			args := []string{"-n", strconv.Itoa(lines)}
+			if follow {
+				args = append(args, "-F")
 			}
+			args = append(args, "--", logFile)
+			return exec.CommandContext(ctx, "tail", args...), logFile, nil
 		}
 	}
-
-	// Fall back to journalctl (--boot limits to current boot to avoid stale entries after reinstall).
-	if unit != "" {
-		out, err := exec.Command("journalctl", "-u", unit, "-n", fmt.Sprintf("%d", lines), "--no-pager", "--boot").CombinedOutput()
-		if err == nil {
-			result := strings.TrimSpace(string(out))
-			if result != "" {
-				return result, "journalctl -u " + unit
-			}
-		}
+	args := []string{"-u", unit, "-n", strconv.Itoa(lines), "--no-pager", "--boot", "--output=short-iso"}
+	if follow {
+		args = append(args, "--follow")
 	}
-
-	return "暂无日志", ""
+	return exec.CommandContext(ctx, "journalctl", args...), "journal", nil
 }
-
-// TailFile reads the last N lines of a file.
-func TailFile(path string, n int) string {
-	out, err := exec.Command("tail", "-n", fmt.Sprintf("%d", n), path).Output()
+func Read(ctx context.Context, logFile, unit string, lines, maxBytes int) (string, string, error) {
+	cmd, source, err := command(ctx, logFile, unit, lines, false)
 	if err != nil {
-		return ""
+		return "", "", err
 	}
-	return strings.TrimSpace(string(out))
+	out := &limitedBuffer{limit: maxBytes}
+	diagnostics := &limitedBuffer{limit: 64 << 10}
+	cmd.Stdout = out
+	cmd.Stderr = diagnostics
+	err = cmd.Run()
+	if out.exceeded {
+		return "", source, ErrOutputLimit
+	}
+	if err != nil {
+		return "", source, fmt.Errorf("read log: %w", err)
+	}
+	return out.String(), source, nil
 }
+func Follow(ctx context.Context, logFile, unit string, lines int, out io.Writer) error {
+	cmd, _, err := command(ctx, logFile, unit, lines, true)
+	if err != nil {
+		return err
+	}
+	cmd.Stdout = out
+	cmd.Stderr = &limitedBuffer{limit: 64 << 10}
+	return cmd.Run()
+}
+
+type limitedBuffer struct {
+	buffer   bytes.Buffer
+	limit    int
+	exceeded bool
+}
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	if len(p) > b.limit-b.buffer.Len() {
+		b.exceeded = true
+		return 0, ErrOutputLimit
+	}
+	return b.buffer.Write(p)
+}
+func (b *limitedBuffer) String() string { return b.buffer.String() }

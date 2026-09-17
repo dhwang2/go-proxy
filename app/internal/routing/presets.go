@@ -10,20 +10,22 @@ type PresetCategory struct {
 
 // Preset defines a named routing rule preset.
 type Preset struct {
-	Name            string   // internal key (e.g., "openai")
-	Label           string   // display label (e.g., "OpenAI/ChatGPT")
-	RuleSets        []string // geosite/geoip rule set tags
-	FallbackDomains []string // domain_suffix fallback when rule sets are unavailable
+	Name            string   `json:"name"`
+	Label           string   `json:"label"`
+	RuleSets        []string `json:"rule_sets"`
+	FallbackDomains []string `json:"fallback_domains"`
 }
 
 // BuiltinPresets returns the available routing presets grouped by category.
-func BuiltinPresets() []Preset {
+var builtinPresets = func() []Preset {
 	var all []Preset
 	for _, cat := range PresetCategories() {
 		all = append(all, cat.Presets...)
 	}
 	return all
-}
+}()
+
+func BuiltinPresets() []Preset { return builtinPresets }
 
 // PresetCategories returns presets organized by category for menu display.
 // Preset set matches shell-proxy routing_preset_meta() (26 presets).
@@ -53,7 +55,7 @@ func PresetCategories() []PresetCategory {
 				},
 				{
 					Name:            "ai-intl",
-					Label:           "AI服务(国际)",
+					Label:           "International AI services",
 					RuleSets:        []string{"geosite-category-ai-!cn", "geoip-ai"},
 					FallbackDomains: []string{"openai.com", "anthropic.com", "claude.ai", "chatgpt.com"},
 				},
@@ -199,24 +201,14 @@ func PresetCategories() []PresetCategory {
 			Presets: []Preset{
 				{
 					Name:            "ads",
-					Label:           "广告屏蔽",
+					Label:           "Ad blocking",
 					RuleSets:        []string{"geosite-category-ads-all"},
 					FallbackDomains: []string{"doubleclick.net", "googlesyndication.com", "googleadservices.com", "adservice.google.com", "googletagmanager.com"},
 				},
-				{Name: "custom", Label: "自定义", RuleSets: nil},
+				{Name: "custom", Label: "Custom", RuleSets: nil},
 			},
 		},
 	}
-}
-
-// AddMenuPresets returns presets in the shell-proxy add-rule menu order.
-func AddMenuPresets() []Preset {
-	options := AddMenuPresetOptions()
-	result := make([]Preset, 0, len(options))
-	for _, option := range options {
-		result = append(result, option.Preset)
-	}
-	return result
 }
 
 // FindPreset looks up a preset by name.

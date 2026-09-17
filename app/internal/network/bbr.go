@@ -1,9 +1,9 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 )
 
@@ -18,9 +18,9 @@ func BBRStatus() (enabled bool, current string, err error) {
 }
 
 // EnableBBR enables BBR congestion control via sysctl.
-func EnableBBR() error {
+func EnableBBR(ctx context.Context) error {
 	// Load TCP BBR module.
-	exec.Command("modprobe", "tcp_bbr").Run()
+	_, _ = runCommand(ctx, "modprobe", "tcp_bbr")
 
 	// Set sysctl values.
 	settings := map[string]string{
@@ -28,9 +28,9 @@ func EnableBBR() error {
 		"net.ipv4.tcp_congestion_control": "bbr",
 	}
 
-	for key, val := range settings {
-		cmd := exec.Command("sysctl", "-w", key+"="+val)
-		if out, err := cmd.CombinedOutput(); err != nil {
+	for _, key := range []string{"net.core.default_qdisc", "net.ipv4.tcp_congestion_control"} {
+		val := settings[key]
+		if out, err := runCommand(ctx, "sysctl", "-w", key+"="+val); err != nil {
 			return fmt.Errorf("sysctl %s=%s: %s: %s", key, val, err, string(out))
 		}
 	}
@@ -39,17 +39,9 @@ func EnableBBR() error {
 	return persistSysctl(settings)
 }
 
+const BBRSysctlPath = "/etc/sysctl.d/90-go-proxy-bbr.conf"
+
 func persistSysctl(settings map[string]string) error {
-	const path = "/etc/sysctl.conf"
-	existing, _ := os.ReadFile(path)
-	content := string(existing)
-
-	for key, val := range settings {
-		line := key + " = " + val + " # gproxy-managed"
-		if !strings.Contains(content, key) {
-			content += "\n" + line
-		}
-	}
-
-	return os.WriteFile(path, []byte(content), 0644)
+	content := "net.core.default_qdisc = " + settings["net.core.default_qdisc"] + "\nnet.ipv4.tcp_congestion_control = " + settings["net.ipv4.tcp_congestion_control"] + "\n"
+	return os.WriteFile(BBRSysctlPath, []byte(content), 0644)
 }

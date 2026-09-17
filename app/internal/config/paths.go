@@ -4,7 +4,9 @@ import "path/filepath"
 
 const (
 	// WorkDir is the runtime root for go-proxy.
-	WorkDir = "/etc/go-proxy"
+	WorkDir       = "/etc/go-proxy"
+	LockDir       = "/run/lock/go-proxy"
+	LockSetupFile = "/etc/tmpfiles.d/go-proxy.conf"
 
 	// BinDir holds managed binaries (sing-box, snell-server, shadow-tls, caddy).
 	BinDir = WorkDir + "/bin"

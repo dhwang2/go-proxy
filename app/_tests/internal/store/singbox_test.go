@@ -12,8 +12,8 @@ func TestSingBoxNormalizeAddsBaselineSections(t *testing.T) {
 	if cfg.DNS == nil || cfg.DNS.Final != "public4" {
 		t.Fatalf("Normalize() dns.final = %q, want public4", cfg.DNS.Final)
 	}
-	if cfg.DNS.Strategy != "ipv4_only" {
-		t.Fatalf("Normalize() dns.strategy = %q, want ipv4_only", cfg.DNS.Strategy)
+	if cfg.DNS.Strategy != "" {
+		t.Fatalf("Normalize() changed the explicit default strategy to %q", cfg.DNS.Strategy)
 	}
 	if cfg.Route == nil || cfg.Route.Final != "🐸 direct" {
 		t.Fatalf("Normalize() route.final = %q, want 🐸 direct", cfg.Route.Final)

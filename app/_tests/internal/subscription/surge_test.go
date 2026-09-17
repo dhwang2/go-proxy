@@ -1,6 +1,7 @@
 package subscription
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -36,7 +37,7 @@ func TestRenderSurgeTUICIncludesRequiredParams(t *testing.T) {
 		UserName: "alice",
 	}
 
-	got := renderSurge(ib, entry, "1.2.3.4", "example.com", "")
+	got := renderSurge(ib, entry, "1.2.3.4", "example.com", "", &ib.Users[0])
 	if !strings.HasPrefix(got, "tuic-alice = tuic-v5") {
 		t.Fatalf("renderSurge(tuic) tag = %q, want prefix %q", got, "tuic-alice = tuic-v5")
 	}
@@ -86,7 +87,7 @@ func TestSurgeIPv6HostsAreUnbracketed(t *testing.T) {
 	binding := service.ShadowTLSBinding{ListenPort: 8443, Password: "shadow-pass", SNI: "example.com", Version: 3}
 	host := "2001:db8::1"
 	for name, got := range map[string]string{
-		"sing-box":         renderSurge(ib, entry, host, "example.com", ""),
+		"sing-box":         renderSurge(ib, entry, host, "example.com", "", nil),
 		"snell":            renderSnellSurge(entry, conf, host, ""),
 		"shadow-tls-ss":    renderShadowTLSShadowsocksSurge(ib, entry, binding, host, ""),
 		"shadow-tls-snell": renderShadowTLSSnellSurge(entry, conf, binding, host, ""),
@@ -194,7 +195,7 @@ func TestRenderInfersLegacySnellOwnerFromSingleActiveInboundUser(t *testing.T) {
 	}
 	s.UserMeta.Groups["~/.groups"] = []string{"u1", "u2"}
 
-	links := Render(s, "u1", FormatSurge, "1.2.3.4")
+	links := renderForUser(t, s, nil, "u1", FormatSurge, "1.2.3.4")
 	if len(links) != 2 {
 		t.Fatalf("links len = %d, want 2", len(links))
 	}
@@ -203,21 +204,17 @@ func TestRenderInfersLegacySnellOwnerFromSingleActiveInboundUser(t *testing.T) {
 	}
 }
 
-func TestRenderUsesShadowTLSFrontForShadowsocksSurgeAndKeepsURI(t *testing.T) {
-	prev := listShadowTLSBindings
-	listShadowTLSBindings = func(*store.Store) ([]service.ShadowTLSBinding, error) {
-		return []service.ShadowTLSBinding{
-			{
-				ListenPort:   8443,
-				BackendPort:  443,
-				BackendProto: "ss",
-				SNI:          "www.microsoft.com",
-				Password:     "shadow-pass",
-				Version:      3,
-			},
-		}, nil
+func TestRenderUsesShadowTLSFrontAndRejectsUnsupportedURI(t *testing.T) {
+	bindings := []service.ShadowTLSBinding{
+		{
+			ListenPort:   8443,
+			BackendPort:  443,
+			BackendProto: "ss",
+			SNI:          "www.microsoft.com",
+			Password:     "shadow-pass",
+			Version:      3,
+		},
 	}
-	defer func() { listShadowTLSBindings = prev }()
 
 	s := &store.Store{
 		SingBox: &store.SingBoxConfig{
@@ -238,7 +235,7 @@ func TestRenderUsesShadowTLSFrontForShadowsocksSurgeAndKeepsURI(t *testing.T) {
 		UserTemplate: &store.UserRouteTemplates{Templates: map[string][]store.TemplateRule{}},
 	}
 
-	surgeLinks := Render(s, "alice", FormatSurge, "1.2.3.4")
+	surgeLinks := renderForUser(t, s, bindings, "alice", FormatSurge, "1.2.3.4")
 	if len(surgeLinks) != 1 {
 		t.Fatalf("surge links len = %d, want 1", len(surgeLinks))
 	}
@@ -251,14 +248,24 @@ func TestRenderUsesShadowTLSFrontForShadowsocksSurgeAndKeepsURI(t *testing.T) {
 		}
 	}
 
-	uriLinks := Render(s, "alice", FormatURI, "1.2.3.4")
-	if len(uriLinks) != 1 {
-		t.Fatalf("uri links len = %d, want 1", len(uriLinks))
+	renderer := NewRenderer(s, bindings, "1.2.3.4", []SurgeTarget{{Family: "v4", Host: "1.2.3.4"}})
+	for _, format := range []Format{FormatURI, FormatSingBox} {
+		if _, err := renderer.Render(context.Background(), derived.Membership(s)["alice"][0], format); err == nil {
+			t.Fatalf("%s export must not discard the wrapper", format)
+		}
 	}
-	if !strings.Contains(uriLinks[0].Content, "ss://") {
-		t.Fatalf("uri link missing ss scheme: %q", uriLinks[0].Content)
+}
+
+func renderForUser(t *testing.T, s *store.Store, bindings []service.ShadowTLSBinding, name string, format Format, host string) []Link {
+	t.Helper()
+	renderer := NewRenderer(s, bindings, host, []SurgeTarget{{Host: host}})
+	var links []Link
+	for _, entry := range derived.Membership(s)[name] {
+		generated, err := renderer.Render(context.Background(), entry, format)
+		if err != nil {
+			t.Fatal(err)
+		}
+		links = append(links, generated...)
 	}
-	if !strings.Contains(uriLinks[0].Content, "@1.2.3.4:443") {
-		t.Fatalf("uri link host/port mismatch: %q", uriLinks[0].Content)
-	}
+	return links
 }

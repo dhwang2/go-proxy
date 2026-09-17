@@ -37,7 +37,7 @@ func TestRenderURIUsesUniqueFragmentsForMultipleInbounds(t *testing.T) {
 		UserTemplate: &store.UserRouteTemplates{Templates: map[string][]store.TemplateRule{}},
 	}
 
-	links := Render(s, "alice", FormatURI, "1.2.3.4")
+	links := renderForUser(t, s, nil, "alice", FormatURI, "1.2.3.4")
 	if len(links) != 2 {
 		t.Fatalf("len(links) = %d, want 2", len(links))
 	}

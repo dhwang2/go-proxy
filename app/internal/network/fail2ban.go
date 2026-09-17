@@ -1,61 +1,73 @@
 package network
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 )
 
-// Fail2BanInfo holds status information for fail2ban.
 type Fail2BanInfo struct {
-	Installed       bool
-	Running         bool
-	SSHJailEnabled  bool
-	CurrentlyBanned int
-	TotalBanned     int
-	BannedIPs       []string
-	MaxRetry        string
-	BanTime         string
-	FindTime        string
+	Installed       bool     `json:"installed"`
+	Running         bool     `json:"running"`
+	Managed         bool     `json:"managed"`
+	SSHJailEnabled  bool     `json:"ssh_jail_enabled"`
+	CurrentlyBanned int      `json:"currently_banned"`
+	TotalBanned     int      `json:"total_banned"`
+	BannedIPs       []string `json:"banned_ips"`
+	MaxRetry        string   `json:"max_retry"`
+	BanTime         string   `json:"ban_time"`
+	FindTime        string   `json:"find_time"`
 }
 
-// Fail2BanStatus returns detailed fail2ban status.
-func Fail2BanStatus() (Fail2BanInfo, error) {
-	var info Fail2BanInfo
-
-	// Check installed via systemctl cat
-	if err := exec.Command("systemctl", "cat", "fail2ban").Run(); err != nil {
+func Fail2BanStatus(ctx context.Context) (Fail2BanInfo, error) {
+	info := Fail2BanInfo{BannedIPs: []string{}}
+	if _, err := exec.LookPath("fail2ban-client"); err != nil {
 		return info, nil
 	}
 	info.Installed = true
-
-	// Check active
-	out, _ := exec.Command("systemctl", "is-active", "fail2ban").Output()
-	info.Running = strings.TrimSpace(string(out)) == "active"
-
+	_, err := os.Stat(Fail2BanJailPath)
+	info.Managed = err == nil
+	out, err := runCommand(ctx, "systemctl", "show", "fail2ban.service", "--property=LoadState,ActiveState")
+	if err != nil {
+		return info, fmt.Errorf("inspect fail2ban service: %w", err)
+	}
+	info.Running = strings.Contains(string(out), "ActiveState=active")
 	if !info.Running {
 		return info, nil
 	}
-
-	// Query sshd jail status
-	jailOut, err := exec.Command("fail2ban-client", "status", "sshd").Output()
+	out, err = runCommand(ctx, "fail2ban-client", "status")
 	if err != nil {
-		// jail may not exist; not an error for the caller
+		return info, fmt.Errorf("inspect fail2ban jails: %w", err)
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if _, names, ok := strings.Cut(line, "Jail list:"); ok {
+			for _, name := range strings.Split(names, ",") {
+				if strings.TrimSpace(name) == "sshd" {
+					info.SSHJailEnabled = true
+				}
+			}
+		}
+	}
+	if !info.SSHJailEnabled {
 		return info, nil
 	}
-	info.SSHJailEnabled = true
-	parseJailStatus(&info, string(jailOut))
-
-	// MaxRetry/BanTime/FindTime are not in "status" output; query separately.
-	if out, err := exec.Command("fail2ban-client", "get", "sshd", "maxretry").Output(); err == nil {
-		info.MaxRetry = strings.TrimSpace(string(out))
+	out, err = runCommand(ctx, "fail2ban-client", "status", "sshd")
+	if err != nil {
+		return info, fmt.Errorf("inspect sshd jail: %w", err)
 	}
-	if out, err := exec.Command("fail2ban-client", "get", "sshd", "bantime").Output(); err == nil {
-		info.BanTime = strings.TrimSpace(string(out))
-	}
-	if out, err := exec.Command("fail2ban-client", "get", "sshd", "findtime").Output(); err == nil {
-		info.FindTime = strings.TrimSpace(string(out))
+	parseJailStatus(&info, string(out))
+	for _, query := range []struct {
+		name   string
+		target *string
+	}{{"maxretry", &info.MaxRetry}, {"bantime", &info.BanTime}, {"findtime", &info.FindTime}} {
+		out, err = runCommand(ctx, "fail2ban-client", "get", "sshd", query.name)
+		if err != nil {
+			return info, fmt.Errorf("inspect sshd jail %s: %w", query.name, err)
+		}
+		*query.target = strings.TrimSpace(string(out))
 	}
 	return info, nil
 }
@@ -63,7 +75,6 @@ func Fail2BanStatus() (Fail2BanInfo, error) {
 func parseJailStatus(info *Fail2BanInfo, output string) {
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
-		// Strip leading "|- ", "|  |- ", "`- " etc.
 		if idx := strings.LastIndex(line, "|- "); idx >= 0 {
 			line = line[idx+3:]
 		} else if idx := strings.LastIndex(line, "`- "); idx >= 0 {
@@ -71,16 +82,11 @@ func parseJailStatus(info *Fail2BanInfo, output string) {
 		}
 		switch {
 		case strings.HasPrefix(line, "Currently banned:"):
-			val := strings.TrimSpace(strings.TrimPrefix(line, "Currently banned:"))
-			fmt.Sscanf(val, "%d", &info.CurrentlyBanned)
+			fmt.Sscanf(strings.TrimPrefix(line, "Currently banned:"), "%d", &info.CurrentlyBanned)
 		case strings.HasPrefix(line, "Total banned:"):
-			val := strings.TrimSpace(strings.TrimPrefix(line, "Total banned:"))
-			fmt.Sscanf(val, "%d", &info.TotalBanned)
+			fmt.Sscanf(strings.TrimPrefix(line, "Total banned:"), "%d", &info.TotalBanned)
 		case strings.HasPrefix(line, "Banned IP list:"):
-			val := strings.TrimSpace(strings.TrimPrefix(line, "Banned IP list:"))
-			if val != "" {
-				info.BannedIPs = strings.Fields(val)
-			}
+			info.BannedIPs = strings.Fields(strings.TrimPrefix(line, "Banned IP list:"))
 		}
 	}
 }
@@ -94,36 +100,42 @@ bantime = 86400
 findtime = 600
 `
 
-const sshdJailPath = "/etc/fail2ban/jail.d/sshd.local"
+const Fail2BanJailPath = "/etc/fail2ban/jail.d/go-proxy-sshd.local"
 
-// Fail2BanEnable installs (if needed), configures sshd jail, and enables fail2ban.
-func Fail2BanEnable() error {
-	// Install if not present
-	if err := exec.Command("systemctl", "cat", "fail2ban").Run(); err != nil {
-		cmd := exec.Command("apt-get", "install", "-y", "fail2ban")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
+func Fail2BanEnable(ctx context.Context) error {
+	if _, err := exec.LookPath("fail2ban-client"); err != nil {
+		if out, err := runCommand(ctx, "apt-get", "install", "-y", "fail2ban"); err != nil {
+			return fmt.Errorf("install fail2ban: %w: %s", err, strings.TrimSpace(string(out)))
 		}
 	}
-	// Write sshd jail config
-	if err := os.WriteFile(sshdJailPath, []byte(sshdJailConfig), 0644); err != nil {
-		return fmt.Errorf("write jail config: %w", err)
+	if err := os.WriteFile(Fail2BanJailPath, []byte(sshdJailConfig), 0644); err != nil {
+		return fmt.Errorf("write managed jail: %w", err)
 	}
-	// Enable and start
-	cmd := exec.Command("systemctl", "enable", "--now", "fail2ban")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
+	if out, err := runCommand(ctx, "systemctl", "enable", "--now", "fail2ban"); err != nil {
+		return fmt.Errorf("enable fail2ban: %w: %s", err, strings.TrimSpace(string(out)))
 	}
-	// Reload to pick up new jail
-	_ = exec.Command("fail2ban-client", "reload").Run()
+	if out, err := runCommand(ctx, "fail2ban-client", "reload"); err != nil {
+		return fmt.Errorf("reload fail2ban: %w: %s", err, strings.TrimSpace(string(out)))
+	}
 	return nil
 }
 
-// Fail2BanDisable stops and disables fail2ban.
-func Fail2BanDisable() error {
-	cmd := exec.Command("systemctl", "disable", "--now", "fail2ban")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
+func Fail2BanDisable(ctx context.Context) error {
+	if err := os.Remove(Fail2BanJailPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("remove managed jail: %w", err)
+	}
+	out, err := runCommand(ctx, "systemctl", "show", "fail2ban.service", "--property=ActiveState", "--value")
+	if err != nil {
+		return fmt.Errorf("inspect fail2ban: %w", err)
+	}
+	if strings.TrimSpace(string(out)) != "active" {
+		return nil
+	}
+	if out, err := runCommand(ctx, "fail2ban-client", "reload"); err != nil {
+		return fmt.Errorf("reload fail2ban: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }

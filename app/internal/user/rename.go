@@ -38,12 +38,15 @@ func Rename(s *store.Store, oldName, newName string) error {
 	}
 
 	found := false
+	inboundsChanged := false
+	routesChanged := false
 
 	// Rename in inbounds.
 	for i := range s.SingBox.Inbounds {
 		for j := range s.SingBox.Inbounds[i].Users {
 			if s.SingBox.Inbounds[i].Users[j].Name == oldName {
 				s.SingBox.Inbounds[i].Users[j].Name = newName
+				inboundsChanged = true
 				found = true
 			}
 		}
@@ -76,6 +79,7 @@ func Rename(s *store.Store, oldName, newName string) error {
 		for j := range s.UserRoutes[i].AuthUser {
 			if s.UserRoutes[i].AuthUser[j] == oldName {
 				s.UserRoutes[i].AuthUser[j] = newName
+				routesChanged = true
 			}
 		}
 	}
@@ -86,6 +90,7 @@ func Rename(s *store.Store, oldName, newName string) error {
 			for j := range s.SingBox.Route.Rules[i].AuthUser {
 				if s.SingBox.Route.Rules[i].AuthUser[j] == oldName {
 					s.SingBox.Route.Rules[i].AuthUser[j] = newName
+					inboundsChanged = true
 				}
 			}
 		}
@@ -97,13 +102,18 @@ func Rename(s *store.Store, oldName, newName string) error {
 			for j := range s.SingBox.DNS.Rules[i].AuthUser {
 				if s.SingBox.DNS.Rules[i].AuthUser[j] == oldName {
 					s.SingBox.DNS.Rules[i].AuthUser[j] = newName
+					inboundsChanged = true
 				}
 			}
 		}
 	}
 
-	s.MarkDirty(store.FileSingBox)
+	if inboundsChanged {
+		s.MarkDirty(store.FileSingBox)
+	}
 	s.MarkDirty(store.FileUserMeta)
-	s.MarkDirty(store.FileUserRoutes)
+	if routesChanged {
+		s.MarkDirty(store.FileUserRoutes)
+	}
 	return nil
 }

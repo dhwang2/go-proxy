@@ -2,14 +2,26 @@ package routing
 
 import (
 	"encoding/json"
+	"sort"
 
 	"go-proxy/internal/store"
 )
 
-// SyncDNS rebuilds sing-box DNS rules and servers from user route rules.
-// It replaces all auth_user-based DNS rules while preserving non-user rules.
-// It also ensures each chain proxy outbound has a corresponding DNS server.
+func Sync(s *store.Store) {
+	rules := CompiledUserRouteRules(s)
+	strategy := ""
+	if s.SingBox.DNS != nil {
+		strategy = s.SingBox.DNS.Strategy
+	}
+	syncDNS(s, nil, strategy, rules)
+	syncRouteRules(s, rules)
+}
+
 func SyncDNS(s *store.Store, outboundToDNS map[string]string, strategy string) {
+	syncDNS(s, outboundToDNS, strategy, CompiledUserRouteRules(s))
+}
+
+func syncDNS(s *store.Store, outboundToDNS map[string]string, strategy string, rules []store.RouteRule) {
 	if s.SingBox.DNS == nil {
 		return
 	}
@@ -30,7 +42,7 @@ func SyncDNS(s *store.Store, outboundToDNS map[string]string, strategy string) {
 		}
 	}
 
-	newRules := CompileDNSRules(s, outboundToDNS, strategy)
+	newRules := mergeDNSRulesByServer(dnsRulesFromRouteRules(rules, outboundToDNS, strategy))
 	kept = append(kept, newRules...)
 
 	s.SingBox.DNS.Rules = kept
@@ -40,6 +52,10 @@ func SyncDNS(s *store.Store, outboundToDNS map[string]string, strategy string) {
 // SyncRouteRules rebuilds sing-box route rules from user route rules.
 // It replaces all auth_user-based route rules while preserving non-user rules.
 func SyncRouteRules(s *store.Store) {
+	syncRouteRules(s, CompiledUserRouteRules(s))
+}
+
+func syncRouteRules(s *store.Store, rules []store.RouteRule) {
 	if s.SingBox.Route == nil {
 		s.SingBox.Route = &store.RouteConfig{}
 	}
@@ -52,13 +68,11 @@ func SyncRouteRules(s *store.Store) {
 		}
 	}
 
-	s.SingBox.Route.Rules = append(base, CompiledUserRouteRules(s)...)
+	s.SingBox.Route.Rules = append(base, rules...)
 	s.SingBox.EnsureDefaultDomainResolver()
 	s.MarkDirty(store.FileSingBox)
 }
 
-// buildOutboundToDNS creates a mapping from outbound tags to DNS server tags.
-// Chain proxy outbounds (res-socks*) map to their corresponding DNS tags (res-proxy*).
 func buildOutboundToDNS(s *store.Store) map[string]string {
 	directDNS := "public4"
 	if s.SingBox.Route != nil && s.SingBox.Route.DefaultDomainResolver != "" {
@@ -72,7 +86,7 @@ func buildOutboundToDNS(s *store.Store) map[string]string {
 	}
 	for _, raw := range s.SingBox.Outbounds {
 		h, _ := store.ParseOutboundHeader(raw)
-		if IsChainTag(h.Tag) {
+		if h.Type == "socks" {
 			m[h.Tag] = ChainDNSTag(h.Tag)
 		}
 	}
@@ -102,7 +116,7 @@ func syncChainDNSServers(s *store.Store) {
 	chainTags := make(map[string]bool)
 	for _, raw := range s.SingBox.Outbounds {
 		h, _ := store.ParseOutboundHeader(raw)
-		if IsChainTag(h.Tag) {
+		if h.Type == "socks" {
 			chainTags[h.Tag] = true
 		}
 	}
@@ -120,7 +134,7 @@ func syncChainDNSServers(s *store.Store) {
 			continue
 		}
 		// If this is a chain DNS server, only keep it if the outbound still exists.
-		if IsChainTag(srv.Detour) {
+		if isChainDNS(srv.Tag) {
 			if chainTags[srv.Detour] {
 				kept = append(kept, raw)
 				existingDNS[srv.Tag] = true
@@ -132,7 +146,12 @@ func syncChainDNSServers(s *store.Store) {
 	}
 
 	// Add DNS servers for chain outbounds that don't have one yet.
+	tags := make([]string, 0, len(chainTags))
 	for tag := range chainTags {
+		tags = append(tags, tag)
+	}
+	sort.Strings(tags)
+	for _, tag := range tags {
 		dnsTag := ChainDNSTag(tag)
 		if existingDNS[dnsTag] {
 			continue

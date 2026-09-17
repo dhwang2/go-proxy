@@ -7,25 +7,6 @@ import (
 	"go-proxy/internal/store"
 )
 
-func TestAddMenuPresetOptionsMatchShellProxyOrder(t *testing.T) {
-	options := AddMenuPresetOptions()
-	if len(options) != 25 {
-		t.Fatalf("len(options) = %d, want 25", len(options))
-	}
-	if options[0].Key != "1" || options[0].Preset.Name != "openai" {
-		t.Fatalf("options[0] = %#v", options[0])
-	}
-	if options[9].Key != "g" || options[9].Preset.Name != "discord" {
-		t.Fatalf("options[9] = %#v", options[9])
-	}
-	if options[18].Key != "a" || options[18].Preset.Name != "ai-intl" {
-		t.Fatalf("options[18] = %#v", options[18])
-	}
-	if options[24].Key != "r" || options[24].Preset.Name != "ads" {
-		t.Fatalf("options[24] = %#v", options[24])
-	}
-}
-
 func TestUserRouteLabelUsesPresetLabel(t *testing.T) {
 	preset, ok := FindPreset("openai")
 	if !ok {
@@ -40,8 +21,8 @@ func TestUserRouteLabelUsesPresetLabel(t *testing.T) {
 	if got := UserRouteLabel(rule); got != preset.Label {
 		t.Fatalf("UserRouteLabel() = %q, want %q", got, preset.Label)
 	}
-	if got := OutboundLabel(rule.Outbound); got != "直连" {
-		t.Fatalf("OutboundLabel() = %q, want 直连", got)
+	if got := OutboundLabel(rule.Outbound); got != "direct" {
+		t.Fatalf("OutboundLabel() = %q, want direct", got)
 	}
 }
 

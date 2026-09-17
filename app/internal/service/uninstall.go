@@ -2,130 +2,84 @@ package service
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"go-proxy/internal/config"
 )
 
-// Uninstall stops and removes all managed services and configuration.
-func Uninstall(ctx context.Context) error {
-	var errs []error
-
-	// Collect all unit names for cleanup later.
-	var unitNames []string
-	for _, svc := range AllServices() {
-		unitNames = append(unitNames, string(svc))
+func OwnedUnitPaths() ([]string, error) {
+	paths := []string{config.WatchdogService, config.SingBoxService, config.SnellService, config.CaddySubService}
+	bindings, err := shadowTLSUnitPaths()
+	if err != nil {
+		return nil, err
 	}
-	if names, err := ShadowTLSServiceNames(); err == nil {
-		unitNames = append(unitNames, names...)
-	}
+	paths = append(paths, bindings...)
+	return ownedUnitPaths(paths, config.BinDir, config.WatchdogService)
+}
 
-	// Stop and disable all installed services.
-	for _, svc := range AllServices() {
-		if !IsInstalled(ctx, svc) {
+func ownedUnitPaths(paths []string, binDir, watchdogPath string) ([]string, error) {
+	var existing []string
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
 			continue
 		}
-		if err := Stop(ctx, svc); err != nil {
-			errs = append(errs, err)
+		if err != nil {
+			return nil, err
 		}
-		if err := Disable(ctx, svc); err != nil {
-			errs = append(errs, err)
+		if !strings.Contains(string(data), binDir+"/") && path != watchdogPath {
+			return nil, fmt.Errorf("unit is not owned by go-proxy: %s", path)
 		}
-	}
-
-	// Stop legacy static shadow-tls.service that IsInstalled may miss.
-	_ = systemctl(ctx, "stop", "shadow-tls")
-	_ = systemctl(ctx, "disable", "shadow-tls")
-
-	// Remove nftables tables.
-	removeNftTables()
-
-	// Revert sysctl changes (BBR settings in /etc/sysctl.conf).
-	revertSysctl()
-
-	// Remove unit files.
-	unitFiles := []string{
-		config.SingBoxService,
-		config.SnellService,
-		config.ShadowTLSService,
-		config.CaddySubService,
-		config.WatchdogService,
-	}
-	if shadowTLSUnits, err := shadowTLSUnitPaths(); err == nil {
-		unitFiles = append(unitFiles, shadowTLSUnits...)
-	}
-	for _, f := range unitFiles {
-		if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
-			errs = append(errs, err)
+		if path == watchdogPath && !strings.Contains(string(data), " watchdog") {
+			return nil, fmt.Errorf("watchdog unit is not owned by go-proxy")
 		}
+		existing = append(existing, path)
 	}
-
-	if err := DaemonReload(ctx); err != nil {
-		errs = append(errs, err)
-	}
-
-	// Reset failed state so systemd forgets about removed units.
-	for _, unit := range unitNames {
-		_ = exec.CommandContext(ctx, "systemctl", "reset-failed", unit).Run()
-	}
-
-	// Remove work directory (configs, logs, binaries, certs, cache).
-	if err := os.RemoveAll(config.WorkDir); err != nil {
-		errs = append(errs, err)
-	}
-
-	// Flush journald entries.
-	clearJournalEntries()
-
-	return errors.Join(errs...)
+	return existing, nil
 }
 
-// removeNftTables removes all nftables tables created by this application.
-func removeNftTables() {
-	nft, err := exec.LookPath("nft")
+func Uninstall(ctx context.Context, state func(func() error) error) error {
+	paths, err := OwnedUnitPaths()
 	if err != nil {
-		return
+		return err
 	}
-	exec.Command(nft, "delete", "table", "inet", "proxy_firewall").Run()
-	exec.Command(nft, "delete", "table", "inet", "proxy-filter").Run()
+	return uninstallOwned(ctx, paths, config.WorkDir, config.LockSetupFile, state)
 }
 
-// revertSysctl removes gproxy-managed entries from /etc/sysctl.conf.
-func revertSysctl() {
-	const path = "/etc/sysctl.conf"
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
-
-	var kept []string
-	changed := false
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.Contains(line, "# gproxy-managed") {
-			changed = true
-			continue
+func uninstallOwned(ctx context.Context, paths []string, runtimeDir, lockSetupFile string, state func(func() error) error) error {
+	// The watchdog is first so it cannot recover units during removal.
+	for _, path := range paths {
+		unit := strings.TrimSuffix(filepath.Base(path), ".service")
+		if err := systemctl(ctx, "stop", unit); err != nil {
+			return err
 		}
-		kept = append(kept, line)
+		if err := systemctl(ctx, "disable", unit); err != nil {
+			return err
+		}
 	}
-
-	if !changed {
-		return
+	if err := state(func() error {
+		for _, path := range paths {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+		}
+		if err := os.Remove(lockSetupFile); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return os.RemoveAll(runtimeDir)
+	}); err != nil {
+		return err
 	}
-
-	for len(kept) > 0 && strings.TrimSpace(kept[len(kept)-1]) == "" {
-		kept = kept[:len(kept)-1]
+	if len(paths) > 0 {
+		if err := DaemonReload(ctx); err != nil {
+			return err
+		}
 	}
-
-	result := strings.Join(kept, "\n") + "\n"
-	_ = os.WriteFile(path, []byte(result), 0644)
-	_ = exec.Command("sysctl", "-p").Run()
-}
-
-// clearJournalEntries rotates and vacuums the journal to remove old entries.
-func clearJournalEntries() {
-	_ = exec.Command("journalctl", "--rotate").Run()
-	_ = exec.Command("journalctl", "--vacuum-time=1s").Run()
+	return nil
 }

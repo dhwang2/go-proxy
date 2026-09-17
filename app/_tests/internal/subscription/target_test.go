@@ -1,6 +1,7 @@
 package subscription
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,7 +21,7 @@ func TestDetectTargetPrefersEnv(t *testing.T) {
 
 	t.Setenv("PROXY_HOST", "1.2.3.4")
 
-	if got := DetectTarget(); got != "1.2.3.4" {
+	if got, _, err := ResolveTargets(context.Background(), "", false); err != nil || got != "1.2.3.4" {
 		t.Fatalf("DetectTarget() = %q, want %q", got, "1.2.3.4")
 	}
 }
@@ -37,7 +38,7 @@ func TestDetectTargetUsesStoredDomain(t *testing.T) {
 
 	t.Setenv("PROXY_HOST", "")
 
-	if got := DetectTarget(); got != "sub.example.com" {
+	if got, _, err := ResolveTargets(context.Background(), "", false); err != nil || got != "sub.example.com" {
 		t.Fatalf("DetectTarget() = %q, want %q", got, "sub.example.com")
 	}
 }

@@ -9,17 +9,21 @@ func ClearUser(s *store.Store, userName string) int {
 
 	for _, r := range s.UserRoutes {
 		var keptUsers []string
+		matched := false
 		for _, u := range r.AuthUser {
 			if u != userName {
 				keptUsers = append(keptUsers, u)
+			} else {
+				matched = true
 			}
+		}
+		if matched {
+			removed++
 		}
 		if len(keptUsers) > 0 {
 			r.AuthUser = keptUsers
 			kept = append(kept, r)
-		} else if len(r.AuthUser) > 0 {
-			removed++
-		} else {
+		} else if len(r.AuthUser) == 0 {
 			// Rules without auth_user are global; keep them.
 			kept = append(kept, r)
 		}

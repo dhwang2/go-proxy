@@ -5,37 +5,24 @@ import (
 
 	"go-proxy/internal/crypto"
 	"go-proxy/internal/store"
+	"go-proxy/pkg/sysutil"
 )
-
-// FindExistingInbound returns the first inbound matching the given protocol type, or nil.
-// It distinguishes Reality vs non-Reality variants of the same sing-box type.
-func FindExistingInbound(s *store.Store, pt Type) *store.Inbound {
-	spec := Specs()[pt]
-	if spec.SingBoxType == "" {
-		return nil
-	}
-	for i := range s.SingBox.Inbounds {
-		ib := &s.SingBox.Inbounds[i]
-		if ib.Type != spec.SingBoxType {
-			continue
-		}
-		ibHasReality := ib.TLS != nil && ib.TLS.Reality != nil && ib.TLS.Reality.Enabled
-		if ibHasReality == spec.UsesReality {
-			return ib
-		}
-	}
-	return nil
-}
 
 // AddUserToExisting adds a new user to an existing inbound, generating appropriate credentials.
 func AddUserToExisting(s *store.Store, ib *store.Inbound, userName string) (*InstallResult, error) {
 	for _, u := range ib.Users {
 		if u.Name == userName {
-			return nil, fmt.Errorf("用户 %q 已存在", userName)
+			return nil, fmt.Errorf("user %q already exists", userName)
 		}
 	}
 
 	user := store.User{Name: userName}
+	defer func() {
+		if user.Credential() != "" {
+			s.UserMeta.Name[store.UserKey(ib.Type, ib.Tag, user.Credential())] = userName
+			s.MarkDirty(store.FileUserMeta)
+		}
+	}()
 
 	switch ib.Type {
 	case "vless":
@@ -193,6 +180,7 @@ func Install(s *store.Store, params InstallParams) (*InstallResult, error) {
 		s.SnellConf = conf
 		recordInstalledUserMeta(s, params.ProtoType, store.SnellTag, psk, params.UserName)
 		s.MarkDirty(store.FileSnellConf)
+		result.Tag = store.SnellTag
 		result.Credential = psk
 		return &result, nil
 
@@ -238,7 +226,7 @@ func buildVLESSInbound(tag string, p InstallParams) (*store.Inbound, string, err
 	ib := &store.Inbound{
 		Type:       "vless",
 		Tag:        tag,
-		Listen:     "0.0.0.0",
+		Listen:     listenHost(),
 		ListenPort: p.Port,
 		Users: []store.User{
 			{Name: p.UserName, UUID: uuid, Flow: "xtls-rprx-vision"},
@@ -251,9 +239,6 @@ func buildVLESSInbound(tag string, p InstallParams) (*store.Inbound, string, err
 // buildStandardTLS creates a TLS config with certificate paths for non-Reality protocols.
 func buildStandardTLS(p InstallParams) *store.TLSConfig {
 	domain := p.Domain
-	if domain == "" {
-		domain = DetectTLSDomain()
-	}
 	tls := &store.TLSConfig{
 		Enabled:    true,
 		ServerName: domain,
@@ -307,7 +292,7 @@ func buildVLESSRealityInbound(tag string, p InstallParams) (*store.Inbound, stri
 	ib := &store.Inbound{
 		Type:       "vless",
 		Tag:        tag,
-		Listen:     "0.0.0.0",
+		Listen:     listenHost(),
 		ListenPort: p.Port,
 		Users: []store.User{
 			{Name: p.UserName, UUID: uuid, Flow: "xtls-rprx-vision"},
@@ -335,7 +320,7 @@ func buildTUICInbound(tag string, p InstallParams) (*store.Inbound, string, erro
 	ib := &store.Inbound{
 		Type:              "tuic",
 		Tag:               tag,
-		Listen:            "0.0.0.0",
+		Listen:            listenHost(),
 		ListenPort:        p.Port,
 		CongestionControl: congestion,
 		Users: []store.User{
@@ -355,7 +340,7 @@ func buildAnyTLSInbound(tag string, p InstallParams) (*store.Inbound, string, er
 	ib := &store.Inbound{
 		Type:       "anytls",
 		Tag:        tag,
-		Listen:     "0.0.0.0",
+		Listen:     listenHost(),
 		ListenPort: p.Port,
 		Users: []store.User{
 			{Name: p.UserName, Password: password},
@@ -382,7 +367,7 @@ func buildSSInbound(tag string, p InstallParams) (*store.Inbound, string, error)
 	ib := &store.Inbound{
 		Type:       "shadowsocks",
 		Tag:        tag,
-		Listen:     "0.0.0.0",
+		Listen:     listenHost(),
 		ListenPort: p.Port,
 		Method:     method,
 		Password:   serverKey,
@@ -403,5 +388,15 @@ func buildSnellConfig(p InstallParams) (*store.SnellConfig, string, error) {
 		PSK:    psk,
 		IPv6:   p.SnellIPv6,
 	}
+	if sysutil.IPv6Available() {
+		conf.Listen += fmt.Sprintf(",[::]:%d", p.Port)
+	}
 	return conf, psk, nil
+}
+
+func listenHost() string {
+	if sysutil.IPv6Available() {
+		return "::"
+	}
+	return "0.0.0.0"
 }

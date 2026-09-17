@@ -1,6 +1,8 @@
 package routing
 
 import (
+	"net"
+	"regexp"
 	"strings"
 
 	"go-proxy/internal/store"
@@ -8,20 +10,22 @@ import (
 
 // TestResult describes which rules match a given domain or IP for a user.
 type TestResult struct {
-	MatchedRules []MatchedRule
+	MatchedRules []MatchedRule `json:"matched_rules"`
+	Unresolved   []MatchedRule `json:"unresolved_rule_sets"`
 }
 
 // MatchedRule describes a single rule that matched.
 type MatchedRule struct {
-	Outbound string
-	MatchBy  string // what field matched (domain, domain_suffix, rule_set, ip_cidr, etc.)
-	Value    string // the specific value that matched
+	Outbound string `json:"outbound"`
+	MatchBy  string `json:"match_by"`
+	Value    string `json:"value"`
 }
 
 // TestDomain evaluates which routing rules would match a domain for a user.
 // This is a dry-run evaluation — it does not modify any state.
 func TestDomain(s *store.Store, userName, domain string) TestResult {
-	var matches []MatchedRule
+	matches := []MatchedRule{}
+	unresolved := []MatchedRule{}
 	for _, r := range s.UserRoutes {
 		if !hasAuthUser(r.AuthUser, userName) {
 			continue
@@ -52,12 +56,24 @@ func TestDomain(s *store.Store, userName, domain string) TestResult {
 		}
 		// Rule set matches can't be evaluated locally; note them.
 		for _, rs := range r.RuleSet {
-			matches = append(matches, MatchedRule{
+			unresolved = append(unresolved, MatchedRule{
 				Outbound: r.Outbound, MatchBy: "rule_set", Value: rs,
 			})
 		}
+		for _, pattern := range r.DomainRegex {
+			if matched, err := regexp.MatchString(pattern, domain); err == nil && matched {
+				matches = append(matches, MatchedRule{Outbound: r.Outbound, MatchBy: "domain_regex", Value: pattern})
+			}
+		}
+		if ip := net.ParseIP(domain); ip != nil {
+			for _, cidr := range r.IPCIDR {
+				if _, prefix, err := net.ParseCIDR(cidr); err == nil && prefix.Contains(ip) {
+					matches = append(matches, MatchedRule{Outbound: r.Outbound, MatchBy: "ip_cidr", Value: cidr})
+				}
+			}
+		}
 	}
-	return TestResult{MatchedRules: matches}
+	return TestResult{MatchedRules: matches, Unresolved: unresolved}
 }
 
 func hasAuthUser(users []string, name string) bool {

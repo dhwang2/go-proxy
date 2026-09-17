@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ type Release struct {
 type Asset struct {
 	Name               string `json:"name"`
 	BrowserDownloadURL string `json:"browser_download_url"`
+	Digest             string `json:"digest"`
 }
 
 // FindAssetURL finds the first asset URL matching the given pattern.
@@ -40,7 +42,15 @@ func (r *Release) FindAssetURL(pattern string) string {
 // LatestRelease fetches the latest release for a GitHub repository.
 // repo format: "owner/repo"
 func LatestRelease(ctx context.Context, repo string) (*Release, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
+	return fetchRelease(ctx, repo, "latest")
+}
+
+func ReleaseByTag(ctx context.Context, repo, tag string) (*Release, error) {
+	return fetchRelease(ctx, repo, "tags/"+url.PathEscape(tag))
+}
+
+func fetchRelease(ctx context.Context, repo, selector string) (*Release, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/%s", repo, selector)
 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

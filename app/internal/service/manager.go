@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 
 // Name represents a managed service.
 type Name string
+
+var stoppedDir = config.WorkDir
 
 const (
 	SingBox   Name = "sing-box"
@@ -29,9 +32,12 @@ func AllServices() []Name {
 
 // Status holds the status of a systemd service.
 type Status struct {
-	Name    Name
-	Running bool
-	Enabled bool
+	Name      Name   `json:"name"`
+	Running   bool   `json:"running"`
+	Enabled   bool   `json:"enabled"`
+	Installed bool   `json:"installed"`
+	State     string `json:"state"`
+	Error     string `json:"error,omitempty"`
 }
 
 // Start starts a systemd service.
@@ -99,49 +105,183 @@ func BinaryInstalled(name Name) bool {
 	default:
 		return false
 	}
-	_, err := os.Stat(path)
-	return err == nil
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0111 != 0
 }
 
-// GetStatus returns the status of a systemd service.
-// Returns nil if the service is not installed.
+// Snapshot observes all selected units with one systemctl call.
+func Snapshot(ctx context.Context, names ...Name) ([]Status, error) {
+	if len(names) == 0 {
+		names = AllServices()
+	}
+	groups := make(map[Name][]string, len(names))
+	var units []string
+	for _, name := range names {
+		if name == ShadowTLS {
+			children, err := ShadowTLSServiceNames()
+			if err != nil {
+				return nil, err
+			}
+			groups[name] = children
+			units = append(units, children...)
+		} else {
+			groups[name] = []string{string(name)}
+			units = append(units, string(name))
+		}
+	}
+	result := make([]Status, 0, len(names))
+	if len(units) == 0 {
+		for _, name := range names {
+			result = append(result, Status{Name: name, State: "missing"})
+		}
+		return result, nil
+	}
+	args := []string{"show", "--no-pager", "--property=Id,LoadState,ActiveState,UnitFileState"}
+	args = append(args, units...)
+	output, commandErr := systemctlOutput(ctx, args...)
+	parsed := make(map[string]Status)
+	for _, block := range strings.Split(strings.TrimSpace(output), "\n\n") {
+		fields := make(map[string]string)
+		for _, line := range strings.Split(block, "\n") {
+			key, value, ok := strings.Cut(line, "=")
+			if ok {
+				fields[key] = value
+			}
+		}
+		id := strings.TrimSuffix(fields["Id"], ".service")
+		if id == "" || fields["LoadState"] == "" {
+			continue
+		}
+		st := Status{Name: Name(id), Installed: fields["LoadState"] != "not-found", Running: fields["ActiveState"] == "active", Enabled: fields["UnitFileState"] == "enabled", State: fields["ActiveState"]}
+		if !st.Installed {
+			st.State = "missing"
+		}
+		if fields["LoadState"] != "loaded" && fields["LoadState"] != "not-found" {
+			st.Error = "unit could not be loaded"
+		}
+		parsed[id] = st
+	}
+	for _, name := range names {
+		members := groups[name]
+		st := Status{Name: name, State: "missing"}
+		if len(members) > 0 {
+			st.Installed = true
+			st.Running = true
+			st.Enabled = true
+			st.State = "active"
+			for _, unit := range members {
+				child, ok := parsed[unit]
+				if !ok {
+					st.Running = false
+					st.Enabled = false
+					st.Installed = false
+					st.State = "unknown"
+					st.Error = "service observation failed"
+					continue
+				}
+				st.Installed = st.Installed && child.Installed
+				st.Running = st.Running && child.Running
+				st.Enabled = st.Enabled && child.Enabled
+				if child.State != "active" {
+					st.State = child.State
+				}
+				if child.Error != "" {
+					st.Error = child.Error
+				}
+			}
+		}
+		result = append(result, st)
+	}
+	if commandErr != nil && len(parsed) == 0 {
+		return result, fmt.Errorf("service observation failed: %w", commandErr)
+	}
+	for _, st := range result {
+		if st.Error != "" {
+			return result, fmt.Errorf("service observation incomplete")
+		}
+	}
+	return result, nil
+}
+
 func GetStatus(ctx context.Context, name Name) (*Status, error) {
+	states, err := Snapshot(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if !states[0].Installed {
+		return nil, nil
+	}
+	return &states[0], nil
+}
+
+func WaitReady(ctx context.Context, name Name) error {
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	observations := 0
+	for {
+		states, err := Snapshot(waitCtx, name)
+		if err != nil {
+			return fmt.Errorf("observe %s readiness: %w", name, err)
+		}
+		st := states[0]
+		if !st.Installed || st.State == "failed" {
+			return fmt.Errorf("service %s did not become active", name)
+		}
+		if st.Running {
+			observations++
+		} else {
+			observations = 0
+		}
+		if observations >= 2 {
+			return nil
+		}
+		select {
+		case <-waitCtx.Done():
+			return fmt.Errorf("wait for %s readiness: %w", name, waitCtx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func SetStopped(name Name, stopped bool) error {
 	if name == ShadowTLS {
 		names, err := ShadowTLSServiceNames()
 		if err != nil {
-			return nil, err
+			return err
 		}
-		if len(names) == 0 {
-			return nil, nil
-		}
-		st := &Status{Name: name, Running: true, Enabled: true}
 		for _, unit := range names {
-			out, err := systemctlOutput(ctx, "is-active", unit)
-			running := err == nil && strings.TrimSpace(out) == "active"
-			st.Running = st.Running && running
-
-			out, err = systemctlOutput(ctx, "is-enabled", unit)
-			enabled := err == nil && strings.TrimSpace(out) == "enabled"
-			st.Enabled = st.Enabled && enabled
+			if err := setStoppedFile(Name(unit), stopped); err != nil {
+				return err
+			}
 		}
-		return st, nil
 	}
-	if !IsInstalled(ctx, name) {
-		return nil, nil
+	if !stopped && strings.HasPrefix(string(name), "shadow-tls-") {
+		if err := setStoppedFile(ShadowTLS, false); err != nil {
+			return err
+		}
 	}
-
-	unit := string(name)
-	st := &Status{Name: name}
-
-	// Check if active.
-	out, err := systemctlOutput(ctx, "is-active", unit)
-	st.Running = err == nil && strings.TrimSpace(out) == "active"
-
-	// Check if enabled.
-	out, err = systemctlOutput(ctx, "is-enabled", unit)
-	st.Enabled = err == nil && strings.TrimSpace(out) == "enabled"
-
-	return st, nil
+	return setStoppedFile(name, stopped)
+}
+func setStoppedFile(name Name, stopped bool) error {
+	path := filepath.Join(stoppedDir, ".stopped-"+string(name))
+	if stopped {
+		return os.WriteFile(path, []byte{}, 0600)
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+func IsStopped(name Name) bool {
+	if strings.HasPrefix(string(name), "shadow-tls-") {
+		if _, err := os.Stat(filepath.Join(stoppedDir, ".stopped-"+string(ShadowTLS))); err == nil {
+			return true
+		}
+	}
+	_, err := os.Stat(filepath.Join(stoppedDir, ".stopped-"+string(name)))
+	return err == nil
 }
 
 // DaemonReload runs systemctl daemon-reload.

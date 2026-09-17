@@ -44,6 +44,11 @@ ExecStart=/etc/go-proxy/bin/shadow-tls --v3 server --listen 0.0.0.0:443 --server
 
 func TestRemoveShadowTLSBindingByBackendRemovesMatchingUnit(t *testing.T) {
 	dir := t.TempDir()
+	binDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(binDir, "systemctl"), []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	prevDir := shadowTLSUnitDir
 	shadowTLSUnitDir = dir
 	t.Cleanup(func() {

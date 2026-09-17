@@ -24,20 +24,6 @@ const (
 	ShadowTLS    Type = "shadow-tls"
 )
 
-// AllTypes returns all supported protocol types.
-func AllTypes() []Type {
-	return []Type{
-		VLESS, VLESSReality, TUIC,
-		AnyTLS, Shadowsocks, Snell, ShadowTLS,
-	}
-}
-
-// InstallableTypes returns the user-facing protocols in menu order.
-// Reality/ShadowTLS variants are sub-options during the install flow, not top-level choices.
-func InstallableTypes() []Type {
-	return []Type{Shadowsocks, VLESS, TUIC, AnyTLS, Snell}
-}
-
 // Spec describes protocol characteristics.
 type Spec struct {
 	Type          Type
@@ -136,17 +122,6 @@ func DefaultPort(pt Type, usedPorts map[int]bool) int {
 	return 20000 + rand.Intn(10000)
 }
 
-// CollectUsedPorts collects all ports currently in use from inbound port list.
-func CollectUsedPorts(ports []int) map[int]bool {
-	used := make(map[int]bool)
-	for _, p := range ports {
-		if p > 0 {
-			used[p] = true
-		}
-	}
-	return used
-}
-
 // caddyCertIssuerDirs returns the issuer subdirectories under the caddy certificates directory.
 func caddyCertIssuerDirs() []string {
 	caddyCertDir := config.CaddyCertDir
@@ -161,40 +136,6 @@ func caddyCertIssuerDirs() []string {
 		}
 	}
 	return dirs
-}
-
-// DetectTLSDomain reads the domain from /etc/go-proxy/.domain or detects it from
-// caddy certificate directory.
-func DetectTLSDomain() string {
-	domainFile := filepath.Join(config.WorkDir, ".domain")
-	if data, err := os.ReadFile(domainFile); err == nil {
-		d := strings.TrimSpace(string(data))
-		if d != "" {
-			return d
-		}
-	}
-
-	for _, issuerDir := range caddyCertIssuerDirs() {
-		domain := ""
-		_ = filepath.WalkDir(issuerDir, func(path string, d fs.DirEntry, err error) error {
-			if err != nil || d == nil || !d.IsDir() {
-				return nil
-			}
-			name := d.Name()
-			if name == "." || !strings.Contains(name, ".") {
-				return nil
-			}
-			if _, key := resolveTLSCertPair(path, name); key != "" {
-				domain = name
-				return fs.SkipAll
-			}
-			return nil
-		})
-		if domain != "" {
-			return domain
-		}
-	}
-	return ""
 }
 
 // ResolveTLSCertPaths returns certificate and key file paths for a domain.

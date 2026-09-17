@@ -4,367 +4,61 @@ set -euo pipefail
 REPO="${REPO:-dhwang2/go-proxy}"
 VERSION="${VERSION:-latest}"
 INSTALL_PATH="${INSTALL_PATH:-/usr/bin/gproxy}"
-TMP_DIR=""
-RELEASE_PREFIX="${RELEASE_PREFIX:-v}"
 
-# Runtime paths (must match app/internal/config/paths.go).
-WORK_DIR="/etc/go-proxy"
-BIN_DIR="${WORK_DIR}/bin"
-CONF_DIR="${WORK_DIR}/conf"
-LOG_DIR="${WORK_DIR}/logs"
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  printf '%s\n' "go-proxy installer" "Environment: REPO, VERSION, INSTALL_PATH" "Installs a verified release, then runs gproxy init."
+  exit 0
+fi
+[[ $# == 0 ]] || { echo "error: unexpected installer arguments" >&2; exit 2; }
+[[ "${EUID}" == 0 ]] || { echo "error: installer requires root" >&2; exit 1; }
+[[ "$(uname -s)" == Linux ]] || { echo "error: Linux is required" >&2; exit 1; }
+[[ "${REPO}" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]] || { echo "error: invalid repository" >&2; exit 2; }
+[[ "${INSTALL_PATH}" == /* && "${INSTALL_PATH}" != */ ]] || { echo "error: INSTALL_PATH must be an absolute file path" >&2; exit 2; }
+for tool in curl sha256sum install mktemp; do
+  command -v "${tool}" >/dev/null || { echo "error: required tool missing: ${tool}" >&2; exit 1; }
+done
 
-usage() {
-  cat <<'EOF'
-go-proxy installer
+case "$(uname -m)" in
+  x86_64|amd64) arch=amd64 ;;
+  aarch64|arm64) arch=arm64 ;;
+  *) echo "error: unsupported architecture" >&2; exit 1 ;;
+esac
 
-Environment variables:
-  REPO         GitHub repository (default: dhwang2/go-proxy)
-  VERSION      Release tag or "latest" (default: latest)
-  INSTALL_PATH Install target path (default: /usr/bin/gproxy)
-
-Example:
-  curl -fsSL https://raw.githubusercontent.com/dhwang2/go-proxy/main/app/install.sh | sudo bash
-  REPO=owner/go-proxy VERSION=v1.0.0 bash install.sh
-EOF
+download() {
+  curl -fsSL --connect-timeout 10 --max-time 180 --retry 2 --retry-delay 1 "$1" -o "$2"
 }
 
+task_dir="$(mktemp -d)"
+staging=""
 cleanup() {
-  if [[ -n "${TMP_DIR}" && -d "${TMP_DIR}" ]]; then
-    rm -rf "${TMP_DIR}"
-  fi
+  if [[ -n "${staging}" && -f "${staging}" ]]; then rm -f -- "${staging}"; fi
+  if [[ -d "${task_dir}" ]]; then rm -rf -- "${task_dir}"; fi
 }
 trap cleanup EXIT
 
-require_root() {
-  if [[ "${EUID}" -ne 0 ]]; then
-    echo "error: installer must run as root" >&2
-    exit 1
-  fi
-}
+tag="${VERSION}"
+if [[ "${tag}" == latest ]]; then
+  download "https://api.github.com/repos/${REPO}/releases/latest" "${task_dir}/release.json"
+  tag="$(sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' "${task_dir}/release.json" | head -n 1)"
+fi
+[[ "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][a-zA-Z0-9.-]+)?$ ]] || { echo "error: invalid release version" >&2; exit 1; }
 
-detect_arch() {
-  local machine
-  machine="$(uname -m)"
-  case "${machine}" in
-    x86_64|amd64) echo "amd64" ;;
-    aarch64|arm64) echo "arm64" ;;
-    *)
-      echo "error: unsupported architecture ${machine}" >&2
-      exit 1
-      ;;
-  esac
-}
+asset="gproxy-linux-${arch}"
+base="https://github.com/${REPO}/releases/download/${tag}"
+download "${base}/${asset}" "${task_dir}/${asset}"
+download "${base}/${asset}.sha256" "${task_dir}/checksum"
+expected="$(awk -v name="${asset}" '$2 == name {print $1}' "${task_dir}/checksum")"
+[[ "${expected}" =~ ^[a-fA-F0-9]{64}$ ]] || { echo "error: invalid release checksum" >&2; exit 1; }
+actual="$(sha256sum "${task_dir}/${asset}" | cut -d ' ' -f 1)"
+[[ "${expected,,}" == "${actual}" ]] || { echo "error: release checksum mismatch" >&2; exit 1; }
 
-fetch_url() {
-  local url="$1"
-  local output="$2"
-  curl -fsSL -H "Accept: application/octet-stream" -o "${output}" "${url}"
-}
-
-resolve_release_tag() {
-  if [[ "${VERSION}" != "latest" ]]; then
-    echo "${VERSION}"
-    return 0
-  fi
-
-  local api_url="https://api.github.com/repos/${REPO}/releases?per_page=100"
-  local payload
-  payload="$(curl -fsSL "${api_url}")" || return 1
-
-  printf '%s' "${payload}" \
-    | grep -o '"tag_name":[[:space:]]*"[^"]*"' \
-    | cut -d'"' -f4 \
-    | grep "^${RELEASE_PREFIX}" \
-    | head -n1
-}
-
-fetch_api_payload() {
-  local url="$1"
-  curl -fsSL "${url}"
-}
-
-extract_asset_api_url() {
-  local payload="$1"
-  local target_name="$2"
-  printf '%s\n' "${payload}" | awk -v target="${target_name}" '
-    /"url":[[:space:]]*"https:\/\/api.github.com\/repos\/.*\/releases\/assets\// {
-      current = $0
-      sub(/.*"url":[[:space:]]*"/, "", current)
-      sub(/".*/, "", current)
-      next
-    }
-    /"name":[[:space:]]*"/ {
-      name = $0
-      sub(/.*"name":[[:space:]]*"/, "", name)
-      sub(/".*/, "", name)
-      if (name == target && current != "") {
-        print current
-        exit
-      }
-    }
-  '
-}
-
-resolve_download_urls() {
-  local arch="$1"
-  local release_tag
-  release_tag="$(resolve_release_tag)"
-  if [[ -z "${release_tag}" ]]; then
-    return 0
-  fi
-  local release_api="https://api.github.com/repos/${REPO}/releases/tags/${release_tag}"
-  local payload
-  payload="$(fetch_api_payload "${release_api}")"
-
-  local candidates=(
-    "gproxy-linux-${arch}"
-    "gproxy-${arch}"
-    "gproxy-linux-${arch}.tar.gz"
-    "gproxy-${arch}.tar.gz"
-  )
-
-  local name
-  for name in "${candidates[@]}"; do
-    local asset_url
-    asset_url="$(extract_asset_api_url "${payload}" "${name}")"
-    if [[ -n "${asset_url}" ]]; then
-      echo "${asset_url}"
-    fi
-  done
-}
-
-download_first_available() {
-  local output="$1"
-  shift
-  local url
-  for url in "$@"; do
-    if fetch_url "${url}" "${output}"; then
-      echo "${url}"
-      return 0
-    fi
-  done
-  return 1
-}
-
-extract_if_needed() {
-  local source_path="$1"
-  local source_ref="$2"
-  local arch="$3"
-  local out="$4"
-
-  case "${source_ref}" in
-    *.tar.gz)
-      tar -xzf "${source_path}" -C "${TMP_DIR}"
-      if [[ -f "${TMP_DIR}/gproxy" ]]; then
-        cp "${TMP_DIR}/gproxy" "${out}"
-      elif [[ -f "${TMP_DIR}/gproxy-linux-${arch}" ]]; then
-        cp "${TMP_DIR}/gproxy-linux-${arch}" "${out}"
-      elif [[ -f "${TMP_DIR}/gproxy-${arch}" ]]; then
-        cp "${TMP_DIR}/gproxy-${arch}" "${out}"
-      else
-        echo "error: cannot find gproxy binary inside archive" >&2
-        exit 1
-      fi
-      ;;
-    *)
-      cp "${source_path}" "${out}"
-      ;;
-  esac
-}
-
-cleanup_stale_binaries() {
-  local target="$1"
-  local known_paths=("/usr/bin/gproxy" "/usr/local/bin/gproxy")
-  local p
-  for p in "${known_paths[@]}"; do
-    if [[ "${p}" != "${target}" && -f "${p}" ]]; then
-      rm -f "${p}"
-      echo "removed stale: ${p}"
-    fi
-  done
-  # Clear bash hash so the current shell finds the new path.
-  hash -r 2>/dev/null || true
-}
-
-install_binary() {
-  local source="$1"
-  local target="$2"
-  local backup=""
-  if [[ -f "${target}" ]]; then
-    backup="${target}.$(date -u +%Y%m%dT%H%M%SZ).bak"
-    cp "${target}" "${backup}"
-    echo "backup: ${backup}"
-  fi
-  install -m 0755 "${source}" "${target}"
-  cleanup_stale_binaries "${target}"
-}
-
-download_file() {
-  local url="$1"
-  local output="$2"
-  curl -fsSL --retry 3 --retry-delay 1 --connect-timeout 10 -o "${output}" "${url}"
-}
-
-resolve_github_latest_tag() {
-  local repo="$1"
-  local api_url="https://api.github.com/repos/${repo}/releases/latest"
-  local payload
-  payload="$(curl -fsSL "${api_url}" 2>/dev/null)" || return 1
-  printf '%s' "${payload}" | grep -o '"tag_name":[[:space:]]*"[^"]*"' | head -1 | cut -d'"' -f4
-}
-
-install_singbox_core() {
-  local arch="$1"
-  local version
-  version="$(resolve_github_latest_tag "SagerNet/sing-box")"
-  version="${version#v}"
-  version="${version:-1.10.0}"
-  echo "installing sing-box v${version}..."
-
-  mkdir -p "${BIN_DIR}" "${CONF_DIR}" "${LOG_DIR}"
-  local filename="sing-box-${version}-linux-${arch}.tar.gz"
-  local url="https://github.com/SagerNet/sing-box/releases/download/v${version}/${filename}"
-
-  download_file "${url}" "${TMP_DIR}/${filename}"
-  tar -zxf "${TMP_DIR}/${filename}" -C "${TMP_DIR}"
-  local extracted_bin
-  extracted_bin="$(find "${TMP_DIR}" -name sing-box -type f | head -n 1)"
-  if [[ -z "${extracted_bin}" || ! -f "${extracted_bin}" ]]; then
-    echo "warn: sing-box binary not found in archive, skipping" >&2
-    return 1
-  fi
-  install -m 755 "${extracted_bin}" "${BIN_DIR}/sing-box"
-  echo "installed: ${BIN_DIR}/sing-box"
-}
-
-install_snell() {
-  local arch="$1"
-  local version="6.0.0rc2"
-  echo "installing snell-v6 v${version}..."
-
-  mkdir -p "${BIN_DIR}"
-  local snell_arch="${arch}"
-  [[ "${arch}" == "arm64" ]] && snell_arch="aarch64"
-
-  local filename="snell-server-v${version}-linux-${snell_arch}.zip"
-  local url="https://dl.nssurge.com/snell/${filename}"
-
-  download_file "${url}" "${TMP_DIR}/${filename}"
-  unzip -o "${TMP_DIR}/${filename}" -d "${TMP_DIR}" >/dev/null 2>&1
-  if [[ ! -f "${TMP_DIR}/snell-server" ]]; then
-    echo "warn: snell-server binary not found, skipping" >&2
-    return 1
-  fi
-  install -m 755 "${TMP_DIR}/snell-server" "${BIN_DIR}/snell-server"
-  echo "installed: ${BIN_DIR}/snell-server"
-}
-
-install_shadowtls() {
-  local arch="$1"
-  echo "installing shadow-tls..."
-
-  local st_version
-  st_version="$(resolve_github_latest_tag "ihciah/shadow-tls")"
-  st_version="${st_version#v}"
-  st_version="${st_version:-0.2.25}"
-
-  local st_arch="x86_64-unknown-linux-musl"
-  [[ "${arch}" == "arm64" ]] && st_arch="aarch64-unknown-linux-musl"
-
-  local filename="shadow-tls-${st_arch}"
-  local url="https://github.com/ihciah/shadow-tls/releases/download/v${st_version}/${filename}"
-
-  mkdir -p "${BIN_DIR}"
-  download_file "${url}" "${TMP_DIR}/${filename}"
-  if [[ ! -f "${TMP_DIR}/${filename}" ]]; then
-    echo "warn: shadow-tls download failed, skipping" >&2
-    return 1
-  fi
-  install -m 755 "${TMP_DIR}/${filename}" "${BIN_DIR}/shadow-tls"
-  echo "installed: ${BIN_DIR}/shadow-tls"
-}
-
-install_caddy() {
-  local arch="$1"
-  echo "installing caddy..."
-
-  local version
-  version="$(resolve_github_latest_tag "caddyserver/caddy")"
-  version="${version#v}"
-  version="${version:-2.9.1}"
-
-  local filename="caddy_${version}_linux_${arch}.tar.gz"
-  local url="https://github.com/caddyserver/caddy/releases/download/v${version}/${filename}"
-
-  mkdir -p "${BIN_DIR}"
-  download_file "${url}" "${TMP_DIR}/${filename}"
-  tar -zxf "${TMP_DIR}/${filename}" -C "${TMP_DIR}" caddy 2>/dev/null || tar -zxf "${TMP_DIR}/${filename}" -C "${TMP_DIR}"
-  if [[ ! -f "${TMP_DIR}/caddy" ]]; then
-    echo "warn: caddy binary not found in archive, skipping" >&2
-    return 1
-  fi
-  install -m 755 "${TMP_DIR}/caddy" "${BIN_DIR}/caddy"
-  echo "installed: ${BIN_DIR}/caddy"
-}
-
-install_cores() {
-  local arch="$1"
-  # Each core install is best-effort; failures are non-fatal.
-  install_singbox_core "${arch}" || echo "warn: sing-box installation failed" >&2
-  rm -rf "${TMP_DIR:?}"/* 2>/dev/null || true
-  install_snell "${arch}" || echo "warn: snell installation failed" >&2
-  rm -rf "${TMP_DIR:?}"/* 2>/dev/null || true
-  install_shadowtls "${arch}" || echo "warn: shadow-tls installation failed" >&2
-  rm -rf "${TMP_DIR:?}"/* 2>/dev/null || true
-  install_caddy "${arch}" || echo "warn: caddy installation failed" >&2
-}
-
-main() {
-  if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-    usage
-    exit 0
-  fi
-
-  require_root
-  local arch
-  arch="$(detect_arch)"
-
-  TMP_DIR="$(mktemp -d)"
-
-  # --- Install gproxy binary ---
-  local -a candidates=()
-  mapfile -t candidates < <(resolve_download_urls "${arch}")
-  local downloaded="${TMP_DIR}/downloaded.bin"
-  local extracted="${TMP_DIR}/gproxy"
-  local url=""
-  if [[ "${#candidates[@]}" -eq 0 ]]; then
-    echo "error: no go-proxy release tag found for ${REPO} (${VERSION})" >&2
-    echo "hint: publish a ${RELEASE_PREFIX}* release with matching binary assets" >&2
-    exit 1
-  fi
-  if ! url="$(download_first_available "${downloaded}" "${candidates[@]}")"; then
-    echo "error: no release asset found for ${REPO} (${VERSION}) arch=${arch}" >&2
-    echo "hint: publish a ${RELEASE_PREFIX}* release with matching binary assets" >&2
-    echo "hint: upload assets named gproxy-linux-${arch} or gproxy-${arch}" >&2
-    exit 1
-  fi
-
-  echo "download: ${url}"
-  extract_if_needed "${downloaded}" "${url}" "${arch}" "${extracted}"
-  install_binary "${extracted}" "${INSTALL_PATH}"
-
-  echo "installed: ${INSTALL_PATH}"
-  "${INSTALL_PATH}" version || true
-
-  # --- Install all service cores ---
-  rm -rf "${TMP_DIR:?}"/* 2>/dev/null || true
-  install_cores "${arch}"
-
-  # --- Initialize config, services, and watchdog ---
-  echo "initializing services..."
-  "${INSTALL_PATH}" init || echo "warn: gproxy init failed" >&2
-
-  echo "installation complete"
-}
-
-main "$@"
+chmod 755 "${task_dir}/${asset}"
+[[ "$("${task_dir}/${asset}" version)" == "go-proxy ${tag}" ]] || { echo "error: release version mismatch" >&2; exit 1; }
+install_dir="$(dirname "${INSTALL_PATH}")"
+mkdir -p "${install_dir}"
+staging="$(mktemp "${install_dir}/.gproxy-install.XXXXXX")"
+install -m 755 "${task_dir}/${asset}" "${staging}"
+mv -f -- "${staging}" "${INSTALL_PATH}"
+staging=""
+"${INSTALL_PATH}" init
+printf 'installed go-proxy %s at %s\n' "${tag}" "${INSTALL_PATH}"

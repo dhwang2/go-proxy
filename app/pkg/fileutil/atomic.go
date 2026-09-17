@@ -7,7 +7,7 @@ import (
 )
 
 // AtomicWrite writes data to path atomically using a temp file + rename.
-// It preserves the original file's permissions, or uses 0644 for new files.
+// It preserves original permissions, or uses 0600 for new files.
 func AtomicWrite(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -15,7 +15,7 @@ func AtomicWrite(path string, data []byte) error {
 	}
 
 	// Preserve existing permissions.
-	perm := os.FileMode(0644)
+	perm := os.FileMode(0600)
 	if info, err := os.Stat(path); err == nil {
 		perm = info.Mode().Perm()
 	}
@@ -36,6 +36,11 @@ func AtomicWrite(path string, data []byte) error {
 		os.Remove(tmpPath)
 		return fmt.Errorf("chmod temp file: %w", err)
 	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("sync temp file: %w", err)
+	}
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("close temp file: %w", err)
@@ -44,7 +49,12 @@ func AtomicWrite(path string, data []byte) error {
 		os.Remove(tmpPath)
 		return fmt.Errorf("rename temp file: %w", err)
 	}
-	return nil
+	directory, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
 }
 
 // Backup creates a .bak copy of path. Returns the backup path.
@@ -58,7 +68,7 @@ func Backup(path string) (string, error) {
 		return "", fmt.Errorf("read %s: %w", path, err)
 	}
 	bak := path + ".bak"
-	if err := os.WriteFile(bak, data, 0644); err != nil {
+	if err := os.WriteFile(bak, data, 0600); err != nil {
 		return "", fmt.Errorf("write backup %s: %w", bak, err)
 	}
 	return bak, nil

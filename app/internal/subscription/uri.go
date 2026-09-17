@@ -17,7 +17,7 @@ func uriFragment(ibType, userName, tag string) string {
 }
 
 // renderURI generates a protocol share URI for an inbound membership.
-func renderURI(ib *store.Inbound, entry derived.MembershipEntry, host string) string {
+func renderURI(ib *store.Inbound, entry derived.MembershipEntry, host string, u *store.User, tls *clientTLS) string {
 	fmtHost := FormatHost(host)
 	sni := ib.ServerName()
 	fragment := uriFragment(ib.Type, entry.UserName, entry.Tag)
@@ -32,11 +32,7 @@ func renderURI(ib *store.Inbound, entry derived.MembershipEntry, host string) st
 				params.Set("security", "reality")
 				params.Set("fp", "chrome")
 				if r := ib.TLS.Reality; r != nil {
-					publicKey, err := crypto.RealityPublicKey(r.PrivateKey)
-					if err != nil {
-						return ""
-					}
-					params.Set("pbk", publicKey)
+					params.Set("pbk", tls.Reality.PublicKey)
 					if len(r.ShortID) > 0 {
 						params.Set("sid", r.ShortID[0])
 					}
@@ -46,7 +42,7 @@ func renderURI(ib *store.Inbound, entry derived.MembershipEntry, host string) st
 			}
 			params.Set("sni", sni)
 		}
-		if u := ib.FindUser(entry.UserName); u != nil && u.Flow != "" {
+		if u != nil && u.Flow != "" {
 			params.Set("flow", u.Flow)
 		}
 		return fmt.Sprintf("vless://%s@%s:%d?%s#%s",
@@ -54,15 +50,19 @@ func renderURI(ib *store.Inbound, entry derived.MembershipEntry, host string) st
 
 	case "tuic":
 		password := ""
-		if u := ib.FindUser(entry.UserName); u != nil {
+		if u != nil {
 			password = u.Password
 		}
 		params := url.Values{}
-		params.Set("congestion_control", "bbr")
+		congestion := ib.CongestionControl
+		if congestion == "" {
+			congestion = "bbr"
+		}
+		params.Set("congestion_control", congestion)
 		params.Set("alpn", "h3")
 		params.Set("sni", sni)
 		params.Set("udp_relay_mode", "native")
-		params.Set("allow_insecure", "1")
+		params.Set("allow_insecure", "0")
 		return fmt.Sprintf("tuic://%s:%s@%s:%d?%s#%s",
 			entry.UserID, password, fmtHost, ib.ListenPort, params.Encode(), fragment)
 

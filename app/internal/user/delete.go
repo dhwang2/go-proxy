@@ -14,6 +14,7 @@ func Delete(s *store.Store, name string) error {
 	}
 
 	found := false
+	inboundsChanged := false
 
 	// Remove from inbounds.
 	for i := range s.SingBox.Inbounds {
@@ -22,6 +23,7 @@ func Delete(s *store.Store, name string) error {
 		for _, u := range ib.Users {
 			if u.Name == name {
 				found = true
+				inboundsChanged = true
 				// Remove corresponding metadata.
 				key := store.UserKey(ib.Type, ib.Tag, u.Credential())
 				delete(s.UserMeta.Disabled, key)
@@ -78,9 +80,12 @@ func Delete(s *store.Store, name string) error {
 	}
 	if derived.PruneOrphanAuthUsers(s, activeUsers) {
 		s.MarkDirty(store.FileUserRoutes)
+		inboundsChanged = true
 	}
 
-	s.MarkDirty(store.FileSingBox)
+	if inboundsChanged {
+		s.MarkDirty(store.FileSingBox)
+	}
 	s.MarkDirty(store.FileUserMeta)
 	return nil
 }

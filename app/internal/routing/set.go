@@ -39,6 +39,9 @@ func SetRule(s *store.Store, userName string, rule store.UserRouteRule) error {
 		if !rulesMatchForDedup(s.UserRoutes[i], rule) {
 			continue
 		}
+		if s.UserRoutes[i].Outbound == rule.Outbound && s.UserRoutes[i].Action == rule.Action {
+			return nil
+		}
 		{
 			if len(s.UserRoutes[i].AuthUser) > 1 {
 				s.UserRoutes[i].AuthUser = removeAuthUser(s.UserRoutes[i].AuthUser, userName)

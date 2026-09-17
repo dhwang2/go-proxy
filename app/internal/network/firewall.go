@@ -1,9 +1,12 @@
 package network
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,9 +18,9 @@ import (
 )
 
 type FirewallPortSpec struct {
-	Proto   string
-	Port    int
-	Sources []string
+	Proto   string   `json:"transport"`
+	Port    int      `json:"port"`
+	Sources []string `json:"sources"`
 }
 
 type DesiredPortEntry struct {
@@ -27,11 +30,11 @@ type DesiredPortEntry struct {
 }
 
 // EnsureNft ensures the nft CLI is available, installing it if necessary.
-func EnsureNft() error {
+func EnsureNft(ctx context.Context) error {
 	if _, err := exec.LookPath("nft"); err == nil {
 		return nil
 	}
-	if out, err := exec.Command("apt-get", "install", "-y", "nftables").CombinedOutput(); err != nil {
+	if out, err := runCommand(ctx, "apt-get", "install", "-y", "nftables"); err != nil {
 		return fmt.Errorf("install nftables: %s: %s", err, strings.TrimSpace(string(out)))
 	}
 	if _, err := exec.LookPath("nft"); err != nil {
@@ -41,24 +44,21 @@ func EnsureNft() error {
 }
 
 // ListOpenPorts returns the raw nftables ruleset.
-func ListOpenPorts() (string, error) {
-	if err := EnsureNft(); err != nil {
-		return "", err
-	}
-	out, err := exec.Command("nft", "list", "ruleset").CombinedOutput()
+func ListOpenPorts(ctx context.Context) (string, error) {
+	out, err := runCommand(ctx, "nft", "list", "ruleset")
 	return string(out), err
 }
 
 // CurrentPortEntry represents a port rule currently active in nftables.
 type CurrentPortEntry struct {
-	Proto  string
-	Port   int
-	Action string
+	Proto  string `json:"transport"`
+	Port   int    `json:"port"`
+	Action string `json:"action"`
 }
 
 // CurrentFirewallPorts parses the nftables ruleset and returns active port rules.
-func CurrentFirewallPorts() ([]CurrentPortEntry, error) {
-	raw, err := ListOpenPorts()
+func CurrentFirewallPorts(ctx context.Context) ([]CurrentPortEntry, error) {
+	raw, err := ListOpenPorts(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -126,24 +126,119 @@ func parseNftPortLine(line string) (proto string, ports []int, action string) {
 }
 
 // HasManagedConvergence checks if the proxy_firewall nftables table exists.
-func HasManagedConvergence() bool {
+func HasManagedConvergence(ctx context.Context) bool {
 	if _, err := exec.LookPath("nft"); err != nil {
 		return false
 	}
-	return exec.Command("nft", "list", "table", "inet", "proxy_firewall").Run() == nil
+	_, err := runCommand(ctx, "nft", "list", "table", "inet", "proxy_firewall")
+	return err == nil
+}
+
+func FirewallManaged(ctx context.Context) (bool, error) {
+	if _, err := exec.LookPath("nft"); err != nil {
+		return false, nil
+	}
+	out, err := runCommand(ctx, "nft", "-j", "list", "tables")
+	if err != nil {
+		return false, fmt.Errorf("inspect nftables: %w", err)
+	}
+	var response struct {
+		Tables []struct {
+			Table struct {
+				Family string `json:"family"`
+				Name   string `json:"name"`
+			} `json:"table"`
+		} `json:"nftables"`
+	}
+	if err := json.Unmarshal(out, &response); err != nil {
+		return false, fmt.Errorf("parse nftables tables: %w", err)
+	}
+	for _, table := range response.Tables {
+		if table.Table.Family == "inet" && table.Table.Name == "proxy_firewall" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+type FirewallInfo struct {
+	Available bool               `json:"available"`
+	Managed   bool               `json:"managed"`
+	Desired   []FirewallPortSpec `json:"desired"`
+	Current   []CurrentPortEntry `json:"current"`
+	Add       []CurrentPortEntry `json:"add"`
+	Remove    []CurrentPortEntry `json:"remove"`
+	Rules     string             `json:"managed_rules"`
+}
+
+func FirewallStatus(ctx context.Context, s *store.Store, bindings []service.ShadowTLSBinding) (FirewallInfo, error) {
+	info := FirewallInfo{Current: []CurrentPortEntry{}, Add: []CurrentPortEntry{}, Remove: []CurrentPortEntry{}}
+	var err error
+	info.Desired, err = DesiredFirewallPortsWithBindings(ctx, s, bindings)
+	if err != nil {
+		return info, err
+	}
+	if _, err = exec.LookPath("nft"); err == nil {
+		info.Available = true
+		info.Managed, err = FirewallManaged(ctx)
+		if err != nil {
+			return info, err
+		}
+		if info.Managed {
+			out, readErr := runCommand(ctx, "nft", "list", "table", "inet", "proxy_firewall")
+			if readErr != nil {
+				return info, fmt.Errorf("read managed firewall: %w", readErr)
+			}
+			info.Rules = string(out)
+			info.Current = parseNftPorts(info.Rules)
+		}
+	}
+	wanted, current := make(map[string]bool), make(map[string]bool)
+	for _, p := range info.Current {
+		if p.Action == "accept" {
+			current[fmt.Sprintf("%s/%d", p.Proto, p.Port)] = true
+		}
+	}
+	for _, p := range info.Desired {
+		key := fmt.Sprintf("%s/%d", p.Proto, p.Port)
+		wanted[key] = true
+		if !current[key] {
+			info.Add = append(info.Add, CurrentPortEntry{Proto: p.Proto, Port: p.Port, Action: "accept"})
+		}
+	}
+	for _, p := range info.Current {
+		if !wanted[fmt.Sprintf("%s/%d", p.Proto, p.Port)] {
+			info.Remove = append(info.Remove, p)
+		}
+	}
+	return info, ctx.Err()
 }
 
 // RemoveFirewallRules removes all nftables tables created by this application.
-func RemoveFirewallRules() {
+func RemoveFirewallRules(ctx context.Context) error {
 	nft, err := exec.LookPath("nft")
 	if err != nil {
-		return
+		return nil
 	}
-	exec.Command(nft, "delete", "table", "inet", "proxy_firewall").Run()
-	exec.Command(nft, "delete", "table", "inet", "proxy-filter").Run()
+	managed, err := FirewallManaged(ctx)
+	if err != nil || !managed {
+		return err
+	}
+	if out, err := runCommand(ctx, nft, "delete", "table", "inet", "proxy_firewall"); err != nil {
+		return fmt.Errorf("remove managed firewall: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
-func DesiredFirewallPorts(s *store.Store) ([]FirewallPortSpec, error) {
+func DesiredFirewallPorts(ctx context.Context, s *store.Store) ([]FirewallPortSpec, error) {
+	bindings, err := service.ListShadowTLSBindings(s)
+	if err != nil {
+		return nil, err
+	}
+	return DesiredFirewallPortsWithBindings(ctx, s, bindings)
+}
+
+func DesiredFirewallPortsWithBindings(ctx context.Context, s *store.Store, bindings []service.ShadowTLSBinding) ([]FirewallPortSpec, error) {
 	portMap := make(map[string]*FirewallPortSpec)
 
 	addPort := func(port int, proto, source string) {
@@ -165,10 +260,6 @@ func DesiredFirewallPorts(s *store.Store) ([]FirewallPortSpec, error) {
 		}
 	}
 
-	bindings, err := service.ListShadowTLSBindings(s)
-	if err != nil {
-		return nil, err
-	}
 	protectedBackends := make(map[string]bool, len(bindings))
 	for _, binding := range bindings {
 		if binding.BackendProto == "ss" || binding.BackendProto == "snell" {
@@ -202,7 +293,7 @@ func DesiredFirewallPorts(s *store.Store) ([]FirewallPortSpec, error) {
 		addPort(binding.ListenPort, "tcp", source)
 	}
 
-	for _, port := range CollectSSHPorts() {
+	for _, port := range CollectSSHPorts(ctx) {
 		addPort(port, "tcp", "ssh")
 	}
 
@@ -228,14 +319,14 @@ func DesiredFirewallPorts(s *store.Store) ([]FirewallPortSpec, error) {
 		}
 		return specs[i].Proto < specs[j].Proto
 	})
-	return specs, nil
+	return specs, ctx.Err()
 }
 
-func ApplyFirewallConvergence(s *store.Store) error {
-	if err := EnsureNft(); err != nil {
+func ApplyFirewallConvergence(ctx context.Context, s *store.Store) error {
+	if err := EnsureNft(ctx); err != nil {
 		return err
 	}
-	specs, err := DesiredFirewallPorts(s)
+	specs, err := DesiredFirewallPorts(ctx, s)
 	if err != nil {
 		return err
 	}
@@ -249,11 +340,11 @@ func ApplyFirewallConvergence(s *store.Store) error {
 			tcpPorts = append(tcpPorts, spec.Port)
 		}
 	}
-	return nftApplyPorts(tcpPorts, udpPorts)
+	return nftApplyPorts(ctx, tcpPorts, udpPorts)
 }
 
-func DescribeDesiredPorts(s *store.Store) ([]DesiredPortEntry, error) {
-	specs, err := DesiredFirewallPorts(s)
+func DescribeDesiredPorts(ctx context.Context, s *store.Store) ([]DesiredPortEntry, error) {
+	specs, err := DesiredFirewallPorts(ctx, s)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +359,7 @@ func DescribeDesiredPorts(s *store.Store) ([]DesiredPortEntry, error) {
 	return entries, nil
 }
 
-func CollectSSHPorts() []int {
+func CollectSSHPorts(ctx context.Context) []int {
 	seen := make(map[int]bool)
 	var ports []int
 	addPort := func(value string) {
@@ -279,8 +370,11 @@ func CollectSSHPorts() []int {
 		seen[port] = true
 		ports = append(ports, port)
 	}
+	if fields := strings.Fields(os.Getenv("SSH_CONNECTION")); len(fields) == 4 {
+		addPort(fields[3])
+	}
 
-	if out, err := exec.Command("sshd", "-T").CombinedOutput(); err == nil {
+	if out, err := runCommand(ctx, "sshd", "-T"); err == nil {
 		for _, line := range strings.Split(string(out), "\n") {
 			fields := strings.Fields(line)
 			if len(fields) == 2 && fields[0] == "port" {
@@ -288,17 +382,21 @@ func CollectSSHPorts() []int {
 			}
 		}
 	}
-
-	if out, err := exec.Command("sh", "-lc", "grep -hE '^[[:space:]]*Port[[:space:]]+[0-9]+' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null").CombinedOutput(); err == nil {
-		for _, line := range strings.Split(string(out), "\n") {
+	files, _ := filepath.Glob("/etc/ssh/sshd_config.d/*.conf")
+	for _, path := range append([]string{"/etc/ssh/sshd_config"}, files...) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(data), "\n") {
 			fields := strings.Fields(line)
-			if len(fields) >= 2 && strings.EqualFold(fields[0], "port") {
+			if len(fields) >= 2 && strings.EqualFold(fields[0], "Port") {
 				addPort(fields[1])
 			}
 		}
 	}
 
-	if out, err := exec.Command("ss", "-lntp").CombinedOutput(); err == nil {
+	if out, err := runCommand(ctx, "ss", "-lntp"); err == nil {
 		for _, line := range strings.Split(string(out), "\n") {
 			if !strings.Contains(line, "sshd") {
 				continue
@@ -334,9 +432,13 @@ func requiresACMEPorts() bool {
 	return false
 }
 
-func nftApplyPorts(tcpPorts, udpPorts []int) error {
+func nftApplyPorts(ctx context.Context, tcpPorts, udpPorts []int) error {
 	var builder strings.Builder
-	if exec.Command("nft", "list", "table", "inet", "proxy_firewall").Run() == nil {
+	managed, err := FirewallManaged(ctx)
+	if err != nil {
+		return err
+	}
+	if managed {
 		builder.WriteString("delete table inet proxy_firewall\n")
 	}
 	builder.WriteString("table inet proxy_firewall {\n")
@@ -374,7 +476,7 @@ func nftApplyPorts(tcpPorts, udpPorts []int) error {
 		return err
 	}
 
-	if out, err := exec.Command("nft", "-f", tmp.Name()).CombinedOutput(); err != nil {
+	if out, err := runCommand(ctx, "nft", "-f", tmp.Name()); err != nil {
 		return fmt.Errorf("nft apply: %s: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil

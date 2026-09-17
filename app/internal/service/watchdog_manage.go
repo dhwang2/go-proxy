@@ -2,9 +2,7 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"os"
-	"time"
 )
 
 func EnsureWatchdogRunning(ctx context.Context, proxyBin string) error {
@@ -21,19 +19,7 @@ func EnsureWatchdogRunning(ctx context.Context, proxyBin string) error {
 		return err
 	}
 
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	for {
-		st, err := GetStatus(waitCtx, Watchdog)
-		if err == nil && st != nil && st.Running {
-			return nil
-		}
-		select {
-		case <-waitCtx.Done():
-			return fmt.Errorf("watchdog did not become active")
-		case <-time.After(200 * time.Millisecond):
-		}
-	}
+	return WaitReady(ctx, Watchdog)
 }
 
 func EnsureWatchdogRunningForCurrentBinary(ctx context.Context) error {

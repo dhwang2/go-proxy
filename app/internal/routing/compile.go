@@ -8,53 +8,6 @@ import (
 	"go-proxy/internal/store"
 )
 
-type MenuPresetOption struct {
-	Key    string
-	Preset Preset
-}
-
-func AddMenuPresetOptions() []MenuPresetOption {
-	order := []struct {
-		key  string
-		name string
-	}{
-		{"1", "openai"},
-		{"2", "anthropic"},
-		{"3", "google"},
-		{"4", "youtube"},
-		{"5", "telegram"},
-		{"6", "twitter"},
-		{"7", "whatsapp"},
-		{"8", "facebook"},
-		{"9", "github"},
-		{"g", "discord"},
-		{"h", "instagram"},
-		{"i", "reddit"},
-		{"j", "xai"},
-		{"k", "microsoft"},
-		{"l", "linkedin"},
-		{"m", "paypal"},
-		{"n", "meta"},
-		{"o", "messenger"},
-		{"a", "ai-intl"},
-		{"b", "netflix"},
-		{"d", "disney"},
-		{"e", "mytvsuper"},
-		{"s", "spotify"},
-		{"t", "tiktok"},
-		{"r", "ads"},
-	}
-	options := make([]MenuPresetOption, 0, len(order))
-	for _, item := range order {
-		preset, ok := FindPreset(item.name)
-		if !ok {
-			continue
-		}
-		options = append(options, MenuPresetOption{Key: item.key, Preset: preset})
-	}
-	return options
-}
-
 func CompiledUserRouteRules(s *store.Store) []store.RouteRule {
 	// Resolve presets once for all rules.
 	presets := resolvePresets(s.UserRoutes)
@@ -95,13 +48,13 @@ func UserRouteLabel(rule store.UserRouteRule) string {
 			return strings.Join(values, ",")
 		}
 	}
-	return "自定义"
+	return "custom"
 }
 
 func OutboundLabel(outbound string) string {
 	switch outbound {
 	case "direct", "🐸 direct":
-		return "直连"
+		return "direct"
 	default:
 		return outbound
 	}

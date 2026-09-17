@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -87,9 +88,12 @@ func Load() (*Store, error) {
 	// snell-v6.conf (optional)
 	if data, err := os.ReadFile(config.SnellConfigFile); err == nil {
 		sc, err := ParseSnellConfig(string(data))
-		if err == nil {
-			s.SnellConf = sc
+		if err != nil {
+			return nil, fmt.Errorf("parse snell configuration: %w", err)
 		}
+		s.SnellConf = sc
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("read snell configuration: %w", err)
 	}
 
 	return s, nil
@@ -127,6 +131,8 @@ func (s *Store) IsDirty() bool {
 	return len(s.dirty) > 0
 }
 
+func (s *Store) IsDirtyFile(file string) bool { return s.dirty[file] }
+
 // Save atomically writes all dirty files to disk without validation or restart.
 func (s *Store) Save() error {
 	for file := range s.dirty {
@@ -140,10 +146,17 @@ func (s *Store) Save() error {
 
 // Apply saves dirty files, validates sing-box config, and returns.
 // Service restart is handled by the caller (service package).
-func (s *Store) Apply() error {
+func (s *Store) Apply(ctx context.Context) error {
 	if !s.IsDirty() {
 		return nil
 	}
+	if err := s.ValidatePending(ctx); err != nil {
+		return err
+	}
+	return s.ApplyValidated()
+}
+
+func (s *Store) ApplyValidated() error {
 
 	// Backup dirty files.
 	backups := make(map[string]string)
@@ -159,25 +172,14 @@ func (s *Store) Apply() error {
 	// Save all dirty files.
 	if err := s.Save(); err != nil {
 		// Restore backups on failure.
-		for file := range backups {
-			fileutil.RestoreBackup(s.filePath(file))
-		}
-		return err
-	}
-
-	// Validate sing-box config if it was modified.
-	if _, wasDirty := backups[FileSingBox]; wasDirty {
-		if err := s.validateSingBox(); err != nil {
-			// Restore backups on validation failure.
-			for file := range backups {
+		for file, backup := range backups {
+			if backup == "" {
+				os.Remove(s.filePath(file))
+			} else {
 				fileutil.RestoreBackup(s.filePath(file))
 			}
-			// Re-load the restored config.
-			if restored, loadErr := Load(); loadErr == nil {
-				*s = *restored
-			}
-			return fmt.Errorf("sing-box validation failed: %w", err)
 		}
+		return err
 	}
 
 	// Clean up backups.
@@ -238,19 +240,38 @@ func (s *Store) filePath(file string) string {
 }
 
 // Validate checks the current sing-box configuration without saving.
-func (s *Store) Validate() error {
-	return s.validateSingBox()
+func (s *Store) Validate(ctx context.Context) error {
+	s.SingBox.Normalize()
+	f, err := os.CreateTemp("", "gproxy-validate-*.json")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if err := json.NewEncoder(f).Encode(s.SingBox); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return validateSingBox(ctx, f.Name())
 }
 
-func (s *Store) validateSingBox() error {
-	bin := config.SingBoxBin
-	if _, err := os.Stat(bin); os.IsNotExist(err) {
-		// sing-box binary not installed yet; skip validation.
+func (s *Store) ValidatePending(ctx context.Context) error {
+	if !s.dirty[FileSingBox] {
 		return nil
 	}
-	cmd := exec.Command(bin, "check", "-c", config.SingBoxConfig)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%s: %s", err, string(out))
+	return s.Validate(ctx)
+}
+
+func validateSingBox(ctx context.Context, path string) error {
+	bin := config.SingBoxBin
+	if _, err := os.Stat(bin); os.IsNotExist(err) {
+		return fmt.Errorf("sing-box validator is not installed")
+	}
+	cmd := exec.CommandContext(ctx, bin, "check", "-c", path)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("sing-box validation failed: %w", err)
 	}
 	return nil
 }

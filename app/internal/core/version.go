@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -14,7 +13,7 @@ type Component string
 
 const (
 	CompSingBox   Component = "sing-box"
-	CompSnell     Component = "snell-server"
+	CompSnell     Component = "snell"
 	CompShadowTLS Component = "shadow-tls"
 	CompCaddy     Component = "caddy"
 )
@@ -26,9 +25,10 @@ func AllComponents() []Component {
 
 // VersionInfo holds version information for a component.
 type VersionInfo struct {
-	Component Component
-	Version   string
-	Installed bool
+	Component Component `json:"component"`
+	Version   string    `json:"version"`
+	Installed bool      `json:"installed"`
+	Error     string    `json:"error,omitempty"`
 }
 
 // DetectVersion returns the installed version of a component binary.
@@ -38,8 +38,12 @@ func DetectVersion(ctx context.Context, binPath string, component Component) Ver
 
 	// Check binary exists first to avoid exec on missing files.
 	if _, err := os.Stat(binPath); err != nil {
+		if !os.IsNotExist(err) {
+			info.Error = "cannot inspect binary"
+		}
 		return info
 	}
+	info.Installed = true
 
 	// Use a per-binary timeout of 10 seconds to prevent hangs.
 	execCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -63,6 +67,7 @@ func DetectVersion(ctx context.Context, binPath string, component Component) Ver
 		out, err = cmd.Output()
 	}
 	if err != nil {
+		info.Error = "cannot detect binary version"
 		return info
 	}
 
@@ -101,5 +106,5 @@ func parseVersion(output string, component Component) string {
 			return strings.TrimSpace(lines[0])
 		}
 	}
-	return fmt.Sprintf("unknown (%s)", strings.SplitN(output, "\n", 2)[0])
+	return "unknown"
 }

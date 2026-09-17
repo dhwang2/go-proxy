@@ -17,7 +17,7 @@ import (
 // renderSurge generates a Surge-format proxy line for an inbound membership.
 // targetHost is the IP/host to connect to; sniHost is used for SNI (original domain or configured SNI).
 // tagSuffix is appended to the proxy tag (e.g. "-v4", "-v6", or "").
-func renderSurge(ib *store.Inbound, entry derived.MembershipEntry, targetHost, sniHost, tagSuffix string) string {
+func renderSurge(ib *store.Inbound, entry derived.MembershipEntry, targetHost, sniHost, tagSuffix string, user *store.User) string {
 	fmtHost := targetHost
 	sni := ib.ServerName()
 	if sni == "" {
@@ -34,16 +34,19 @@ func renderSurge(ib *store.Inbound, entry derived.MembershipEntry, targetHost, s
 		return ""
 
 	case "tuic":
-		user := ib.FindUser(entry.UserName)
 		if user == nil || user.UUID == "" || user.Password == "" {
 			return ""
 		}
 		uuid := user.UUID
+		congestion := ib.CongestionControl
+		if congestion == "" {
+			congestion = "bbr"
+		}
 		if looksLikeUUID(uuid) {
 			uuid = strings.ToUpper(uuid)
 		}
-		return fmt.Sprintf("%s = tuic-v5, %s, %d, password=%s, uuid=%s, alpn=h3, sni=%s, skip-cert-verify=false, congestion-controller=bbr, udp-relay=true",
-			tag, fmtHost, ib.ListenPort, user.Password, uuid, sni)
+		return fmt.Sprintf("%s = tuic-v5, %s, %d, password=%s, uuid=%s, alpn=h3, sni=%s, skip-cert-verify=false, congestion-controller=%s, udp-relay=true",
+			tag, fmtHost, ib.ListenPort, user.Password, uuid, sni, congestion)
 
 	case "anytls":
 		return fmt.Sprintf("%s = anytls, %s, %d, password=%s, sni=%s, skip-cert-verify=false, reuse=true",

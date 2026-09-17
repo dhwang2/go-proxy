@@ -84,6 +84,10 @@ func ReplaceUserRuleOutbounds(s *store.Store, userName string, indexes []int, ou
 			rebuilt = append(rebuilt, rule)
 			continue
 		}
+		if rule.Outbound == outbound {
+			rebuilt = append(rebuilt, rule)
+			continue
+		}
 		if len(rule.AuthUser) > 1 {
 			cloned := rule
 			rule.AuthUser = removeAuthUser(rule.AuthUser, userName)

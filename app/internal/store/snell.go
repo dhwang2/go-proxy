@@ -2,6 +2,8 @@ package store
 
 import (
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 )
 
@@ -45,12 +47,12 @@ func ParseSnellConfig(data string) (*SnellConfig, error) {
 
 // Port extracts the port number from the Listen address.
 func (c *SnellConfig) Port() int {
-	_, portStr, ok := strings.Cut(c.Listen, ":")
-	if !ok {
+	first, _, _ := strings.Cut(c.Listen, ",")
+	_, portStr, err := net.SplitHostPort(strings.TrimSpace(first))
+	if err != nil {
 		return 0
 	}
-	var port int
-	fmt.Sscanf(portStr, "%d", &port)
+	port, _ := strconv.Atoi(portStr)
 	return port
 }
 

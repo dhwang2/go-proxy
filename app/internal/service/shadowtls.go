@@ -11,6 +11,7 @@ import (
 
 	"go-proxy/internal/config"
 	"go-proxy/internal/store"
+	"go-proxy/pkg/sysutil"
 )
 
 const defaultShadowTLSUnitDir = "/etc/systemd/system"
@@ -79,8 +80,12 @@ func RemoveShadowTLSBindingByBackend(ctx context.Context, backendProto string, b
 		return nil
 	}
 
-	_ = Stop(ctx, Name(serviceName))
-	_ = Disable(ctx, Name(serviceName))
+	if err := Stop(ctx, Name(serviceName)); err != nil {
+		return err
+	}
+	if err := Disable(ctx, Name(serviceName)); err != nil {
+		return err
+	}
 	if err := os.Remove(unitPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -89,9 +94,6 @@ func RemoveShadowTLSBindingByBackend(ctx context.Context, backendProto string, b
 		return err
 	}
 	if err := DaemonReload(ctx); err != nil {
-		if shadowTLSUnitDir != defaultShadowTLSUnitDir {
-			return nil
-		}
 		return err
 	}
 	return nil
@@ -108,12 +110,12 @@ func ListShadowTLSBindings(s *store.Store) ([]ShadowTLSBinding, error) {
 	for _, path := range paths {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("read shadow-tls binding: %w", err)
 		}
 		serviceName := strings.TrimSuffix(filepath.Base(path), ".service")
 		binding, ok := parseShadowTLSBinding(serviceName, path, string(data))
 		if !ok {
-			continue
+			return nil, fmt.Errorf("invalid shadow-tls binding: %s", serviceName)
 		}
 		if binding.BackendProto == "" || binding.BackendProto == "unknown" {
 			binding.BackendProto = shadowTLSBackendProtoFromServiceName(serviceName)
@@ -146,14 +148,18 @@ func ShadowTLSServiceNames() ([]string, error) {
 }
 
 func writeShadowTLSUnit(ctx context.Context, unitPath, logPath, backendProto string, listenPort int, password, sni string, backendPort int) error {
+	listenHost := "0.0.0.0"
+	if sysutil.IPv6Available() {
+		listenHost = "[::]"
+	}
 	return provisionUnit(ctx, unitPath, renderUnit(unitSpec{
 		Description: "Shadow-TLS v3 Service",
 		Environment: []string{
 			fmt.Sprintf("GPROXY_SHADOWTLS_BACKEND=%s", backendProto),
 			fmt.Sprintf("GPROXY_SHADOWTLS_BACKEND_PORT=%d", backendPort),
 		},
-		ExecStart: fmt.Sprintf("%s --v3 server --listen 0.0.0.0:%d --server 127.0.0.1:%d --tls %s --password %s",
-			config.ShadowTLSBin, listenPort, backendPort, sni, password),
+		ExecStart: fmt.Sprintf("%s --v3 server --listen %s:%d --server 127.0.0.1:%d --tls %s --password %s",
+			config.ShadowTLSBin, listenHost, listenPort, backendPort, sni, password),
 		LogPath: logPath,
 	}))
 }
@@ -163,7 +169,13 @@ func shadowTLSUnitPaths() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	paths := append([]string(nil), matches...)
+	var paths []string
+	for _, path := range matches {
+		name := strings.TrimSuffix(filepath.Base(path), ".service")
+		if shadowTLSBackendProtoFromServiceName(name) != "" {
+			paths = append(paths, path)
+		}
+	}
 	sort.Strings(paths)
 	return paths, nil
 }

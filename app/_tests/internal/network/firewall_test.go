@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,7 +32,7 @@ func TestDesiredFirewallPortsKeepsACMEPortsWhenDomainFileExists(t *testing.T) {
 		UserTemplate: &store.UserRouteTemplates{Templates: map[string][]store.TemplateRule{}},
 	}
 
-	specs, err := DesiredFirewallPorts(s)
+	specs, err := DesiredFirewallPorts(context.Background(), s)
 	if err != nil {
 		t.Fatalf("DesiredFirewallPorts error: %v", err)
 	}
@@ -67,7 +68,7 @@ func TestDesiredFirewallPortsIncludesCustomPorts(t *testing.T) {
 		},
 	}
 
-	specs, err := DesiredFirewallPorts(s)
+	specs, err := DesiredFirewallPorts(context.Background(), s)
 	if err != nil {
 		t.Fatalf("DesiredFirewallPorts error: %v", err)
 	}
@@ -92,7 +93,7 @@ func TestSnellV6FirewallUsesTCPOnly(t *testing.T) {
 		SingBox:   &store.SingBoxConfig{},
 		SnellConf: &store.SnellConfig{Listen: "0.0.0.0:18443", PSK: "test-password"},
 	}
-	ports, err := DesiredFirewallPorts(s)
+	ports, err := DesiredFirewallPorts(context.Background(), s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,14 +114,14 @@ func TestSnellV6FirewallUsesTCPOnly(t *testing.T) {
 func TestFirewallConvergencePreservesDHCPv6(t *testing.T) {
 	dir := t.TempDir()
 	rulesPath := filepath.Join(dir, "rules.nft")
-	script := "#!/bin/sh\ncase \"$1\" in\nlist) exit 0;;\n-f) cp \"$2\" \"$GPROXY_TEST_NFT_RULES\";;\n*) exit 1;;\nesac\n"
+	script := "#!/bin/sh\ncase \"$1\" in\n-j) echo '{\"nftables\":[{\"table\":{\"family\":\"inet\",\"name\":\"proxy_firewall\"}}]}';;\nlist) exit 0;;\n-f) cp \"$2\" \"$GPROXY_TEST_NFT_RULES\";;\n*) exit 1;;\nesac\n"
 	if err := os.WriteFile(filepath.Join(dir, "nft"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("GPROXY_TEST_NFT_RULES", rulesPath)
 	for _, udpPorts := range [][]int{nil, {27200}} {
-		if err := nftApplyPorts([]int{22, 443}, udpPorts); err != nil {
+		if err := nftApplyPorts(context.Background(), []int{22, 443}, udpPorts); err != nil {
 			t.Fatal(err)
 		}
 		data, err := os.ReadFile(rulesPath)
