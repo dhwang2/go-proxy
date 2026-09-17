@@ -25,7 +25,13 @@ var groupsWithoutDefaultAction = [][]string{
 	{"network", "bbr"},
 	{"network", "fail2ban"},
 	{"network", "firewall"},
-	{"routing", "chain"},
+	{"route"},
+	{"user"},
+	{"core"},
+	{"route", "chain"},
+	{"route", "rule"},
+	{"protocol"},
+	{"server"},
 }
 
 func groupTestRunner(t *testing.T, out, stderr io.Writer) *Runner {
@@ -181,26 +187,35 @@ func TestGroupClassificationMatchesCommandTree(t *testing.T) {
 	}
 }
 
-func TestGroupWithDefaultActionKeepsSucceeding(t *testing.T) {
-	lockDir := initializedRuntimeFixture(t)
-	for _, args := range [][]string{{"user"}, {"protocol"}, {"routing"}, {"core"}} {
-		t.Run(strings.Join(args, " "), func(t *testing.T) {
-			var stdout, stderr bytes.Buffer
-			r := New("test", "test", strings.NewReader(""), &stdout, &stderr)
-			r.App.RequireRoot = false
-			r.App.LockDir = lockDir
-			if code := r.Run(context.Background(), append(append([]string(nil), args...), "--json")); code != 0 {
-				t.Fatalf("exit %d, want 0; stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+// Every group is now a pure namespace: naming one without a subcommand is a
+// usage error, never a silent default action. A group that quietly did
+// something would make `gproxy protocol` and `gproxy protocol list` differ for
+// no visible reason.
+func TestNoGroupCommandHasADefaultAction(t *testing.T) {
+	var out, stderr bytes.Buffer
+	r := New("test", "test", strings.NewReader(""), &out, &stderr)
+	var walk func(cmd *cobra.Command, path []string)
+	walk = func(cmd *cobra.Command, path []string) {
+		children := []*cobra.Command{}
+		for _, child := range cmd.Commands() {
+			if child.IsAvailableCommand() {
+				children = append(children, child)
 			}
-			envelope := decodeSingleEnvelope(t, stdout.Bytes())
-			if !envelope.OK || envelope.Changed {
-				t.Fatalf("wrong envelope state: %s", stdout.String())
+		}
+		if len(children) > 0 && len(path) > 0 {
+			var stdout, errors bytes.Buffer
+			runner := New("test", "test", strings.NewReader(""), &stdout, &errors)
+			runner.App.RequireRoot = false
+			runner.App.LockDir = filepath.Join(t.TempDir(), "absent")
+			if code := runner.Run(context.Background(), append(append([]string(nil), path...), "--json")); code != 2 {
+				t.Fatalf("%s acted without a subcommand: exit=%d stdout=%s", strings.Join(path, " "), code, stdout.String())
 			}
-			if strings.Contains(stdout.String(), "Usage:") {
-				t.Fatalf("help text reached stdout: %s", stdout.String())
-			}
-		})
+		}
+		for _, child := range children {
+			walk(child, append(append([]string(nil), path...), child.Name()))
+		}
 	}
+	walk(r.Root(), nil)
 }
 
 func subcommandNames(t *testing.T, path []string) []string {

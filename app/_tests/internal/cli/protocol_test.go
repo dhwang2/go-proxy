@@ -12,13 +12,13 @@ import (
 
 func TestProtocolAndSubscriptionUsageErrorsAreNonInteractive(t *testing.T) {
 	for _, args := range [][]string{
-		{"protocol", "install", "ss", "--port", "auto"},
-		{"protocol", "install", "ss", "--user", "alice"},
-		{"protocol", "install", "trojan", "--user", "alice", "--port", "auto"},
-		{"protocol", "install", "ss", "--user", "alice", "--port", "auto", "--reality"},
-		{"protocol", "install", "vless", "--user", "alice", "--port", "auto", "--reality", "--domain", "example.com"},
-		{"protocol", "install", "vless", "--user", "alice", "--port", "auto", "--reality", "--sni", "www.apple.com"},
-		{"protocol", "install", "ss", "--user", "alice", "--port", "auto", "--shadow-tls-sni", "www.kernel.org"},
+		{"protocol", "add", "ss", "--port", "auto"},
+		{"protocol", "add", "ss", "--user", "alice"},
+		{"protocol", "add", "trojan", "--user", "alice", "--port", "auto"},
+		{"protocol", "add", "ss", "--user", "alice", "--port", "auto", "--reality"},
+		{"protocol", "add", "vless", "--user", "alice", "--port", "auto", "--reality", "--domain", "example.com"},
+		{"protocol", "add", "vless", "--user", "alice", "--port", "auto", "--reality", "--sni", "www.apple.com"},
+		{"protocol", "add", "ss", "--user", "alice", "--port", "auto", "--shadow-tls-sni", "www.kernel.org"},
 		{"protocol", "remove", "some-node"},
 		{"protocol", "remove", "some-node", "--yes", "--user", ""},
 		{"user", "delete", "alice"},
@@ -55,7 +55,7 @@ func TestProtocolHelpRequiresNoRuntime(t *testing.T) {
 	var out, stderr bytes.Buffer
 	r := New("test", "test", strings.NewReader(""), &out, &stderr)
 	r.App.LockDir = filepath.Join(t.TempDir(), "absent")
-	if code := r.Run(context.Background(), []string{"protocol", "install", "--help"}); code != 0 {
+	if code := r.Run(context.Background(), []string{"protocol", "add", "--help"}); code != 0 {
 		t.Fatalf("help exit=%d stderr=%s", code, stderr.String())
 	}
 	for _, flag := range []string{"--reality", "--shadow-tls", "--port", "--user"} {

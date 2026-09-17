@@ -11,85 +11,111 @@ import (
 
 	"github.com/spf13/cobra"
 	"go-proxy/internal/application"
-	"go-proxy/internal/routing"
 )
 
 func registerRouting(r *Runner, root *cobra.Command) {
-	group := r.leaf("routing", "List and manage user routing", cobra.NoArgs, func(ctx context.Context, _ *cobra.Command, _ []string) (application.Result, error) {
-		return r.App.RoutingList(ctx, "")
-	})
+	group := &cobra.Command{Use: "route", Short: "Inspect and manage routing rules, chains and direct egress"}
 	root.AddCommand(group)
-	group.AddCommand(r.leaf("list [user]", "List rule indexes and matchers", cobra.MaximumNArgs(1), func(ctx context.Context, _ *cobra.Command, args []string) (application.Result, error) {
-		name := ""
-		if len(args) > 0 {
-			name = args[0]
-		}
-		return r.App.RoutingList(ctx, name)
+	group.AddCommand(r.leaf("show", "Show rules, chain outbounds and the direct strategy", cobra.NoArgs, func(ctx context.Context, _ *cobra.Command, _ []string) (application.Result, error) {
+		return r.App.RoutingOverview(ctx)
 	}))
-	group.AddCommand(r.leaf("presets", "List built-in routing presets", cobra.NoArgs, func(ctx context.Context, _ *cobra.Command, _ []string) (application.Result, error) {
-		presets := []routing.Preset{}
-		for _, preset := range routing.BuiltinPresets() {
-			if preset.Name != "custom" {
-				presets = append(presets, preset)
-			}
-		}
-		return application.Result{Data: map[string]any{"presets": presets}}, nil
-	}))
-	set := r.leaf("set <user>", "Add or update one or more preset rules", cobra.ExactArgs(1), func(ctx context.Context, cmd *cobra.Command, args []string) (application.Result, error) {
-		presets, _ := cmd.Flags().GetStringSlice("preset")
-		outbound, _ := cmd.Flags().GetString("outbound")
-		return r.App.RoutingSet(ctx, args[0], presets, outbound)
+	rule := &cobra.Command{Use: "rule", Short: "Manage per-user routing rules"}
+	group.AddCommand(rule)
+
+	var showUser string
+	ruleShow := r.leaf("show", "List rule indexes and matchers", cobra.NoArgs, func(ctx context.Context, _ *cobra.Command, _ []string) (application.Result, error) {
+		return r.App.RoutingList(ctx, showUser)
 	})
-	set.Flags().StringSlice("preset", nil, "Comma-separated preset names")
-	set.Flags().String("outbound", "", "Outbound tag or direct")
-	_ = set.MarkFlagRequired("preset")
-	_ = set.MarkFlagRequired("outbound")
-	group.AddCommand(set)
+	ruleShow.Flags().StringVar(&showUser, "user", "", "Limit to one user")
+	rule.AddCommand(ruleShow)
+
+	var addUser, addOut string
+	var addPresets []string
+	addArgs := func(cmd *cobra.Command, _ []string) error {
+		missing := []string{}
+		if addUser == "" {
+			missing = append(missing, "--user")
+		}
+		if len(addPresets) == 0 {
+			missing = append(missing, "--preset")
+		}
+		if addOut == "" {
+			missing = append(missing, "--out")
+		}
+		if len(missing) > 0 {
+			return presetGuidance(missing)
+		}
+		return nil
+	}
+	ruleAdd := r.leaf("add", "Add preset rules for one user", addArgs, func(ctx context.Context, cmd *cobra.Command, args []string) (application.Result, error) {
+		return r.App.RoutingSet(ctx, addUser, addPresets, addOut)
+	})
+	ruleAdd.Flags().StringVar(&addUser, "user", "", "User the rules belong to")
+	ruleAdd.Flags().StringSliceVar(&addPresets, "preset", nil, "Comma-separated preset names")
+	ruleAdd.Flags().StringVar(&addOut, "out", "", "Outbound: direct or a chain tag")
+	rule.AddCommand(ruleAdd)
 	for _, action := range []string{"remove", "modify"} {
-		cmd := r.leaf(action+" <user>", "Change selected user rules by current 1-based indexes", cobra.ExactArgs(1), func(ctx context.Context, cmd *cobra.Command, args []string) (application.Result, error) {
-			raw, _ := cmd.Flags().GetStringSlice("rules")
-			indexes := make([]int, 0, len(raw))
-			for _, value := range raw {
-				index, err := strconv.Atoi(value)
-				if err != nil || index < 1 {
-					return application.Result{}, application.Invalid("rule indexes must be positive integers")
-				}
-				indexes = append(indexes, index)
+		action := action
+		var user, out string
+		var indexes []string
+		var all bool
+		selectArgs := func(cmd *cobra.Command, _ []string) error {
+			if action == "remove" && all && len(indexes) > 0 {
+				return application.Invalid("--rules and --all are mutually exclusive")
 			}
-			outbound := ""
+			missing := []string{}
+			if user == "" && !(action == "remove" && all) {
+				missing = append(missing, "--user")
+			}
+			if action == "modify" && out == "" {
+				missing = append(missing, "--out")
+			}
+			if len(indexes) == 0 && !(action == "remove" && all) {
+				missing = append(missing, "--rules")
+			}
+			if len(missing) == 0 {
+				return nil
+			}
+			example := "  run: gproxy route rule " + action + " --user alice --rules 1,2"
+			if action == "modify" {
+				example += " --out direct"
+			}
+			return guidance(joinList(missing)+" required for gproxy route rule "+action,
+				[]string{"  gproxy route rule show   lists the current indexes", example},
+				map[string]any{"missing": missing})
+		}
+		short := "Remove selected rules, or every rule with --all"
+		if action == "modify" {
+			short = "Point selected rules at a different outbound"
+		}
+		cmd := r.leaf(action, short, selectArgs, func(ctx context.Context, cmd *cobra.Command, args []string) (application.Result, error) {
 			if action == "remove" {
 				if err := r.confirm(); err != nil {
 					return application.Result{}, err
 				}
-			} else {
-				outbound, _ = cmd.Flags().GetString("outbound")
+				if all {
+					return r.App.RoutingClear(ctx, user, user == "")
+				}
 			}
-			return r.App.RoutingRules(ctx, args[0], indexes, outbound, action == "remove")
+			parsed := make([]int, 0, len(indexes))
+			for _, value := range indexes {
+				index, err := strconv.Atoi(value)
+				if err != nil || index < 1 {
+					return application.Result{}, application.Invalid("rule indexes must be positive integers")
+				}
+				parsed = append(parsed, index)
+			}
+			return r.App.RoutingRules(ctx, user, parsed, out, action == "remove")
 		})
-		cmd.Flags().StringSlice("rules", nil, "Comma-separated rule indexes from routing list")
-		_ = cmd.MarkFlagRequired("rules")
+		cmd.Flags().StringVar(&user, "user", "", "User the rules belong to")
+		cmd.Flags().StringSliceVar(&indexes, "rules", nil, "Comma-separated rule indexes from route rule show")
 		if action == "modify" {
-			cmd.Flags().String("outbound", "", "Outbound tag or direct")
-			_ = cmd.MarkFlagRequired("outbound")
+			cmd.Flags().StringVar(&out, "out", "", "Outbound: direct or a chain tag")
+		} else {
+			cmd.Flags().BoolVar(&all, "all", false, "Remove every rule for --user, or for all users when --user is omitted")
 		}
-		group.AddCommand(cmd)
+		rule.AddCommand(cmd)
 	}
-	clear := r.leaf("clear [user]", "Clear routing for one user or all users", cobra.MaximumNArgs(1), func(ctx context.Context, cmd *cobra.Command, args []string) (application.Result, error) {
-		all, _ := cmd.Flags().GetBool("all")
-		name := ""
-		if len(args) > 0 {
-			name = args[0]
-		}
-		if all == (name != "") {
-			return application.Result{}, application.Invalid("select one user or --all")
-		}
-		if err := r.confirm(); err != nil {
-			return application.Result{}, err
-		}
-		return r.App.RoutingClear(ctx, name, all)
-	})
-	clear.Flags().Bool("all", false, "Clear all user routing rules")
-	group.AddCommand(clear)
 	direct := r.leaf("direct", "Inspect or set the direct DNS/IP strategy", cobra.NoArgs, func(ctx context.Context, cmd *cobra.Command, _ []string) (application.Result, error) {
 		strategy, _ := cmd.Flags().GetString("strategy")
 		return r.App.RoutingDirect(ctx, strategy, cmd.Flags().Changed("strategy"))
@@ -99,11 +125,31 @@ func registerRouting(r *Runner, root *cobra.Command) {
 	group.AddCommand(r.leaf("sync-dns", "Recompile routes and DNS with the saved strategy", cobra.NoArgs, func(ctx context.Context, _ *cobra.Command, _ []string) (application.Result, error) {
 		return r.App.RoutingSyncDNS(ctx)
 	}))
-	group.AddCommand(r.leaf("test <user> <domain>", "Explain local rule matching without sending proxy traffic", cobra.ExactArgs(2), func(ctx context.Context, _ *cobra.Command, args []string) (application.Result, error) {
-		return r.App.RoutingTest(ctx, args[0], args[1])
-	}))
+	var testUser, testDomain string
+	testArgs := func(cmd *cobra.Command, _ []string) error {
+		missing := []string{}
+		if testUser == "" {
+			missing = append(missing, "--user")
+		}
+		if testDomain == "" {
+			missing = append(missing, "--domain")
+		}
+		if len(missing) == 0 {
+			return nil
+		}
+		return guidance(joinList(missing)+" required for gproxy route test",
+			[]string{"  run: gproxy route test --user alice --domain github.com",
+				"  reports which rule matches; it sends no proxy traffic"},
+			map[string]any{"missing": missing})
+	}
+	test := r.leaf("test", "Explain local rule matching without sending proxy traffic", testArgs, func(ctx context.Context, _ *cobra.Command, args []string) (application.Result, error) {
+		return r.App.RoutingTest(ctx, testUser, testDomain)
+	})
+	test.Flags().StringVar(&testUser, "user", "", "User whose rules are evaluated")
+	test.Flags().StringVar(&testDomain, "domain", "", "Domain to evaluate")
+	group.AddCommand(test)
 	chain := &cobra.Command{Use: "chain", Short: "Manage SOCKS5 chain outbounds", Args: cobra.NoArgs}
-	chain.AddCommand(r.leaf("list", "List chain outbounds with credentials redacted", cobra.NoArgs, func(ctx context.Context, _ *cobra.Command, _ []string) (application.Result, error) {
+	chain.AddCommand(r.leaf("show", "List chain outbounds with credentials redacted", cobra.NoArgs, func(ctx context.Context, _ *cobra.Command, _ []string) (application.Result, error) {
 		return r.App.RoutingChains(ctx)
 	}))
 	add := r.leaf("add <tag>", "Add a named SOCKS5 chain outbound", cobra.ExactArgs(1), func(ctx context.Context, cmd *cobra.Command, args []string) (application.Result, error) {

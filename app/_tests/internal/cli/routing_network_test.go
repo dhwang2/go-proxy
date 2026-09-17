@@ -13,18 +13,18 @@ import (
 
 func TestRoutingNetworkRejectInvalidInputBeforeRuntime(t *testing.T) {
 	cases := [][]string{
-		{"routing", "set", "alice", "--preset", "unknown", "--outbound", "direct"},
-		{"routing", "remove", "alice", "--rules", "0", "--yes"},
-		{"routing", "remove", "alice", "--rules", "1"},
-		{"routing", "clear", "alice", "--all", "--yes"},
-		{"routing", "clear", "--yes"},
-		{"routing", "direct", "--strategy", "unknown"},
-		{"routing", "chain", "add", "relay", "--host", "example.com", "--port", "0"},
-		{"routing", "chain", "add", "relay", "--host", "example.com", "--port", "1080", "--credentials-file", "-"},
+		{"route", "rule", "add", "--user", "alice", "--preset", "unknown", "--out", "direct"},
+		{"route", "rule", "remove", "--user", "alice", "--rules", "0", "--yes"},
+		{"route", "rule", "remove", "--user", "alice", "--rules", "1"},
+		{"route", "rule", "remove", "--user", "alice", "--rules", "1", "--all", "--yes"},
+		{"route", "rule", "remove"},
+		{"route", "direct", "--strategy", "unknown"},
+		{"route", "chain", "add", "relay", "--host", "example.com", "--port", "0"},
+		{"route", "chain", "add", "relay", "--host", "example.com", "--port", "1080", "--credentials-file", "-"},
 		{"network", "firewall", "add", "65536", "--transport", "both"},
 		{"network", "firewall", "add", "80", "--transport", "icmp"},
 		{"network", "firewall", "remove", "80", "--transport", "tcp"},
-		{"network", "firewall", "clear"},
+		{"network", "firewall", "release"},
 	}
 	for _, args := range cases {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
@@ -50,7 +50,7 @@ func TestRoutingNetworkRejectInvalidInputBeforeRuntime(t *testing.T) {
 }
 
 func TestChainCredentialsBoundInputAndCancellation(t *testing.T) {
-	args := []string{"routing", "chain", "add", "relay", "--host", "example.com", "--port", "1080", "--credentials-file", "-", "--json"}
+	args := []string{"route", "chain", "add", "relay", "--host", "example.com", "--port", "1080", "--credentials-file", "-", "--json"}
 	var out, stderr bytes.Buffer
 	oversized := `{"username":"private-user","password":"private-password"}` + strings.Repeat(" ", 65536) + `{}`
 	r := New("test", "test", strings.NewReader(oversized), &out, &stderr)

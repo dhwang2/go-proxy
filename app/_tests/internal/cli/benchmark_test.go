@@ -31,7 +31,7 @@ func BenchmarkCLIDataOutput(b *testing.B) {
 		name string
 		args []string
 	}{
-		{"routing", []string{"routing"}}, {"routing-json", []string{"routing", "--json"}}, {"sub-json", []string{"sub", "--target", "192.0.2.1", "--json"}},
+		{"routing", []string{"route", "show"}}, {"routing-json", []string{"route", "show", "--json"}}, {"sub-json", []string{"sub", "--target", "192.0.2.1", "--json"}},
 	} {
 		b.Run(test.name, func(b *testing.B) {
 			out, err := os.CreateTemp(b.TempDir(), "output-")

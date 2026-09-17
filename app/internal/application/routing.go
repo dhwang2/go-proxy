@@ -44,6 +44,29 @@ func (a *App) RoutingList(ctx context.Context, name string) (Result, error) {
 	return Result{Data: map[string]any{"rules": entries, "strategy": routeStrategy(snapshot.Store)}}, nil
 }
 
+// RoutingOverview answers "what is my routing" in one command-scoped snapshot.
+// Composing it from RoutingList, RoutingChains and RoutingDirect would take the
+// state lock three times and could report three different instants.
+func (a *App) RoutingOverview(ctx context.Context) (Result, error) {
+	snapshot, err := a.Snapshot(ctx)
+	if err != nil {
+		return Result{}, err
+	}
+	entries := []RouteEntry{}
+	counts := map[string]int{}
+	for _, rule := range snapshot.Store.UserRoutes {
+		for _, user := range rule.AuthUser {
+			counts[user]++
+			entries = append(entries, RouteEntry{User: user, Index: counts[user], Label: routing.UserRouteLabel(rule), Rule: rule})
+		}
+	}
+	views := []ChainView{}
+	for _, chain := range routing.ListChains(snapshot.Store) {
+		views = append(views, chainView(chain))
+	}
+	return Result{Data: map[string]any{"rules": entries, "chains": views, "strategy": routeStrategy(snapshot.Store)}}, nil
+}
+
 func routeStrategy(s *store.Store) string {
 	if s.SingBox.DNS == nil || s.SingBox.DNS.Strategy == "" {
 		return "asis"

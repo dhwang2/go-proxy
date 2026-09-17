@@ -23,6 +23,7 @@ type Runner struct {
 	Out, Err          io.Writer
 	Version, Revision string
 	JSON, Yes         bool
+	NoColor           bool
 	Timeout           time.Duration
 	mu                sync.Mutex
 	executed          bool
@@ -71,7 +72,14 @@ func (r *Runner) leaf(use, short string, args cobra.PositionalArgs, fn func(cont
 				if mutation(cmd) {
 					timeout = 2 * time.Minute
 				}
-				if cmd.Name() == "install" || cmd.Name() == "ensure" || cmd.Name() == "update" && mutation(cmd) {
+				// Keyed on the full path, not the verb: `add` is also a fast
+				// user or chain operation, while these three stream a download
+				// or wait on certificate issuance.
+				switch cmd.CommandPath() {
+				case "gproxy protocol add", "gproxy cert ensure":
+					timeout = 5 * time.Minute
+				}
+				if cmd.Name() == "update" && mutation(cmd) {
 					timeout = 5 * time.Minute
 				}
 			}
@@ -123,7 +131,14 @@ func (r *Runner) leaf(use, short string, args cobra.PositionalArgs, fn func(cont
 			}
 			return json.NewEncoder(contextWriter{ctx: ctx, writer: r.Out}).Encode(map[string]any{"ok": true, "changed": result.Changed, "data": result.Data})
 		}
-		encoder := json.NewEncoder(contextWriter{ctx: ctx, writer: r.Out})
+		// Colour is decided from r.Out, not from the wrapper written to: the
+		// wrapper carries cancellation and is never an *os.File, so asking it
+		// would disable colour unconditionally. Both target the same descriptor.
+		out := contextWriter{ctx: ctx, writer: r.Out}
+		if render(out, palette{on: colorEnabled(r.Out, r.NoColor)}, cmd.CommandPath(), result.Data) {
+			return nil
+		}
+		encoder := json.NewEncoder(out)
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(result.Data)
 	}
@@ -157,7 +172,7 @@ func mutation(cmd *cobra.Command) bool {
 		return cmd.Flags().Changed("strategy")
 	}
 	switch cmd.Name() {
-	case "init", "install", "add", "remove", "delete", "rename", "set", "modify", "clear", "apply", "enable", "disable", "ensure", "update", "uninstall", "start", "stop", "restart", "sync-dns":
+	case "init", "add", "remove", "delete", "rename", "set", "modify", "clear", "apply", "enable", "disable", "ensure", "update", "uninstall", "start", "stop", "restart", "sync-dns":
 		return true
 	}
 	return false
@@ -172,6 +187,7 @@ func (r *Runner) Root() *cobra.Command {
 	root.PersistentFlags().BoolVar(&r.JSON, "json", false, "write a structured JSON result")
 	root.PersistentFlags().BoolVar(&r.Yes, "yes", false, "confirm the selected destructive operation")
 	root.PersistentFlags().DurationVar(&r.Timeout, "timeout", 0, "override the operation deadline (for example 30s)")
+	root.PersistentFlags().BoolVar(&r.NoColor, "no-color", false, "disable colour in human-readable output")
 	root.RunE = func(cmd *cobra.Command, args []string) error { return cmd.Help() }
 	root.AddCommand(r.leaf("version", "show the build version", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
 		if !r.JSON {
@@ -282,6 +298,9 @@ func (r *Runner) Run(ctx context.Context, args []string) int {
 		_ = json.NewEncoder(contextWriter{ctx: errorCtx, writer: r.Out}).Encode(map[string]any{"ok": false, "changed": r.result.Changed || detail.Changed, "data": data, "error": detail})
 	} else {
 		r.progress("error: " + detail.Message)
+		for _, line := range detail.Hint {
+			fmt.Fprintln(contextWriter{ctx: errorCtx, writer: r.Err}, redactValues(line))
+		}
 	}
 	return code
 }
@@ -289,8 +308,12 @@ func (r *Runner) Run(ctx context.Context, args []string) int {
 var secretField = regexp.MustCompile(`(?i)(psk|password|private_key|private-key|shadow-tls-password)(["']?\s*[:=]\s*["']?)([^,\s"}]+)`)
 var urlUser = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)[^/@\s]+@`)
 
-func redact(s string) string {
+func redact(s string) string { return strings.TrimSpace(redactValues(s)) }
+
+// redactValues applies the same redaction without trimming, so guidance keeps
+// the indentation that makes it readable as a list.
+func redactValues(s string) string {
 	s = secretField.ReplaceAllString(s, "${1}${2}<redacted>")
 	s = urlUser.ReplaceAllString(s, "${1}<redacted>@")
-	return strings.TrimSpace(s)
+	return s
 }

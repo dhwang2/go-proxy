@@ -8,7 +8,8 @@ import (
 )
 
 func registerUser(r *Runner, root *cobra.Command) {
-	cmd := r.leaf("user", "List users and memberships", cobra.NoArgs, func(ctx context.Context, _ *cobra.Command, _ []string) (application.Result, error) {
+	cmd := &cobra.Command{Use: "user", Short: "Register, rename, remove and list users"}
+	list := r.leaf("list", "List users and memberships", cobra.NoArgs, func(ctx context.Context, _ *cobra.Command, _ []string) (application.Result, error) {
 		return r.App.UserList(ctx)
 	})
 	var all bool
@@ -25,6 +26,6 @@ func registerUser(r *Runner, root *cobra.Command) {
 		}
 		return r.App.UserDelete(ctx, args[0])
 	})
-	cmd.AddCommand(add, rename, del)
+	cmd.AddCommand(list, add, rename, del)
 	root.AddCommand(cmd)
 }

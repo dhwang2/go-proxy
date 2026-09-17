@@ -62,6 +62,19 @@ func (a *App) Init(ctx context.Context) (Result, error) {
 	})
 }
 
+// ManagedServiceNames lists the selectors a service action accepts, for the
+// guidance an incomplete invocation prints. Dynamic ShadowTLS units are not
+// included: they exist only while a binding does, so naming them here would
+// promise selectors that may not resolve.
+func ManagedServiceNames() []string {
+	all := service.AllServices()
+	names := make([]string, 0, len(all))
+	for _, name := range all {
+		names = append(names, string(name))
+	}
+	return names
+}
+
 func ManagedServices(selector string, all bool) ([]service.Name, error) {
 	if all && selector != "" || !all && selector == "" {
 		return nil, Invalid("select one service or --all")
@@ -84,6 +97,19 @@ func ManagedServices(selector string, all bool) ([]service.Name, error) {
 		}
 	}
 	return nil, Invalid("unknown managed service")
+}
+
+func (a *App) ServiceStatus(ctx context.Context) (Result, error) {
+	if _, err := a.Snapshot(ctx); err != nil {
+		return Result{}, err
+	}
+	observationCtx, cancel := ObservationContext(ctx)
+	defer cancel()
+	states, err := service.Snapshot(observationCtx)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Data: map[string]any{"services": states}}, nil
 }
 
 func (a *App) ServiceAction(ctx context.Context, action, selector string, all bool) (Result, error) {

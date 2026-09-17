@@ -10,21 +10,55 @@ import (
 )
 
 func registerProtocol(r *Runner, root *cobra.Command) {
-	cmd := r.leaf("protocol", "List installed protocol nodes", cobra.NoArgs, func(ctx context.Context, _ *cobra.Command, _ []string) (application.Result, error) {
+	cmd := &cobra.Command{Use: "protocol", Short: "Install, inspect and remove protocol nodes"}
+	list := r.leaf("list", "List installed protocol nodes", cobra.NoArgs, func(ctx context.Context, _ *cobra.Command, _ []string) (application.Result, error) {
 		return r.App.ProtocolList(ctx)
+	})
+	show := r.leaf("show", "List protocols that can be installed", cobra.MaximumNArgs(1), func(ctx context.Context, _ *cobra.Command, args []string) (application.Result, error) {
+		if len(args) == 1 {
+			entry, ok := catalogueEntry(args[0])
+			if !ok {
+				return application.Result{}, application.Invalid("unsupported protocol type")
+			}
+			return application.Result{}, installGuidance(entry, []string{"--user"})
+		}
+		return application.Result{Data: map[string]any{"protocols": catalogueData()}}, nil
 	})
 	var p application.ProtocolOptions
 	var reality bool
-	install := r.leaf("install <ss|vless|tuic|anytls|snell>", "Install a protocol or enroll a user", cobra.ExactArgs(1), func(ctx context.Context, cmd *cobra.Command, args []string) (application.Result, error) {
+	// Guidance is an argument check, not an operation: returning it from Args
+	// keeps it ahead of the progress line a mutation would otherwise print, so
+	// nothing claims to have started.
+	installArgs := func(cmd *cobra.Command, args []string) error {
+		if len(args) > 1 {
+			return application.Invalid("select one protocol")
+		}
+		if len(args) == 0 {
+			return chooseProtocolGuidance()
+		}
+		entry, known := catalogueEntry(args[0])
+		if !known {
+			return application.Invalid("unsupported protocol type")
+		}
+		missing := []string{}
+		if p.User == "" {
+			missing = append(missing, "--user")
+		}
+		if p.Port == "" {
+			missing = append(missing, "--port")
+		}
+		if len(missing) > 0 {
+			return installGuidance(entry, missing)
+		}
+		return nil
+	}
+	install := r.leaf("add [protocol]", "Install a protocol or enroll a user", installArgs, func(ctx context.Context, cmd *cobra.Command, args []string) (application.Result, error) {
 		p.Type = protocol.Type(args[0])
 		if args[0] == "ss" {
 			p.Type = protocol.Shadowsocks
 		}
 		if args[0] == "vless" && reality {
 			p.Type = protocol.VLESSReality
-		}
-		if args[0] != "ss" && args[0] != "vless" && args[0] != "tuic" && args[0] != "anytls" && args[0] != "snell" {
-			return application.Result{}, application.Invalid("unsupported protocol type")
 		}
 		for flag, allowed := range map[string]bool{"reality": args[0] == "vless", "sni": p.Type == protocol.VLESSReality, "method": args[0] == "ss", "congestion": args[0] == "tuic", "ipv6": args[0] == "snell", "domain": p.Type == protocol.VLESS || p.Type == protocol.TUIC || p.Type == protocol.AnyTLS, "email": p.Type == protocol.VLESS || p.Type == protocol.TUIC || p.Type == protocol.AnyTLS, "shadow-tls": args[0] == "ss" || args[0] == "snell", "shadow-tls-port": p.ShadowTLS, "shadow-tls-sni": p.ShadowTLS} {
 			if cmd.Flags().Changed(flag) && !allowed {
@@ -57,6 +91,6 @@ func registerProtocol(r *Runner, root *cobra.Command) {
 		return r.App.ProtocolRemove(ctx, args[0], removeUser)
 	})
 	remove.Flags().StringVar(&removeUser, "user", "", "Remove only this membership")
-	cmd.AddCommand(install, remove)
+	cmd.AddCommand(list, show, install, remove)
 	root.AddCommand(cmd)
 }

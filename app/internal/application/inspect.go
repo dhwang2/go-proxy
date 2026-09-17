@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"strings"
 
 	"go-proxy/internal/cert"
@@ -11,6 +12,7 @@ import (
 	"go-proxy/internal/network"
 	"go-proxy/internal/service"
 	"go-proxy/internal/store"
+	"go-proxy/pkg/sysutil"
 )
 
 func (a *App) Status(ctx context.Context, probe bool) (Result, error) {
@@ -50,6 +52,7 @@ func (a *App) Status(ctx context.Context, probe bool) (Result, error) {
 	return Result{Data: map[string]any{
 		"healthy": healthy, "complete": stateErr == nil && netErr == nil && netInfo.Complete,
 		"services": states, "network": netInfo, "issues": issues,
+		"system": map[string]any{"os": runtime.GOOS, "arch": sysutil.Arch()}, "cert": cert.Inspect(),
 		"users": len(derived.UserNames(snapshot.Store)), "nodes": len(derived.Inventory(snapshot.Store)), "routing_rules": len(snapshot.Store.UserRoutes),
 	}}, nil
 }

@@ -34,6 +34,9 @@ type Error struct {
 	Stage   string `json:"stage,omitempty"`
 	Changed bool   `json:"-"`
 	Data    any    `json:"-"`
+	// Hint carries extra human-readable lines written after Message on stderr.
+	// It never reaches the JSON envelope; a machine reader gets Data instead.
+	Hint []string `json:"-"`
 }
 
 func (e *Error) Error() string { return e.Message }

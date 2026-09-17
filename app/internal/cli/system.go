@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"strings"
+
 	"github.com/spf13/cobra"
 	"go-proxy/internal/application"
 )
@@ -10,10 +12,27 @@ func registerSystem(r *Runner, root *cobra.Command) {
 	root.AddCommand(r.leaf("init", "Initialize runtime files and dependencies", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
 		return r.App.Init(ctx)
 	}))
+	server := &cobra.Command{Use: "server", Short: "Inspect and control managed services"}
+	server.AddCommand(r.leaf("status", "Inspect managed service state", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
+		return r.App.ServiceStatus(ctx)
+	}))
 	for _, action := range []string{"start", "stop", "restart"} {
 		action := action
 		var all bool
-		cmd := r.leaf(action+" [service]", "Change managed service state", cobra.MaximumNArgs(1), func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
+		selectArgs := func(c *cobra.Command, args []string) error {
+			if len(args) > 1 {
+				return application.Invalid("select one service or --all")
+			}
+			if len(args) == 0 && !all {
+				return guidance("gproxy server "+action+" requires a service or --all",
+					[]string{"  services: " + strings.Join(application.ManagedServiceNames(), ", "),
+						"  run: gproxy server " + action + " <service>",
+						"       gproxy server " + action + " --all"},
+					map[string]any{"services": application.ManagedServiceNames()})
+			}
+			return nil
+		}
+		cmd := r.leaf(action+" [service]", "Change managed service state", selectArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
 			selector := ""
 			if len(args) > 0 {
 				selector = args[0]
@@ -21,8 +40,9 @@ func registerSystem(r *Runner, root *cobra.Command) {
 			return r.App.ServiceAction(ctx, action, selector, all)
 		})
 		cmd.Flags().BoolVar(&all, "all", false, "Select all installed managed services")
-		root.AddCommand(cmd)
+		server.AddCommand(cmd)
 	}
+	root.AddCommand(server)
 	certificates := &cobra.Command{Use: "cert", Short: "Manage TLS certificates"}
 	certificates.AddCommand(r.leaf("status", "Inspect the configured certificate", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
 		return r.App.CertificateStatus(ctx)
@@ -35,9 +55,10 @@ func registerSystem(r *Runner, root *cobra.Command) {
 	ensure.Flags().StringVar(&email, "email", "", "ACME contact email")
 	certificates.AddCommand(ensure)
 	root.AddCommand(certificates)
-	cores := r.leaf("core", "Inspect installed core versions", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
+	cores := &cobra.Command{Use: "core", Short: "Inspect and update proxy cores"}
+	cores.AddCommand(r.leaf("version", "Inspect installed core versions", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
 		return r.App.CoreVersions(ctx)
-	})
+	}))
 	cores.AddCommand(r.leaf("check [component]", "Check available core updates", cobra.MaximumNArgs(1), func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
 		selector := ""
 		if len(args) > 0 {

@@ -11,8 +11,8 @@ Read [the agent guide](app/CLI.md) for command syntax, JSON/exit-code contracts,
 ```bash
 gproxy init --json
 gproxy user add alice --json
-gproxy protocol install vless --reality --user alice --port auto --json
-gproxy protocol --json
+gproxy protocol add vless --reality --user alice --port auto --json
+gproxy protocol list --json
 gproxy sub alice --json
 gproxy status --probe --json
 ```

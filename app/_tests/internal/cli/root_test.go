@@ -41,7 +41,7 @@ func assertSingleRootJSON(t *testing.T, data []byte, ok bool) {
 }
 
 func TestRootHelpDoesNotInitializeOrReadInput(t *testing.T) {
-	for _, args := range [][]string{nil, {"--help"}, {"--json", "--help"}, {"network", "--help"}, {"network", "firewall", "--help"}, {"routing", "chain", "--help"}} {
+	for _, args := range [][]string{nil, {"--help"}, {"--json", "--help"}, {"network", "--help"}, {"network", "firewall", "--help"}, {"route", "chain", "--help"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			reader, writer := io.Pipe()
@@ -79,14 +79,14 @@ func TestRootUsageErrorsHaveNoEffectsAndOneJSONResult(t *testing.T) {
 		{"unknown"},
 		{"network", "unknown"},
 		{"network", "firewall", "unknown"},
-		{"routing", "chain", "unknown"},
+		{"route", "chain", "unknown"},
 		{"--unknown"},
 		{"version", "--unknown"},
 		{"network", "status", "--unknown"},
 		{"user", "rename", "alice"},
-		{"routing", "test", "alice"},
-		{"protocol", "install"},
-		{"protocol", "install", "unsupported", "--user", "alice", "--port", "auto"},
+		{"route", "test", "--user", "alice"},
+		{"protocol", "add"},
+		{"protocol", "add", "unsupported", "--user", "alice", "--port", "auto"},
 		{"version", "--timeout", "0"},
 		{"version", "--timeout", "-1s"},
 		{"version", "--timeout", "invalid"},
