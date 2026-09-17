@@ -58,8 +58,8 @@ def main():
     config["inbounds"] = [{"type": "socks", "tag": "benchmark-socks", "listen": "127.0.0.1", "listen_port": port}]
     config["route"] = {"final": "benchmark-proxy"}
     commands = [[args.gproxy, *arguments] for arguments in [
-        ["status", "--json"], ["user", "--json"], ["protocol", "--json"],
-        ["routing", "--json"], ["sub", args.user, "--node", args.node, "--target", args.target, "--sing-box"],
+        ["status", "--json"], ["user", "list", "--json"], ["protocol", "list", "--json"],
+        ["route", "show", "--json"], ["sub", args.user, "--node", args.node, "--target", args.target, "--sing-box"],
     ]]
     results = []
     with tempfile.TemporaryDirectory(prefix="gproxy-proxy-benchmark-") as temporary:
