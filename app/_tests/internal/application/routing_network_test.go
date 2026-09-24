@@ -180,15 +180,24 @@ func TestObservationHonorsAnExplicitLongerDeadline(t *testing.T) {
 	if !found {
 		t.Fatal("explicit longer deadline was cut short by a fixed observation timeout")
 	}
-	// A local query makes no public request; the probe is opt-in on the
-	// dashboard alone.
+	// status looks up a public address only for a family whose interfaces
+	// carry only private addresses (NAT); a family with a global address, or
+	// none, is not checked. Which case applies depends on the host running
+	// the test: a CI runner behind NAT probes, a host with public addresses
+	// does not.
 	status, err := a.Status(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	info := status.Data.(map[string]any)["network"].(network.Observation)
-	if info.IPv4.State != "not_checked" || info.IPv6.State != "not_checked" {
-		t.Fatal("local status performed a public probe")
+	for family, probe := range map[string]network.Probe{"ipv4": info.IPv4, "ipv6": info.IPv6} {
+		natted := info.HasFamily(family) && !info.HasGlobal(family)
+		if !natted && probe.State != "not_checked" {
+			t.Fatalf("status probed %s, which has a public address or none (%s)", family, probe.State)
+		}
+		if natted && probe.State == "not_checked" {
+			t.Fatalf("status did not look up the public address of NATed %s", family)
+		}
 	}
 }
 
