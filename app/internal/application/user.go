@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"slices"
 	"sort"
 
 	"go-proxy/internal/derived"
@@ -11,29 +12,47 @@ import (
 	"go-proxy/internal/user"
 )
 
+// UserMembership and UserView are exported so the CLI can render a user list
+// without reparsing its own JSON. The field order and tags are the wire format.
+type UserMembership struct {
+	Tag       string           `json:"tag"`
+	Protocol  string           `json:"protocol"`
+	Port      int              `json:"port"`
+	ShadowTLS *ProtocolWrapper `json:"shadow_tls,omitempty"`
+}
+
+type UserView struct {
+	Name        string           `json:"name"`
+	Memberships []UserMembership `json:"memberships"`
+	Routes      int              `json:"route_count"`
+	Expiry      string           `json:"expiry,omitempty"`
+	Template    string           `json:"template,omitempty"`
+}
+
 func (a *App) UserList(ctx context.Context) (Result, error) {
 	snapshot, err := a.Snapshot(ctx)
 	if err != nil {
 		return Result{}, err
 	}
-	type membership struct {
-		Tag      string `json:"tag"`
-		Protocol string `json:"protocol"`
-		Port     int    `json:"port"`
-	}
-	type record struct {
-		Name        string       `json:"name"`
-		Memberships []membership `json:"memberships"`
-		Routes      int          `json:"route_count"`
-		Expiry      string       `json:"expiry,omitempty"`
-		Template    string       `json:"template,omitempty"`
-	}
 	users := user.List(snapshot.Store)
-	result := make([]record, 0, len(users))
+	result := make([]UserView, 0, len(users))
 	for _, u := range users {
-		r := record{Name: u.Name, Memberships: []membership{}, Routes: u.RouteCount, Expiry: u.Expiry, Template: u.Template}
+		r := UserView{Name: u.Name, Memberships: []UserMembership{}, Routes: u.RouteCount, Expiry: u.Expiry, Template: u.Template}
 		for _, m := range u.Memberships {
-			r.Memberships = append(r.Memberships, membership{Tag: m.Tag, Protocol: m.Proto, Port: m.Port})
+			membership := UserMembership{Tag: m.Tag, Protocol: m.Proto, Port: m.Port}
+			// The wrapper is matched the way protocolNodes matches it, by the
+			// backend's type and port. Snell is listed under its tag here and
+			// under its type in the binding.
+			backend := m.Proto
+			if backend == store.SnellTag {
+				backend = "snell"
+			}
+			for _, binding := range snapshot.Bindings {
+				if binding.BackendProto == backend && binding.BackendPort == m.Port {
+					membership.ShadowTLS = &ProtocolWrapper{Service: binding.ServiceName, Port: binding.ListenPort, SNI: binding.SNI, Version: binding.Version}
+				}
+			}
+			r.Memberships = append(r.Memberships, membership)
 		}
 		result = append(result, r)
 	}
@@ -55,7 +74,7 @@ func (a *App) UserAdd(ctx context.Context, name string, all bool) (Result, error
 			return Result{}, err
 		}
 		if !changed {
-			return Result{Data: map[string]any{"user": name}}, nil
+			return Result{Data: map[string]any{"user": name, "added": false}}, nil
 		}
 		if err = a.Commit(ctx, snapshot); err != nil {
 			return Result{}, err
@@ -65,7 +84,7 @@ func (a *App) UserAdd(ctx context.Context, name string, all bool) (Result, error
 				return Result{}, err
 			}
 		}
-		return Result{Changed: true, Data: map[string]any{"user": name}}, nil
+		return Result{Changed: true, Data: map[string]any{"user": name, "added": true}}, nil
 	})
 }
 
@@ -85,7 +104,7 @@ func (a *App) UserRename(ctx context.Context, oldName, newName string) (Result, 
 			return Result{}, Invalid("user not found")
 		}
 		if oldName == newName {
-			return Result{Data: map[string]any{"user": newName}}, nil
+			return Result{Data: map[string]any{"user": newName, "previous": oldName, "renamed": false}}, nil
 		}
 		if user.Exists(snapshot.Store, newName) {
 			return Result{}, Invalid("new user name already exists")
@@ -101,7 +120,7 @@ func (a *App) UserRename(ctx context.Context, oldName, newName string) (Result, 
 				return Result{}, err
 			}
 		}
-		return Result{Changed: true, Data: map[string]any{"user": newName}}, nil
+		return Result{Changed: true, Data: map[string]any{"user": newName, "previous": oldName, "renamed": true}}, nil
 	})
 }
 
@@ -116,18 +135,31 @@ func (a *App) UserDelete(ctx context.Context, name string) (Result, error) {
 		}
 		s := snapshot.Store
 		if !user.Exists(s, name) {
-			return Result{Data: map[string]any{"user": name}}, nil
+			// removed, not changed: deleting a user twice is a no-op, and the
+			// caller asked about this name rather than about the store.
+			return Result{Data: map[string]any{"user": name, "removed": false}}, nil
 		}
 		memberships := derived.Membership(s)[name]
+		// Counted before the deletion, because afterwards there is nothing left
+		// to count. Deleting a user takes its exclusive nodes and its rules with
+		// it, and "user removed" alone never said how much went.
+		rules := 0
+		for _, rule := range s.UserRoutes {
+			if slices.Contains(rule.AuthUser, name) {
+				rules++
+			}
+		}
 		if err = user.Delete(s, name); err != nil {
 			return Result{}, err
 		}
+		nodes := 0
 		affected := make(map[service.Name]bool)
 		for _, membership := range memberships {
 			if membership.Tag == store.SnellTag {
 				if err = protocol.Remove(s, store.SnellTag); err != nil {
 					return Result{}, err
 				}
+				nodes++
 				affected[service.Snell] = true
 			} else {
 				affected[service.SingBox] = true
@@ -135,6 +167,7 @@ func (a *App) UserDelete(ctx context.Context, name string) (Result, error) {
 					if err = protocol.Remove(s, ib.Tag); err != nil {
 						return Result{}, err
 					}
+					nodes++
 				}
 			}
 		}
@@ -147,6 +180,7 @@ func (a *App) UserDelete(ctx context.Context, name string) (Result, error) {
 				services = append(services, name)
 			}
 		}
-		return a.finishProtocolRemoval(ctx, snapshot, services...)
+		data := map[string]any{"user": name, "removed": true, "nodes_removed": nodes, "rules_removed": rules}
+		return a.finishProtocolRemoval(ctx, snapshot, data, services...)
 	})
 }

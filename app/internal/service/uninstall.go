@@ -80,6 +80,16 @@ func uninstallOwned(ctx context.Context, paths []string, runtimeDir, lockSetupFi
 		if err := DaemonReload(ctx); err != nil {
 			return err
 		}
+		// systemd keeps the failure record of a unit whose file is gone, so an
+		// uninstalled watchdog stayed visible in `systemctl --failed` as
+		// not-found. Reset by name, never globally: another program's failed
+		// unit is not this one's to clear. Best effort, because a unit that
+		// never failed is not loaded and systemctl says so.
+		units := make([]string, 0, len(paths))
+		for _, path := range paths {
+			units = append(units, filepath.Base(path))
+		}
+		_ = systemctl(ctx, append([]string{"reset-failed"}, units...)...)
 	}
 	return nil
 }

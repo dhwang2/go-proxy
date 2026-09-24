@@ -1,8 +1,6 @@
 package store
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -16,23 +14,6 @@ type FirewallPort struct {
 // FirewallConfig stores additional custom ports that should remain open.
 type FirewallConfig struct {
 	Ports []FirewallPort `json:"ports,omitempty"`
-}
-
-func (c *FirewallConfig) UnmarshalJSON(data []byte) error {
-	type rawFirewallConfig struct {
-		Ports []FirewallPort  `json:"ports"`
-		TCP   json.RawMessage `json:"tcp"`
-		UDP   json.RawMessage `json:"udp"`
-	}
-	var raw rawFirewallConfig
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	if legacyFieldPresent(raw.TCP) || legacyFieldPresent(raw.UDP) {
-		return fmt.Errorf("legacy firewall config format is no longer supported")
-	}
-	c.Ports = raw.Ports
-	return nil
 }
 
 func (c *FirewallConfig) Normalize() {
@@ -71,11 +52,4 @@ func normalizeFirewallPortProto(proto string) string {
 		return "udp"
 	}
 	return "tcp"
-}
-
-func legacyFieldPresent(raw json.RawMessage) bool {
-	if len(raw) == 0 {
-		return false
-	}
-	return !bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
 }

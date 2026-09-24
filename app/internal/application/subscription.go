@@ -61,9 +61,17 @@ func (a *App) Subscription(ctx context.Context, p SubscriptionOptions) (Result, 
 		return Result{}, Invalid("selected node has no matching membership")
 	}
 	renderer := subscription.NewRenderer(snapshot.Store, snapshot.Bindings, "", nil)
-	resolveFamilies := p.Format == subscription.FormatSurge || p.Format == ""
+	// Surge and mihomo take a list of proxies, so both families are worth
+	// emitting: a client can hold an entry for each and pick between them.
+	resolveFamilies := p.Format == subscription.FormatSurge || p.Format == subscription.FormatMihomo || p.Format == ""
+	// A format the client cannot represent is a property of the node, not a
+	// failure of the request: a user whose nodes do not all share one format
+	// gets the ones that do, and is told on stderr which were left out.
+	// Refusing the whole export sent a Surge reader away with nothing when
+	// most of their nodes were exportable.
+	var skipped []string
 	if p.Format != "" {
-		var unsupported []string
+		kept := entries[:0]
 		for _, entry := range entries {
 			if err := ctx.Err(); err != nil {
 				return Result{}, err
@@ -74,16 +82,26 @@ func (a *App) Subscription(ctx context.Context, p SubscriptionOptions) (Result, 
 					allowed = true
 				}
 			}
-			if !allowed {
-				unsupported = append(unsupported, entry.Tag)
+			if allowed {
+				kept = append(kept, entry)
+				continue
 			}
+			skipped = append(skipped, entry.Tag)
 		}
-		if len(unsupported) > 0 {
-			return Result{}, &Error{Code: "unsupported_format", Message: fmt.Sprintf("%s export unsupported for nodes: %s", p.Format, strings.Join(unsupported, ", ")), Stage: "render"}
+		// --node names one node and one format: answering that with an empty
+		// export answers a different question, so it still fails.
+		if len(skipped) > 0 && p.Node != "" {
+			return Result{}, &Error{Code: "unsupported_format", Message: fmt.Sprintf("%s export unsupported for nodes: %s", p.Format, strings.Join(skipped, ", ")), Stage: "render"}
+		}
+		entries = kept
+		if len(skipped) > 0 {
+			a.Progress(fmt.Sprintf("skipped %d node(s) with no %s export: %s", len(skipped), p.Format, strings.Join(skipped, ", ")))
 		}
 	}
 	var host string
-	var targets []subscription.SurgeTarget
+	// Non-nil so a user with no nodes exports an empty list rather than the
+	// JSON literal null, which no client can read as "no targets".
+	targets := []subscription.SurgeTarget{}
 	if len(entries) > 0 {
 		observeCtx, cancel := ObservationContext(ctx)
 		host, targets, err = subscription.ResolveTargets(observeCtx, p.Target, resolveFamilies)
@@ -95,14 +113,19 @@ func (a *App) Subscription(ctx context.Context, p SubscriptionOptions) (Result, 
 	renderer.SetTargets(host, targets)
 	// The machine export is encoded while it is rendered: keeping every node as a struct and
 	// then marshalling that graph again holds the whole export twice at capacity scale.
-	var raw []byte
+	//
+	// Non-nil from the start: an export with no nodes is empty output, and a nil
+	// Raw is read by the entry point as "this command produced no export", which
+	// sent it down the fallback path to print the nil result as null.
+	raw := []byte{}
 	if p.JSON {
 		raw = append(raw, `{"nodes":[`...)
 	}
-	if p.Format == subscription.FormatSingBox {
-		raw = append(raw, `{"outbounds":[`...)
+	if p.Format == subscription.FormatMihomo {
+		raw = append(raw, "proxies:"...)
 	}
-	nativeCount := 0
+	mihomoCount := 0
+	var collected []SubscriptionLink
 	var rendered []renderedFormat
 	for index, entry := range entries {
 		if err := ctx.Err(); err != nil {
@@ -112,11 +135,12 @@ func (a *App) Subscription(ctx context.Context, p SubscriptionOptions) (Result, 
 		if len(formats) == 0 {
 			return Result{}, fmt.Errorf("node %q has no supported export format", entry.Tag)
 		}
+		// Every format the node supports. Taking only the first showed one
+		// client's spelling and hid the others, so a reader could not see that
+		// a node they were looking at had a mihomo form at all.
 		selected := formats
 		if p.Format != "" {
 			selected = []subscription.Format{p.Format}
-		} else if !p.JSON {
-			selected = formats[:1]
 		}
 		// Reserve the remaining export from the average node size once the buffer fills: copying a
 		// multi-megabyte buffer forward step by step costs more than rendering it.
@@ -187,21 +211,25 @@ func (a *App) Subscription(ctx context.Context, p SubscriptionOptions) (Result, 
 				if err := ctx.Err(); err != nil {
 					return Result{}, err
 				}
-				if format == subscription.FormatSingBox {
-					if nativeCount > 0 {
-						raw = append(raw, ',')
-					}
-					raw = append(raw, link.Content...)
-					nativeCount++
+				if p.Format == "" {
+					// The default export is read, not pasted into a client, so
+					// it is handed back structured and grouped for display
+					// rather than as a flat stream with a header per line.
+					collected = append(collected, SubscriptionLink{
+						Format: string(format), User: link.UserName, Tag: link.Tag,
+						Family: link.Family, Content: link.Content,
+					})
 					continue
 				}
-				if p.Format == "" {
-					raw = append(raw, entry.UserName...)
-					raw = append(raw, " / "...)
-					raw = append(raw, entry.Tag...)
-					raw = append(raw, " ("...)
-					raw = append(raw, string(format)...)
-					raw = append(raw, ")\n"...)
+				if format == subscription.FormatMihomo {
+					// Asked for by name, so this is the document a client
+					// loads: a proxies key with sequence items under it. The
+					// default view prints the same wrapper around its own
+					// [mihomo] section, so either export can be used as it is.
+					raw = append(raw, "\n  - "...)
+					raw = append(raw, link.Content...)
+					mihomoCount++
+					continue
 				}
 				raw = append(raw, link.Content...)
 				raw = append(raw, '\n')
@@ -218,10 +246,39 @@ func (a *App) Subscription(ctx context.Context, p SubscriptionOptions) (Result, 
 		raw = append(raw, '}')
 		return Result{Data: json.RawMessage(raw)}, nil
 	}
-	if p.Format == subscription.FormatSingBox {
-		raw = append(raw, "]}\n"...)
+	if p.Format == "" {
+		// Grouped for the eye: a format at a time, a user at a time, and the
+		// families together within a user so one block can be taken at once.
+		slices.SortStableFunc(collected, func(a, b SubscriptionLink) int {
+			for _, pair := range [][2]string{{a.Format, b.Format}, {a.User, b.User}, {a.Family, b.Family}, {a.Tag, b.Tag}} {
+				if order := strings.Compare(pair[0], pair[1]); order != 0 {
+					return order
+				}
+			}
+			return 0
+		})
+		return Result{Data: map[string]any{"links": collected}}, nil
+	}
+	if p.Format == subscription.FormatMihomo {
+		// An empty list is written as one, not as a key with nothing under it:
+		// "proxies:" alone parses as null and mihomo rejects that.
+		if mihomoCount == 0 {
+			raw = append(raw, " []"...)
+		}
+		raw = append(raw, '\n')
 	}
 	return Result{Raw: raw}, nil
+}
+
+// SubscriptionLink is one client link with enough about it to be grouped:
+// which format it is, whose it is, which node it reaches and over which
+// address family.
+type SubscriptionLink struct {
+	Format  string `json:"format"`
+	User    string `json:"user"`
+	Tag     string `json:"tag"`
+	Family  string `json:"family,omitempty"`
+	Content string `json:"content"`
 }
 
 type renderedFormat struct {

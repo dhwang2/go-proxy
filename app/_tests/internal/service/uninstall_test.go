@@ -117,8 +117,25 @@ func TestUninstallOwnedFilesystemAndActiveLockPreservation(t *testing.T) {
 						t.Fatalf("owned resource remains: %s %v", path, err)
 					}
 				}
-				if !strings.HasSuffix(string(log), "daemon-reload\n") {
+				if !strings.Contains(string(log), "daemon-reload\n") {
 					t.Fatalf("removed units were not reloaded: %s", log)
+				}
+				// systemd keeps the failure record of a unit whose file is
+				// gone, so an uninstalled watchdog stayed in `systemctl
+				// --failed` as not-found. Reset by name and after the reload,
+				// never globally: another program's failed unit is not this
+				// one's to clear.
+				reload := strings.Index(string(log), "daemon-reload\n")
+				reset := strings.Index(string(log), "reset-failed ")
+				if reset < 0 || reset < reload {
+					t.Fatalf("failed records were not reset after the reload: %s", log)
+				}
+				line := strings.TrimSpace(string(log)[reset:])
+				if !strings.Contains(line, "proxy-watchdog.service") || !strings.Contains(line, "sing-box.service") {
+					t.Fatalf("reset did not name the owned units: %q", line)
+				}
+				if strings.Contains(line, "--all") || line == "reset-failed" {
+					t.Fatalf("reset was not scoped to the owned units: %q", line)
 				}
 			}
 			for _, path := range []string{foreignUnit, foreignData} {

@@ -5,10 +5,10 @@ build:
 	go build $(LDFLAGS) -o gproxy ./cmd/gproxy
 
 release:
-	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o gproxy ./cmd/gproxy
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o gproxy ./cmd/gproxy
 
 release-arm:
-	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o gproxy-arm64 ./cmd/gproxy
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o gproxy-arm64 ./cmd/gproxy
 
 test:
 	OVERLAY=$$(./scripts/generate-test-overlay.sh); go test -overlay "$$OVERLAY" ./...

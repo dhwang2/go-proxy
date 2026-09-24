@@ -34,3 +34,24 @@ func TestFollowCancellation(t *testing.T) {
 		t.Fatal("cancelled follow succeeded")
 	}
 }
+
+// sing-box and caddy colour their own logs. The reader strips that, because
+// --json promises to carry no escape sequence under any condition and the JSON
+// path never reaches a renderer that could strip it later.
+func TestReadStripsForeignTerminalControls(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "service.log")
+	body := "\x1b[33mWARN\x1b[0m inbound started\nplain line\n\x1b[31mERROR\x1b[0m gone\n"
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+	content, _, err := Read(context.Background(), path, "unused", 10, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsRune(content, 0x1b) {
+		t.Fatalf("log content kept an escape sequence: %q", content)
+	}
+	if content != "WARN inbound started\nplain line\nERROR gone\n" {
+		t.Fatalf("stripping changed the log text: %q", content)
+	}
+}

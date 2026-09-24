@@ -12,17 +12,17 @@ import (
 
 func TestProtocolAndSubscriptionUsageErrorsAreNonInteractive(t *testing.T) {
 	for _, args := range [][]string{
-		{"protocol", "add", "ss", "--port", "auto"},
-		{"protocol", "add", "ss", "--user", "alice"},
+		{"protocol", "add", "anytls", "--port", "auto"},
+		{"protocol", "add", "anytls", "--user", "alice"},
 		{"protocol", "add", "trojan", "--user", "alice", "--port", "auto"},
-		{"protocol", "add", "ss", "--user", "alice", "--port", "auto", "--reality"},
+		{"protocol", "add", "anytls", "--user", "alice", "--port", "auto", "--reality"},
 		{"protocol", "add", "vless", "--user", "alice", "--port", "auto", "--reality", "--domain", "example.com"},
 		{"protocol", "add", "vless", "--user", "alice", "--port", "auto", "--reality", "--sni", "www.apple.com"},
-		{"protocol", "add", "ss", "--user", "alice", "--port", "auto", "--shadow-tls-sni", "www.kernel.org"},
+		{"protocol", "add", "anytls", "--user", "alice", "--port", "auto", "--shadow-tls-sni", "www.kernel.org"},
 		{"protocol", "remove", "some-node"},
-		{"protocol", "remove", "some-node", "--yes", "--user", ""},
+		{"protocol", "remove", "some-node", "--confirm", "--user", ""},
 		{"user", "delete", "alice"},
-		{"sub", "--sing-box"},
+		{"sub", "--mihomo"},
 		{"sub", "--singbox"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {

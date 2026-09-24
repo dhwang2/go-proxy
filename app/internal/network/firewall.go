@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,12 +24,6 @@ type FirewallPortSpec struct {
 	Sources []string `json:"sources"`
 }
 
-type DesiredPortEntry struct {
-	Proto    string
-	Port     int
-	Services []string
-}
-
 // EnsureNft ensures the nft CLI is available, installing it if necessary.
 func EnsureNft(ctx context.Context) error {
 	if _, err := exec.LookPath("nft"); err == nil {
@@ -43,26 +38,11 @@ func EnsureNft(ctx context.Context) error {
 	return nil
 }
 
-// ListOpenPorts returns the raw nftables ruleset.
-func ListOpenPorts(ctx context.Context) (string, error) {
-	out, err := runCommand(ctx, "nft", "list", "ruleset")
-	return string(out), err
-}
-
 // CurrentPortEntry represents a port rule currently active in nftables.
 type CurrentPortEntry struct {
 	Proto  string `json:"transport"`
 	Port   int    `json:"port"`
 	Action string `json:"action"`
-}
-
-// CurrentFirewallPorts parses the nftables ruleset and returns active port rules.
-func CurrentFirewallPorts(ctx context.Context) ([]CurrentPortEntry, error) {
-	raw, err := ListOpenPorts(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return parseNftPorts(raw), nil
 }
 
 func parseNftPorts(raw string) []CurrentPortEntry {
@@ -123,15 +103,6 @@ func parseNftPortLine(line string) (proto string, ports []int, action string) {
 		return proto, ports, action
 	}
 	return "", nil, ""
-}
-
-// HasManagedConvergence checks if the proxy_firewall nftables table exists.
-func HasManagedConvergence(ctx context.Context) bool {
-	if _, err := exec.LookPath("nft"); err != nil {
-		return false
-	}
-	_, err := runCommand(ctx, "nft", "list", "table", "inet", "proxy_firewall")
-	return err == nil
 }
 
 func FirewallManaged(ctx context.Context) (bool, error) {
@@ -231,7 +202,7 @@ func RemoveFirewallRules(ctx context.Context) error {
 }
 
 func DesiredFirewallPorts(ctx context.Context, s *store.Store) ([]FirewallPortSpec, error) {
-	bindings, err := service.ListShadowTLSBindings(s)
+	bindings, err := service.ListShadowTLSBindings()
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +219,7 @@ func DesiredFirewallPortsWithBindings(ctx context.Context, s *store.Store, bindi
 		proto = normalizeFirewallProto(proto)
 		key := fmt.Sprintf("%s/%d", proto, port)
 		if spec, ok := portMap[key]; ok {
-			if !containsString(spec.Sources, source) {
+			if !slices.Contains(spec.Sources, source) {
 				spec.Sources = append(spec.Sources, source)
 			}
 			return
@@ -262,7 +233,7 @@ func DesiredFirewallPortsWithBindings(ctx context.Context, s *store.Store, bindi
 
 	protectedBackends := make(map[string]bool, len(bindings))
 	for _, binding := range bindings {
-		if binding.BackendProto == "ss" || binding.BackendProto == "snell" {
+		if binding.BackendProto == "snell" {
 			protectedBackends[fmt.Sprintf("%s/%d", binding.BackendProto, binding.BackendPort)] = true
 		}
 	}
@@ -271,11 +242,6 @@ func DesiredFirewallPortsWithBindings(ctx context.Context, s *store.Store, bindi
 		switch info.Type {
 		case "tuic":
 			addPort(info.Port, "udp", info.Type)
-		case "shadowsocks":
-			if !protectedBackends[fmt.Sprintf("ss/%d", info.Port)] {
-				addPort(info.Port, "tcp", "ss")
-			}
-			addPort(info.Port, "udp", "ss")
 		case store.SnellTag:
 			if !protectedBackends[fmt.Sprintf("snell/%d", info.Port)] {
 				addPort(info.Port, "tcp", "snell-v6")
@@ -287,7 +253,7 @@ func DesiredFirewallPortsWithBindings(ctx context.Context, s *store.Store, bindi
 
 	for _, binding := range bindings {
 		source := "shadow-tls"
-		if binding.BackendProto != "" && binding.BackendProto != "unknown" {
+		if binding.BackendProto != "" {
 			source = source + "→" + binding.BackendProto
 		}
 		addPort(binding.ListenPort, "tcp", source)
@@ -341,22 +307,6 @@ func ApplyFirewallConvergence(ctx context.Context, s *store.Store) error {
 		}
 	}
 	return nftApplyPorts(ctx, tcpPorts, udpPorts)
-}
-
-func DescribeDesiredPorts(ctx context.Context, s *store.Store) ([]DesiredPortEntry, error) {
-	specs, err := DesiredFirewallPorts(ctx, s)
-	if err != nil {
-		return nil, err
-	}
-	entries := make([]DesiredPortEntry, 0, len(specs))
-	for _, spec := range specs {
-		entries = append(entries, DesiredPortEntry{
-			Proto:    spec.Proto,
-			Port:     spec.Port,
-			Services: append([]string(nil), spec.Sources...),
-		})
-	}
-	return entries, nil
 }
 
 func CollectSSHPorts(ctx context.Context) []int {
@@ -506,13 +456,4 @@ func portFromAddress(addr string) string {
 		return addr[idx+1:]
 	}
 	return addr
-}
-
-func containsString(items []string, target string) bool {
-	for _, item := range items {
-		if item == target {
-			return true
-		}
-	}
-	return false
 }

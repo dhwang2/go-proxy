@@ -12,24 +12,22 @@ func TestRenderURIUsesUniqueFragmentsForMultipleInbounds(t *testing.T) {
 		SingBox: &store.SingBoxConfig{
 			Inbounds: []store.Inbound{
 				{
-					Type:       "shadowsocks",
-					Tag:        "shadowsocks_443",
+					Type:       "anytls",
+					Tag:        "anytls_443",
 					ListenPort: 443,
-					Method:     "2022-blake3-aes-128-gcm",
-					Password:   "server-key-1",
 					Users: []store.User{
 						{Name: "alice", Password: "user-key-1"},
 					},
+					TLS: &store.TLSConfig{Enabled: true, ServerName: "example.com"},
 				},
 				{
-					Type:       "shadowsocks",
-					Tag:        "shadowsocks_8443",
+					Type:       "anytls",
+					Tag:        "anytls_8443",
 					ListenPort: 8443,
-					Method:     "2022-blake3-aes-128-gcm",
-					Password:   "server-key-2",
 					Users: []store.User{
 						{Name: "alice", Password: "user-key-2"},
 					},
+					TLS: &store.TLSConfig{Enabled: true, ServerName: "example.com"},
 				},
 			},
 		},
@@ -44,7 +42,9 @@ func TestRenderURIUsesUniqueFragmentsForMultipleInbounds(t *testing.T) {
 	if links[0].Content == links[1].Content {
 		t.Fatalf("uri links should differ, got %q", links[0].Content)
 	}
-	for _, want := range []string{"shadowsocks_443", "shadowsocks_8443"} {
+	// Two nodes of one protocol for one user: the port is what tells their
+	// names apart, and it appears only because it has to.
+	for _, want := range []string{"#anytls-443-alice", "#anytls-8443-alice"} {
 		var found bool
 		for _, link := range links {
 			if strings.Contains(link.Content, want) {

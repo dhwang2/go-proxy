@@ -10,12 +10,15 @@ import (
 	"time"
 
 	"go-proxy/internal/config"
+	"go-proxy/pkg/textutil"
 )
 
 // Name represents a managed service.
 type Name string
 
-var stoppedDir = config.WorkDir
+// An explicit stop is remembered so automatic recovery does not undo it, which
+// makes it this program's own state rather than anything a core reads.
+var stoppedDir = config.DataDir
 
 const (
 	SingBox   Name = "sing-box"
@@ -295,7 +298,9 @@ func systemctl(ctx context.Context, args ...string) error {
 	cmd := exec.CommandContext(ctx, "systemctl", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		msg := strings.TrimSpace(string(out))
+		// Stripped where it enters: this text is quoted into an error message
+		// that reaches a JSON envelope, which carries no escape sequences.
+		msg := strings.TrimSpace(textutil.CleanText(string(out)))
 		if strings.Contains(msg, "Interactive authentication required") {
 			return fmt.Errorf("permission denied, try running with sudo")
 		}

@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"go-proxy/internal/config"
+	"go-proxy/pkg/textutil"
 )
 
 var ErrOutputLimit = errors.New("log output exceeds byte limit")
@@ -73,7 +74,10 @@ func Read(ctx context.Context, logFile, unit string, lines, maxBytes int) (strin
 	if err != nil {
 		return "", source, fmt.Errorf("read log: %w", err)
 	}
-	return out.String(), source, nil
+	// sing-box and caddy colour their own logs. Stripped here, where the foreign
+	// text enters, rather than in the renderer: `--json` promises to carry no
+	// escape sequence under any condition, and the JSON path never renders.
+	return textutil.CleanText(out.String()), source, nil
 }
 func Follow(ctx context.Context, logFile, unit string, lines int, out io.Writer) error {
 	cmd, _, err := command(ctx, logFile, unit, lines, true)

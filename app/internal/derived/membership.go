@@ -29,17 +29,6 @@ func Membership(s *store.Store) map[string][]MembershipEntry {
 			}
 			result[u.Name] = append(result[u.Name], entry)
 		}
-		// Shadowsocks single-user mode: password at inbound level.
-		if ib.Type == "shadowsocks" && len(ib.Users) == 0 && ib.Password != "" {
-			entry := MembershipEntry{
-				Proto:    ib.Type,
-				Tag:      ib.Tag,
-				Port:     ib.ListenPort,
-				UserID:   ib.Password,
-				UserName: "default",
-			}
-			result["default"] = append(result["default"], entry)
-		}
 	}
 	if s.SnellConf != nil {
 		baseNames := baseUserNames(s)

@@ -37,6 +37,9 @@ type Error struct {
 	// Hint carries extra human-readable lines written after Message on stderr.
 	// It never reaches the JSON envelope; a machine reader gets Data instead.
 	Hint []string `json:"-"`
+	// JSONMessage replaces Message in the envelope when the human rendering is
+	// deliberately terser than a caller parsing the result can work with.
+	JSONMessage string `json:"-"`
 }
 
 func (e *Error) Error() string { return e.Message }
@@ -149,7 +152,7 @@ func (a *App) Snapshot(ctx context.Context) (*Snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	bindings, err := service.ListShadowTLSBindings(s)
+	bindings, err := service.ListShadowTLSBindings()
 	if err != nil {
 		return nil, err
 	}

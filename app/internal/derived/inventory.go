@@ -4,7 +4,7 @@ import "go-proxy/internal/store"
 
 // ProtocolInfo describes an installed protocol.
 type ProtocolInfo struct {
-	Type       string // inbound type (vless, tuic, shadowsocks, anytls)
+	Type       string // inbound type (vless, tuic, anytls)
 	Tag        string // inbound tag
 	Port       int    // listen port
 	UserCount  int    // number of users
@@ -22,10 +22,6 @@ func Inventory(s *store.Store) []ProtocolInfo {
 			UserCount: len(ib.Users),
 		}
 		info.HasReality = ib.HasReality()
-		// Shadowsocks single-user: count as 1.
-		if ib.Type == "shadowsocks" && len(ib.Users) == 0 && ib.Password != "" {
-			info.UserCount = 1
-		}
 		result = append(result, info)
 	}
 	if s.SnellConf != nil {

@@ -1,26 +1,34 @@
 package subscription
 
 import (
-	"encoding/base64"
 	"fmt"
+	"net"
 	"net/url"
+	"strconv"
 
-	"go-proxy/internal/crypto"
 	"go-proxy/internal/derived"
 	"go-proxy/internal/store"
 )
 
-// uriFragment returns the URI fragment (#name) using a unique inbound-aware format.
-func uriFragment(ibType, userName, tag string) string {
-	proto := surgeProtoLabel(ibType)
-	return surgeProxyTag(proto, userName, tag)
+// shareLink assembles scheme://auth@host:port/?query#name. The credentials and
+// the name are percent-encoded, as the anytls and TUIC share schemes require:
+// a password holding '@', ':' or '/' would otherwise end the authority early.
+// The empty path is written as "/" because the schemes' own examples do.
+func shareLink(scheme string, auth *url.Userinfo, host string, port int, params url.Values, name string) string {
+	link := url.URL{
+		Scheme:   scheme,
+		User:     auth,
+		Host:     net.JoinHostPort(host, strconv.Itoa(port)),
+		Path:     "/",
+		RawQuery: params.Encode(),
+		Fragment: name,
+	}
+	return link.String()
 }
 
 // renderURI generates a protocol share URI for an inbound membership.
-func renderURI(ib *store.Inbound, entry derived.MembershipEntry, host string, u *store.User, tls *clientTLS) string {
-	fmtHost := FormatHost(host)
+func renderURI(ib *store.Inbound, entry derived.MembershipEntry, host, fragment string, u *store.User, tls *clientTLS) string {
 	sni := ib.ServerName()
-	fragment := uriFragment(ib.Type, entry.UserName, entry.Tag)
 
 	switch ib.Type {
 	case "vless":
@@ -45,8 +53,7 @@ func renderURI(ib *store.Inbound, entry derived.MembershipEntry, host string, u 
 		if u != nil && u.Flow != "" {
 			params.Set("flow", u.Flow)
 		}
-		return fmt.Sprintf("vless://%s@%s:%d?%s#%s",
-			entry.UserID, fmtHost, ib.ListenPort, params.Encode(), fragment)
+		return shareLink("vless", url.User(entry.UserID), host, ib.ListenPort, params, fragment)
 
 	case "tuic":
 		password := ""
@@ -58,29 +65,20 @@ func renderURI(ib *store.Inbound, entry derived.MembershipEntry, host string, u 
 		if congestion == "" {
 			congestion = "bbr"
 		}
+		// The parameters Mihomo's share-link parser reads. It dropped
+		// allow_insecure from the scheme it follows, and certificate
+		// verification is on unless a link says otherwise.
 		params.Set("congestion_control", congestion)
 		params.Set("alpn", "h3")
 		params.Set("sni", sni)
 		params.Set("udp_relay_mode", "native")
-		params.Set("allow_insecure", "0")
-		return fmt.Sprintf("tuic://%s:%s@%s:%d?%s#%s",
-			entry.UserID, password, fmtHost, ib.ListenPort, params.Encode(), fragment)
+		return shareLink("tuic", url.UserPassword(entry.UserID, password), host, ib.ListenPort, params, fragment)
 
 	case "anytls":
+		// https://github.com/anytls/anytls-go/blob/main/docs/uri_scheme.md
 		params := url.Values{}
 		params.Set("sni", sni)
-		return fmt.Sprintf("anytls://%s@%s:%d?%s#%s",
-			entry.UserID, fmtHost, ib.ListenPort, params.Encode(), fragment)
-
-	case "shadowsocks":
-		method := ib.Method
-		if method == "" {
-			method = crypto.DefaultSSMethod
-		}
-		password := ssPassword(ib, entry.UserID)
-		auth := base64.RawURLEncoding.EncodeToString([]byte(method + ":" + password))
-		return fmt.Sprintf("ss://%s@%s:%d#%s",
-			auth, fmtHost, ib.ListenPort, fragment)
+		return shareLink("anytls", url.User(entry.UserID), host, ib.ListenPort, params, fragment)
 
 	default:
 		return fmt.Sprintf("# unsupported: %s", ib.Type)

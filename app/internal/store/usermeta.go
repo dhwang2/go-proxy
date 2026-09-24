@@ -11,6 +11,11 @@ type UserManagement struct {
 	Template map[string]string        `json:"template,omitempty"`
 	Name     map[string]string        `json:"name,omitempty"`
 	Groups   map[string][]string      `json:"groups,omitempty"`
+	// ChainStrategy records, per chain tag, the address families that chain's
+	// lookups ask for, decided when the chain was added or changed. A hostname
+	// endpoint needs a lookup to decide it, which the compile path cannot make,
+	// so the answer is kept here rather than in the sing-box configuration.
+	ChainStrategy map[string]string `json:"chain_strategy,omitempty"`
 }
 
 // DisabledEntry records a deactivated user with protocol context.

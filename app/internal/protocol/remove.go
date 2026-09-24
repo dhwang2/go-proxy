@@ -104,11 +104,6 @@ func RemoveUserFromInbound(s *store.Store, tag, userName string) error {
 
 	ib := &s.SingBox.Inbounds[idx]
 
-	// Shadowsocks single-user: remove entire inbound.
-	if ib.Type == "shadowsocks" && len(ib.Users) == 0 {
-		return Remove(s, tag)
-	}
-
 	// Find and remove the user.
 	userIdx := -1
 	for i, u := range ib.Users {

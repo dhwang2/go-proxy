@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 
 	"go-proxy/internal/cert"
@@ -12,18 +13,40 @@ import (
 	"go-proxy/internal/network"
 	"go-proxy/internal/service"
 	"go-proxy/internal/store"
+	"go-proxy/pkg/jsonorder"
 	"go-proxy/pkg/sysutil"
 )
 
-func (a *App) Status(ctx context.Context, probe bool) (Result, error) {
+func (a *App) Status(ctx context.Context) (Result, error) {
 	snapshot, err := a.Snapshot(ctx)
 	if err != nil {
 		return Result{}, err
 	}
 	observationCtx, cancel := ObservationContext(ctx)
 	defer cancel()
+	netInfo, netErr := network.Observe(observationCtx)
+	// A family whose interfaces carry only private addresses is behind NAT,
+	// and its address as clients see it can only be learned from outside.
+	// That lookup runs on every status, by the operator's choice, alongside
+	// the service query and inside the same deadline. A family with a public
+	// interface address, or none at all, makes no call.
+	probes := map[string]chan network.Probe{}
+	if netErr == nil {
+		for _, family := range []string{"ipv4", "ipv6"} {
+			if netInfo.HasFamily(family) && !netInfo.HasGlobal(family) {
+				result := make(chan network.Probe, 1)
+				probes[family] = result
+				go func(family string) { result <- network.ProbeFamily(observationCtx, family) }(family)
+			}
+		}
+	}
 	states, stateErr := service.Snapshot(observationCtx)
-	netInfo, netErr := network.Observe(observationCtx, probe)
+	if result, ok := probes["ipv4"]; ok {
+		netInfo.IPv4 = <-result
+	}
+	if result, ok := probes["ipv6"]; ok {
+		netInfo.IPv6 = <-result
+	}
 	issues := []string{}
 	if stateErr != nil {
 		issues = append(issues, stateErr.Error())
@@ -52,13 +75,43 @@ func (a *App) Status(ctx context.Context, probe bool) (Result, error) {
 	return Result{Data: map[string]any{
 		"healthy": healthy, "complete": stateErr == nil && netErr == nil && netInfo.Complete,
 		"services": states, "network": netInfo, "issues": issues,
-		"system": map[string]any{"os": runtime.GOOS, "arch": sysutil.Arch()}, "cert": cert.Inspect(),
+		"system": map[string]any{"os": runtime.GOOS, "arch": sysutil.Arch(), "version": osVersion()},
+		"cert":   cert.Inspect(), "memberships": membershipsByUser(snapshot),
 		"users": len(derived.UserNames(snapshot.Store)), "nodes": len(derived.Inventory(snapshot.Store)), "routing_rules": len(snapshot.Store.UserRoutes),
 	}}, nil
 }
 
+// ConfigKinds lists the inspectable configuration sources. Completion and the
+// validator below read the same slice so they cannot drift apart.
+func ConfigKinds() []string { return []string{"sing-box", "snell", "shadow-tls"} }
+
+// membershipsByUser inverts the node list so the dashboard can show what each
+// user actually has, which is the question "2 users, 5 nodes" never answered.
+// Protocol types are deduplicated per user: two SS nodes read as one capability.
+func membershipsByUser(snapshot *Snapshot) map[string][]string {
+	byUser := map[string][]string{}
+	for _, name := range derived.UserNames(snapshot.Store) {
+		byUser[name] = []string{}
+	}
+	for _, node := range protocolNodes(snapshot) {
+		for _, user := range node.Users {
+			if user == "" {
+				continue
+			}
+			if slices.Contains(byUser[user], node.Type) {
+				continue
+			}
+			byUser[user] = append(byUser[user], node.Type)
+		}
+	}
+	for _, types := range byUser {
+		slices.Sort(types)
+	}
+	return byUser
+}
+
 func (a *App) ConfigView(ctx context.Context, kind string, secrets bool) (Result, error) {
-	if kind != "sing-box" && kind != "snell" && kind != "shadow-tls" {
+	if !slices.Contains(ConfigKinds(), kind) {
 		return Result{}, Invalid("configuration must be sing-box, snell or shadow-tls")
 	}
 	snapshot, err := a.Snapshot(ctx)
@@ -79,18 +132,42 @@ func (a *App) ConfigView(ctx context.Context, kind string, secrets bool) (Result
 		if conf == nil {
 			return Result{}, &Error{Code: "not_found", Message: "snell is not configured"}
 		}
-		value = map[string]any{"listen": conf.Listen, "psk": conf.PSK, "ipv6": conf.IPv6}
+		view := snellView{Listen: conf.Listen, PSK: conf.PSK, IPv6: conf.IPv6}
+		if !secrets {
+			view.PSK = redactedValue
+		}
+		value = view
 	case "shadow-tls":
-		bindings := make([]map[string]any, 0, len(snapshot.Bindings))
+		bindings := make([]shadowTLSView, 0, len(snapshot.Bindings))
 		for _, b := range snapshot.Bindings {
-			bindings = append(bindings, map[string]any{"listen_port": b.ListenPort, "backend_port": b.BackendPort, "backend_protocol": b.BackendProto, "password": b.Password, "sni": b.SNI, "version": b.Version})
+			view := shadowTLSView{ListenPort: b.ListenPort, BackendProtocol: b.BackendProto, BackendPort: b.BackendPort, SNI: b.SNI, Password: b.Password, Version: b.Version}
+			if !secrets {
+				view.Password = redactedValue
+			}
+			bindings = append(bindings, view)
 		}
 		value = bindings
 	}
-	if !secrets {
-		redactConfig(value)
-	}
 	return Result{Data: map[string]any{"component": kind, "configuration": value, "secrets_included": secrets}}, nil
+}
+
+const redactedValue = "<redacted>"
+
+// The snell and shadow-tls views are structs rather than maps so they print in
+// the order a reader follows them: where it listens, then what it needs.
+type snellView struct {
+	Listen string `json:"listen"`
+	PSK    string `json:"psk"`
+	IPv6   bool   `json:"ipv6"`
+}
+
+type shadowTLSView struct {
+	ListenPort      int    `json:"listen_port"`
+	BackendProtocol string `json:"backend_protocol"`
+	BackendPort     int    `json:"backend_port"`
+	SNI             string `json:"sni"`
+	Password        string `json:"password"`
+	Version         int    `json:"version"`
 }
 
 func redactSingBox(ctx context.Context, conf *store.SingBoxConfig) error {
@@ -99,19 +176,16 @@ func redactSingBox(ctx context.Context, conf *store.SingBoxConfig) error {
 			return err
 		}
 		ib := &conf.Inbounds[i]
-		if ib.Password != "" {
-			ib.Password = "<redacted>"
-		}
 		for j := range ib.Users {
 			if ib.Users[j].Password != "" {
-				ib.Users[j].Password = "<redacted>"
+				ib.Users[j].Password = redactedValue
 			}
 			if ib.Users[j].UUID != "" {
-				ib.Users[j].UUID = "<redacted>"
+				ib.Users[j].UUID = redactedValue
 			}
 		}
 		if ib.TLS != nil && ib.TLS.Reality != nil && ib.TLS.Reality.PrivateKey != "" {
-			ib.TLS.Reality.PrivateKey = "<redacted>"
+			ib.TLS.Reality.PrivateKey = redactedValue
 		}
 	}
 	groups := [][]json.RawMessage{conf.Outbounds}
@@ -129,12 +203,14 @@ func redactSingBox(ctx context.Context, conf *store.SingBoxConfig) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			var value any
-			if err := json.Unmarshal(raw, &value); err != nil {
+			// Parsed with its key order kept: through a map, every entry
+			// read back alphabetically and no longer matched the file.
+			value, err := jsonorder.Parse(raw)
+			if err != nil {
 				return err
 			}
-			redactConfig(value)
-			encoded, err := json.Marshal(value)
+			redactOrdered(value)
+			encoded, err := value.MarshalJSON()
 			if err != nil {
 				return err
 			}
@@ -147,27 +223,24 @@ func redactSingBox(ctx context.Context, conf *store.SingBoxConfig) error {
 	return nil
 }
 
-func redactConfig(value any) {
-	switch v := value.(type) {
-	case map[string]any:
-		for key, child := range v {
-			switch strings.ToLower(key) {
-			case "password", "psk", "uuid", "private_key", "key":
-				v[key] = "<redacted>"
-			default:
-				redactConfig(child)
+func redactOrdered(value *jsonorder.Value) {
+	switch value.Kind {
+	case jsonorder.Object:
+		for index, key := range value.Keys {
+			if slices.Contains(secretKeys, strings.ToLower(key)) {
+				value.Fields[index] = jsonorder.String(redactedValue)
+				continue
 			}
+			redactOrdered(value.Fields[index])
 		}
-	case []any:
-		for _, child := range v {
-			redactConfig(child)
-		}
-	case []map[string]any:
-		for _, child := range v {
-			redactConfig(child)
+	case jsonorder.Array:
+		for _, item := range value.Items {
+			redactOrdered(item)
 		}
 	}
 }
+
+var secretKeys = []string{"password", "psk", "uuid", "private_key", "key"}
 
 func (a *App) ConfigValidate(ctx context.Context) (Result, error) {
 	snapshot, err := a.Snapshot(ctx)
@@ -202,18 +275,9 @@ func validateConfiguration(ctx context.Context, snapshot *Snapshot) (Result, err
 		if binding.ListenPort < 1 || binding.ListenPort > 65535 || binding.BackendPort < 1 || binding.BackendPort > 65535 || binding.Password == "" || !cert.IsValidDomain(binding.SNI) || binding.Version != 3 {
 			return Result{}, &Error{Code: "validation_failed", Message: fmt.Sprintf("invalid shadow-tls binding on port %d", binding.ListenPort)}
 		}
-		matched := false
-		switch binding.BackendProto {
-		case "ss":
-			for _, inbound := range snapshot.Store.SingBox.Inbounds {
-				if inbound.Type == "shadowsocks" && inbound.ListenPort == binding.BackendPort {
-					matched = true
-					break
-				}
-			}
-		case "snell":
-			matched = snapshot.Store.SnellConf != nil && snapshot.Store.SnellConf.Port() == binding.BackendPort
-		}
+		// Snell is the only backend a shadow-tls listener can front.
+		matched := binding.BackendProto == "snell" &&
+			snapshot.Store.SnellConf != nil && snapshot.Store.SnellConf.Port() == binding.BackendPort
 		if !matched {
 			return Result{}, &Error{Code: "validation_failed", Message: fmt.Sprintf("shadow-tls binding on port %d has no matching backend", binding.ListenPort)}
 		}

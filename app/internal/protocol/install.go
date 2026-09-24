@@ -61,21 +61,6 @@ func AddUserToExisting(s *store.Store, ib *store.Inbound, userName string) (*Ins
 		s.MarkDirty(store.FileSingBox)
 		return &InstallResult{Tag: ib.Tag, Port: ib.ListenPort, Credential: uuid}, nil
 
-	case "shadowsocks":
-		method := ib.Method
-		if method == "" {
-			method = crypto.DefaultSSMethod
-		}
-		keySize := crypto.SSKeySize(method)
-		userKey, err := crypto.GenerateSSKey(keySize)
-		if err != nil {
-			return nil, err
-		}
-		user.Password = userKey
-		ib.Users = append(ib.Users, user)
-		s.MarkDirty(store.FileSingBox)
-		return &InstallResult{Tag: ib.Tag, Port: ib.ListenPort, Credential: userKey}, nil
-
 	default:
 		return nil, fmt.Errorf("unsupported inbound type for adding user: %s", ib.Type)
 	}
@@ -90,8 +75,6 @@ type InstallParams struct {
 	Domain string
 	// Reality parameters.
 	SNI string // Server Name Indication / decoy domain
-	// Shadowsocks parameters.
-	SSMethod string // e.g., "2022-blake3-aes-256-gcm"
 	// TUIC parameters.
 	CongestionControl string // e.g., "bbr", "cubic"
 	// Snell parameters.
@@ -158,14 +141,6 @@ func Install(s *store.Store, params InstallParams) (*InstallResult, error) {
 
 	case AnyTLS:
 		ib, cred, err := buildAnyTLSInbound(tag, params)
-		if err != nil {
-			return nil, err
-		}
-		s.SingBox.Inbounds = append(s.SingBox.Inbounds, *ib)
-		result.Credential = cred
-
-	case Shadowsocks:
-		ib, cred, err := buildSSInbound(tag, params)
 		if err != nil {
 			return nil, err
 		}
@@ -348,34 +323,6 @@ func buildAnyTLSInbound(tag string, p InstallParams) (*store.Inbound, string, er
 		TLS: tls,
 	}
 	return ib, password, nil
-}
-
-func buildSSInbound(tag string, p InstallParams) (*store.Inbound, string, error) {
-	method := p.SSMethod
-	if method == "" {
-		method = crypto.DefaultSSMethod
-	}
-	keySize := crypto.SSKeySize(method)
-	serverKey, err := crypto.GenerateSSKey(keySize)
-	if err != nil {
-		return nil, "", err
-	}
-	userKey, err := crypto.GenerateSSKey(keySize)
-	if err != nil {
-		return nil, "", err
-	}
-	ib := &store.Inbound{
-		Type:       "shadowsocks",
-		Tag:        tag,
-		Listen:     listenHost(),
-		ListenPort: p.Port,
-		Method:     method,
-		Password:   serverKey,
-		Users: []store.User{
-			{Name: p.UserName, Password: userKey},
-		},
-	}
-	return ib, userKey, nil
 }
 
 func buildSnellConfig(p InstallParams) (*store.SnellConfig, string, error) {

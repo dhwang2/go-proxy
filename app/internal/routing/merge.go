@@ -1,7 +1,9 @@
 package routing
 
 import (
+	"encoding/json"
 	"sort"
+	"strconv"
 	"strings"
 
 	"go-proxy/internal/store"
@@ -128,7 +130,114 @@ func mergeRouteRulesByOutbound(rules []store.RouteRule) []store.RouteRule {
 	}
 	out := make([]store.RouteRule, 0, len(merged))
 	for _, b := range buckets {
+		sortRouteRules(b)
 		out = append(out, b...)
 	}
+	return out
+}
+
+// sortRouteRules orders one family the way shell-proxy's compiled rules are
+// ordered: by outbound, then the users, then the rule sets, and sorts a
+// rule-set rule's own tags as shell-proxy does. The order no
+// longer depends on when each rule was added, so the same rules always compile
+// to the same file. Explicit domain rules stay ahead of every rule-set family,
+// as gproxy placed them before; shell-proxy put them after.
+func sortRouteRules(rules []store.RouteRule) {
+	for index := range rules {
+		if isPureRuleSetRouteRule(rules[index]) {
+			rules[index].RuleSet = sortedUnique(rules[index].RuleSet)
+		}
+	}
+	sort.SliceStable(rules, func(i, j int) bool {
+		a, b := rules[i], rules[j]
+		if a.Outbound != b.Outbound {
+			return a.Outbound < b.Outbound
+		}
+		if users := strings.Join(a.AuthUser, ","); users != strings.Join(b.AuthUser, ",") {
+			return users < strings.Join(b.AuthUser, ",")
+		}
+		return strings.Join(a.RuleSet, ",") < strings.Join(b.RuleSet, ",")
+	})
+}
+
+// mergeRulesAcrossUsers is shell-proxy's merge_user_template_compiled_rules:
+// rules that differ only in who they apply to become one rule naming every
+// such user, then rule-set rules that differ only in their rule sets are
+// folded back together per family. Two users sending the same presets to the
+// same chain get one rule rather than one each, and sing-box evaluates one
+// match instead of two.
+//
+// It runs in three steps, as shell-proxy's does:
+//  1. a rule-set rule carrying several tags is split into one rule per tag;
+//  2. rules identical but for auth_user are merged, their users unioned;
+//  3. rule-set rules identical but for their tags, within one family
+//     (geosite, geoip, other), are merged back into one.
+//
+// The merged rules are then ordered by mergeRouteRulesByOutbound, which sorts
+// each family as shell-proxy does.
+func mergeRulesAcrossUsers(rules []store.RouteRule) []store.RouteRule {
+	split := make([]store.RouteRule, 0, len(rules))
+	for _, rule := range rules {
+		rule.AuthUser = sortedUnique(rule.AuthUser)
+		if !isPureRuleSetRouteRule(rule) || len(rule.RuleSet) < 2 {
+			split = append(split, rule)
+			continue
+		}
+		for _, tag := range uniqueStrings(rule.RuleSet) {
+			single := rule
+			single.RuleSet = []string{tag}
+			split = append(split, single)
+		}
+	}
+
+	byRule := map[string]int{}
+	users := make([]store.RouteRule, 0, len(split))
+	for _, rule := range split {
+		key := routeRuleKey(rule, true, false)
+		if at, ok := byRule[key]; ok {
+			users[at].AuthUser = sortedUnique(append(users[at].AuthUser, rule.AuthUser...))
+			continue
+		}
+		byRule[key] = len(users)
+		rule.AuthUser = append([]string(nil), rule.AuthUser...)
+		users = append(users, rule)
+	}
+
+	bySet := map[string]int{}
+	merged := make([]store.RouteRule, 0, len(users))
+	for _, rule := range users {
+		if !isPureRuleSetRouteRule(rule) {
+			merged = append(merged, rule)
+			continue
+		}
+		key := routeRuleKey(rule, false, true) + "\x00" + strconv.Itoa(routeRuleClass(rule))
+		if at, ok := bySet[key]; ok {
+			merged[at].RuleSet = uniqueStrings(append(merged[at].RuleSet, rule.RuleSet...))
+			continue
+		}
+		bySet[key] = len(merged)
+		rule.RuleSet = append([]string(nil), rule.RuleSet...)
+		merged = append(merged, rule)
+	}
+	return merged
+}
+
+// routeRuleKey identifies a rule for merging, leaving out its users or its
+// rule sets. Slices are part of the identity in their stored order except
+// auth_user, which is already sorted.
+func routeRuleKey(rule store.RouteRule, withoutUsers, withoutRuleSets bool) string {
+	if withoutUsers {
+		rule.AuthUser = nil
+	}
+	if withoutRuleSets {
+		rule.RuleSet = nil
+	}
+	encoded, _ := json.Marshal(rule)
+	return string(encoded)
+}
+
+func sortedUnique(values []string) []string {
+	out := uniqueStrings(values)
+	sort.Strings(out)
 	return out
 }

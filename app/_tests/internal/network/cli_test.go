@@ -20,9 +20,6 @@ func TestFirewallInspectionNeverInstallsTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)
-	if _, err := ListOpenPorts(context.Background()); err == nil {
-		t.Fatal("missing nft must be reported")
-	}
 	if managed, err := FirewallManaged(context.Background()); err != nil || managed {
 		t.Fatalf("unexpected state: %v %v", managed, err)
 	}
@@ -63,7 +60,7 @@ func TestFirewallClearTouchesOnlyManagedTable(t *testing.T) {
 }
 
 func TestLocalObservationLeavesPublicChecksUnrequested(t *testing.T) {
-	info, err := Observe(context.Background(), false)
+	info, err := Observe(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

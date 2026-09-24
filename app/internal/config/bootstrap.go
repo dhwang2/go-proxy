@@ -3,7 +3,6 @@ package config
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 
 	"go-proxy/pkg/fileutil"
 )
@@ -14,7 +13,7 @@ func DefaultExperimentalConfig() map[string]any {
 		"cache_file": map[string]any{
 			"enabled":      true,
 			"cache_id":     "cache.db",
-			"path":         filepath.Join(WorkDir, "cache.db"),
+			"path":         SingBoxCache,
 			"store_fakeip": false,
 			"store_rdrc":   true,
 		},
@@ -96,7 +95,7 @@ func DefaultRuleSetCatalog() []map[string]any {
 			"type":            "remote",
 			"format":          "binary",
 			"url":             spec.url,
-			"download_detour": "🐸 direct",
+			"download_detour": "direct",
 		})
 	}
 	return items
@@ -116,22 +115,22 @@ func DefaultSingBoxConfig() map[string]any {
 			"servers":           DefaultDNSServers(),
 			"rules":             []any{},
 			"final":             "public4",
-			"strategy":          "ipv4_only",
+			"strategy":          "ipv4_only", // unchosen until the first install or routing change reads the host's addresses
 			"reverse_mapping":   true,
 			"independent_cache": true,
 			"cache_capacity":    8192,
 		},
 		"inbounds": []any{},
 		"outbounds": []map[string]any{
-			{"type": "direct", "tag": "🐸 direct"},
+			{"type": "direct", "tag": "direct"},
 		},
 		"route": map[string]any{
-			"final":                   "🐸 direct",
+			"final":                   "direct",
 			"default_domain_resolver": "public4",
 			"rules": []map[string]any{
 				{"action": "sniff", "sniffer": []string{"http", "tls", "quic", "dns"}},
 				{"protocol": "dns", "action": "hijack-dns"},
-				{"ip_is_private": true, "action": "route", "outbound": "🐸 direct"},
+				{"ip_is_private": true, "action": "route", "outbound": "direct"},
 			},
 			"rule_set": DefaultRuleSetCatalog(),
 		},
@@ -142,7 +141,7 @@ func DefaultSingBoxConfig() map[string]any {
 // if they do not already exist. It should be called on first run.
 func Bootstrap() error {
 	// Create directories.
-	for _, dir := range []string{WorkDir, ConfDir, BinDir, LogDir} {
+	for _, dir := range []string{WorkDir, ConfDir, DataDir, CacheDir, BinDir, LogDir} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return err
 		}

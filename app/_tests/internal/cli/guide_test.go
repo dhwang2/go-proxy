@@ -94,3 +94,73 @@ func TestGuideExamplesDoNotUseRenamedCommands(t *testing.T) {
 		}
 	}
 }
+
+// The redesign's command tree is the other authoritative list, and it drifted:
+// the tree survived a rename while the migration tables below it did not. Only
+// the tree block is checked, because those tables name dead commands on purpose.
+func TestRedesignCommandTreeResolvesAgainstTheRealTree(t *testing.T) {
+	data, err := os.ReadFile("../../../docs/plans/v0.3/cli-ux-redesign.md")
+	if err != nil {
+		t.Skipf("redesign not readable from the test overlay: %v", err)
+	}
+	root := New("test", "test", strings.NewReader(""), os.Stdout, os.Stderr).Root()
+	description := regexp.MustCompile(`\s{3,}`)
+	word := regexp.MustCompile(`^[a-z][a-z0-9|-]*$`)
+
+	inTree, seenHeading, checked := false, false, 0
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "## Command tree") {
+			seenHeading = true
+			continue
+		}
+		if !seenHeading {
+			continue
+		}
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			if inTree {
+				break
+			}
+			inTree = true
+			continue
+		}
+		if !inTree {
+			continue
+		}
+		// The description column is separated by three or more spaces; the
+		// invocation itself never is.
+		invocation := description.Split(strings.TrimSpace(line), 2)[0]
+		fields := strings.Fields(invocation)
+		if len(fields) == 0 || fields[0] != "gproxy" {
+			continue
+		}
+		// One path per alternation: "user list|add" is two commands, and an
+		// operand or a flag ends the path.
+		paths := [][]string{{}}
+		for _, field := range fields[1:] {
+			if !word.MatchString(field) {
+				break
+			}
+			grown := [][]string{}
+			for _, alternative := range strings.Split(field, "|") {
+				for _, path := range paths {
+					grown = append(grown, append(append([]string{}, path...), alternative))
+				}
+			}
+			paths = grown
+		}
+		for _, path := range paths {
+			if len(path) == 0 {
+				continue
+			}
+			cmd, _, findErr := root.Find(path)
+			if findErr != nil || cmd == nil || strings.Join(pathOf(cmd), " ") != strings.Join(path, " ") {
+				t.Errorf("the command tree names a command that does not exist: gproxy %s", strings.Join(path, " "))
+				continue
+			}
+			checked++
+		}
+	}
+	if checked < 40 {
+		t.Fatalf("only %d commands checked; the tree block or this matcher stopped working", checked)
+	}
+}

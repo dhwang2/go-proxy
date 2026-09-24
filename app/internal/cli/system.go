@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -9,9 +10,15 @@ import (
 )
 
 func registerSystem(r *Runner, root *cobra.Command) {
-	root.AddCommand(r.leaf("init", "Initialize runtime files and dependencies", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
+	// init and watchdog are machine entry points, not things a reader chooses.
+	// install.sh runs init as its last step, and proxy-watchdog.service runs
+	// watchdog as its ExecStart. Both stay reachable and documented; hiding them
+	// keeps the help list to the commands a person actually picks from.
+	initialize := r.leaf("init", "Initialize runtime files and dependencies; the installer runs this for you", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
 		return r.App.Init(ctx)
-	}))
+	})
+	initialize.Hidden = true
+	root.AddCommand(initialize)
 	server := &cobra.Command{Use: "server", Short: "Inspect and control managed services"}
 	server.AddCommand(r.leaf("status", "Inspect managed service state", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
 		return r.App.ServiceStatus(ctx)
@@ -25,9 +32,8 @@ func registerSystem(r *Runner, root *cobra.Command) {
 			}
 			if len(args) == 0 && !all {
 				return guidance("gproxy server "+action+" requires a service or --all",
-					[]string{"  services: " + strings.Join(application.ManagedServiceNames(), ", "),
-						"  run: gproxy server " + action + " <service>",
-						"       gproxy server " + action + " --all"},
+					[]string{"gproxy server " + action + " <" + strings.Join(application.ManagedServiceNames(), "|") + ">",
+						"gproxy server " + action + " --all"},
 					map[string]any{"services": application.ManagedServiceNames()})
 			}
 			return nil
@@ -87,38 +93,66 @@ func registerSystem(r *Runner, root *cobra.Command) {
 	selfUpdate.Flags().BoolVar(&updateCheck, "check", false, "Only check for an update")
 	selfUpdate.Flags().StringVar(&selfVersion, "version", "", "Select an exact release version")
 	root.AddCommand(selfUpdate)
-	root.AddCommand(r.leaf("watchdog", "Run managed recovery until cancelled", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
+	watchdog := r.leaf("watchdog", "Service entry point for proxy-watchdog; runs until cancelled", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
 		if r.JSON {
 			return application.Result{}, application.Invalid("--json is not supported for watchdog")
 		}
 		return r.App.Watchdog(ctx)
-	}))
+	})
+	watchdog.Hidden = true
+	watchdog.Long = "Run the managed recovery loop until cancelled.\n\n" +
+		"This is the ExecStart of proxy-watchdog.service, not a command to run by hand:\n" +
+		"invoked directly it occupies the terminal until interrupted. To see what it has\n" +
+		"done, read its log with `gproxy log proxy-watchdog`; to control it, use\n" +
+		"`gproxy server start|stop|restart proxy-watchdog`."
+	root.AddCommand(watchdog)
 	var lines, maxBytes int
 	var follow bool
-	logCommand := r.leaf("log [service]", "Read bounded logs or explicitly follow", cobra.MaximumNArgs(1), func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
+	logArgs := func(cmd *cobra.Command, args []string) error {
+		if len(args) == 1 {
+			return nil
+		}
+		if len(args) > 1 {
+			return application.Invalid("select one service")
+		}
+		return logGuidance()
+	}
+	logCommand := r.leaf("log <service>", "Read bounded logs or explicitly follow", logArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
 		if follow && r.JSON {
 			return application.Result{}, application.Invalid("--json and --follow are mutually exclusive")
 		}
-		selector := ""
-		if len(args) > 0 {
-			selector = args[0]
+		// A followed log is written straight through rather than returned, so
+		// the colouring and control-character stripping the rendered path does
+		// has to wrap the writer instead.
+		out := io.Writer(r.Out)
+		if follow {
+			writer := &logWriter{out: out, p: palette{on: colorEnabled(r.Out, r.NoColor)}}
+			defer writer.Close()
+			out = writer
 		}
-		return r.App.Log(ctx, selector, lines, maxBytes, follow, r.Out)
+		return r.App.Log(ctx, args[0], lines, maxBytes, follow, out)
 	})
 	logCommand.Flags().IntVar(&lines, "lines", 50, "Maximum recent lines")
 	logCommand.Flags().IntVar(&maxBytes, "max-bytes", 1<<20, "Maximum finite log output bytes")
 	logCommand.Flags().BoolVar(&follow, "follow", false, "Stream until cancelled")
 	root.AddCommand(logCommand)
 	var preview bool
-	uninstall := r.leaf("uninstall", "Preview or remove owned go-proxy resources", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
+	// Checked as arguments so neither refusal follows a progress line: uninstall
+	// is the one command where --confirm is conditional, because --preview
+	// changes nothing and needs none.
+	uninstallArgs := func(cmd *cobra.Command, args []string) error {
+		if err := cobra.NoArgs(cmd, args); err != nil {
+			return err
+		}
 		if preview && r.Yes {
-			return application.Result{}, application.Invalid("--preview and --yes are mutually exclusive")
+			return application.Invalid("--preview and --confirm are mutually exclusive")
 		}
-		if !preview {
-			if err := r.confirm(); err != nil {
-				return application.Result{}, err
-			}
+		if preview {
+			return nil
 		}
+		return r.confirm()
+	}
+	uninstall := r.leaf("uninstall", "Preview or remove owned go-proxy resources", uninstallArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
 		return r.App.Uninstall(ctx, preview)
 	})
 	uninstall.Flags().BoolVar(&preview, "preview", false, "List removal scope without changing state")

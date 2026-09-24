@@ -116,3 +116,55 @@ func TestManualStopGroupAndIndependentResume(t *testing.T) {
 		t.Fatal("group resume left a stopped marker")
 	}
 }
+
+// A reinstall replaces the binary under a running watchdog. The watchdog is
+// stale when its executable is not this binary -- a replaced file shows as
+// "<path> (deleted)" -- and not when it is, or when it is not running.
+func TestWatchdogRunsStaleBinary(t *testing.T) {
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "pid")
+	systemctl := "#!/bin/sh\ncat " + pidFile + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "systemctl"), []byte(systemctl), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	saved := procRoot
+	procRoot = filepath.Join(dir, "proc")
+	t.Cleanup(func() { procRoot = saved })
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved, err := filepath.EvalSymlinks(self); err == nil {
+		self = resolved
+	}
+	for name, testCase := range map[string]struct {
+		pid, exe string
+		stale    bool
+	}{
+		"current binary":  {"42", self, false},
+		"replaced binary": {"43", self + " (deleted)", true},
+		"other binary":    {"44", "/usr/local/bin/old-gproxy", true},
+		"not running":     {"0", "", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := os.WriteFile(pidFile, []byte(testCase.pid+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if testCase.exe != "" {
+				link := filepath.Join(procRoot, testCase.pid, "exe")
+				if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				_ = os.Remove(link)
+				if err := os.Symlink(testCase.exe, link); err != nil {
+					t.Fatal(err)
+				}
+			}
+			stale, err := WatchdogRunsStaleBinary(context.Background())
+			if err != nil || stale != testCase.stale {
+				t.Fatalf("stale = %v, %v; want %v", stale, err, testCase.stale)
+			}
+		})
+	}
+}

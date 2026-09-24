@@ -2,7 +2,6 @@ package subscription
 
 import (
 	"context"
-	"encoding/json"
 	"net/url"
 	"strings"
 	"testing"
@@ -30,30 +29,18 @@ func TestRealitySubscriptionsIncludeClientKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	content := renderSingBox(ib, entry, "192.0.2.1", u, tls)
-	var out struct {
-		Flow string `json:"flow"`
-		TLS  struct {
-			ServerName string `json:"server_name"`
-			Reality    struct {
-				PublicKey string `json:"public_key"`
-				ShortID   string `json:"short_id"`
-			} `json:"reality"`
-			UTLS struct {
-				Enabled     bool   `json:"enabled"`
-				Fingerprint string `json:"fingerprint"`
-			} `json:"utls"`
-		} `json:"tls"`
+	content := renderMihomo(ib, entry, "192.0.2.1", "name", u, tls)
+	for _, want := range []string{
+		`reality-opts: {public-key: "` + kp.PublicKey + `",short-id: "01234567"}`,
+		`servername: "www.microsoft.com"`,
+		`flow: "xtls-rprx-vision"`,
+		`client-fingerprint: "chrome"`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("incomplete Reality client config, missing %s:\n%s", want, content)
+		}
 	}
-	if err := json.Unmarshal([]byte(content), &out); err != nil {
-		t.Fatal(err)
-	}
-	if out.TLS.Reality.PublicKey != kp.PublicKey || out.TLS.Reality.ShortID != "01234567" ||
-		out.TLS.ServerName != "www.microsoft.com" || out.Flow != "xtls-rprx-vision" ||
-		!out.TLS.UTLS.Enabled || out.TLS.UTLS.Fingerprint != "chrome" {
-		t.Fatalf("incomplete Reality client config: %s", content)
-	}
-	uri := renderURI(ib, entry, "192.0.2.1", u, tls)
+	uri := renderURI(ib, entry, "192.0.2.1", "name", u, tls)
 	parsed, err := url.Parse(uri)
 	if err != nil {
 		t.Fatal(err)
@@ -93,7 +80,7 @@ func TestRealityRendersThroughRendererForBothFormats(t *testing.T) {
 	// block, and it must build the cache itself rather than rely on a prior
 	// sing-box render having populated it.
 	renderer := NewRenderer(s, nil, "192.0.2.1", []SurgeTarget{{Host: "192.0.2.1", Family: "v4"}})
-	for _, format := range []Format{FormatURI, FormatSingBox} {
+	for _, format := range []Format{FormatURI, FormatMihomo} {
 		links, err := renderer.Render(context.Background(), entry, format)
 		if err != nil {
 			t.Fatalf("%s: %v", format, err)
@@ -118,7 +105,7 @@ func TestRealityRendersThroughRendererForBothFormats(t *testing.T) {
 	broken := &store.Store{SingBox: &store.SingBoxConfig{Inbounds: []store.Inbound{bad}}, UserMeta: store.NewUserManagement()}
 	brokenRenderer := NewRenderer(broken, nil, "192.0.2.1", []SurgeTarget{{Host: "192.0.2.1", Family: "v4"}})
 	brokenEntry := derived.Membership(broken)["alice"][0]
-	for _, format := range []Format{FormatURI, FormatSingBox} {
+	for _, format := range []Format{FormatURI, FormatMihomo} {
 		links, err := brokenRenderer.Render(context.Background(), brokenEntry, format)
 		if err == nil {
 			t.Fatalf("%s exported a node with an unusable Reality key: %v", format, links)

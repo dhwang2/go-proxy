@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"go-proxy/internal/application"
+	"go-proxy/pkg/textutil"
 )
 
 type Runner struct {
@@ -30,6 +31,7 @@ type Runner struct {
 	result            application.Result
 	wroteResult       bool
 	ioCtx             context.Context
+	progressLine      *progressLine
 }
 
 func New(version, revision string, in io.Reader, out, stderr io.Writer) *Runner {
@@ -41,14 +43,45 @@ func New(version, revision string, in io.Reader, out, stderr io.Writer) *Runner 
 func (r *Runner) progress(message string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	fmt.Fprintln(contextWriter{ctx: r.ioCtx, writer: r.Err}, redact(message))
+	line := r.progressLine
+	if line == nil {
+		fmt.Fprintln(contextWriter{ctx: r.ioCtx, writer: r.Err}, redact(message))
+		return
+	}
+	line.show(redact(message))
+}
+
+// stopProgress ends the animated step, if one is running, and leaves it on
+// screen as an ordinary line. Safe to call twice.
+func (r *Runner) stopProgress() {
+	r.mu.Lock()
+	line := r.progressLine
+	r.progressLine = nil
+	r.mu.Unlock()
+	line.finish()
 }
 
 func (r *Runner) confirm() error {
 	if !r.Yes {
-		return application.Invalid("this operation requires --yes")
+		return application.Invalid("this operation requires --confirm")
 	}
 	return nil
+}
+
+// confirming runs the command's own argument checks and then the --confirm
+// check, both before RunE. Confirmation used to be checked inside the operation,
+// which is after the operation has started: refusing to act is not something
+// to report from inside the operation. Argument guidance stays first, because a
+// reader who has not yet named what to remove needs the list, not the flag.
+func (r *Runner) confirming(args cobra.PositionalArgs) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, values []string) error {
+		if args != nil {
+			if err := args(cmd, values); err != nil {
+				return err
+			}
+		}
+		return r.confirm()
+	}
 }
 
 func (r *Runner) leaf(use, short string, args cobra.PositionalArgs, fn func(context.Context, *cobra.Command, []string) (application.Result, error)) *cobra.Command {
@@ -78,6 +111,11 @@ func (r *Runner) leaf(use, short string, args cobra.PositionalArgs, fn func(cont
 				switch cmd.CommandPath() {
 				case "gproxy protocol add", "gproxy cert ensure":
 					timeout = 5 * time.Minute
+				case "gproxy route test":
+					// One sing-box rule-set match per set until one
+					// matches, two at a time: a user with every preset
+					// is a second or two on a small host.
+					timeout = 10 * time.Second
 				}
 				if cmd.Name() == "update" && mutation(cmd) {
 					timeout = 5 * time.Minute
@@ -90,25 +128,40 @@ func (r *Runner) leaf(use, short string, args cobra.PositionalArgs, fn func(cont
 		r.ioCtx = ctx
 		r.mu.Unlock()
 		if mutation(cmd) {
-			r.progress("starting " + cmd.CommandPath())
-			done := make(chan struct{})
-			defer close(done)
-			go func() {
-				ticker := time.NewTicker(5 * time.Second)
-				defer ticker.Stop()
-				for {
-					select {
-					case <-ticker.C:
-						r.progress("operation in progress")
-					case <-done:
-						return
-					case <-ctx.Done():
-						return
+			// The animation is the terminal's answer to a step that takes
+			// minutes; a stream that cannot be rewritten gets the five-second
+			// line it has always had, so a captured log reads the same as before.
+			animate := colorEnabled(r.Err, r.NoColor)
+			r.mu.Lock()
+			r.progressLine = newProgressLine(contextWriter{ctx: ctx, writer: r.Err}, animate)
+			r.mu.Unlock()
+			defer r.stopProgress()
+			// No opening "starting <command>" line: it repeated the command
+			// just typed. The first step an operation reports opens the
+			// progress, and a fast one reports none.
+			if !animate {
+				done := make(chan struct{})
+				defer close(done)
+				go func() {
+					ticker := time.NewTicker(5 * time.Second)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-ticker.C:
+							r.progress("operation in progress")
+						case <-done:
+							return
+						case <-ctx.Done():
+							return
+						}
 					}
-				}
-			}()
+				}()
+			}
 		}
 		result, err := fn(ctx, cmd, args)
+		// Before anything is written to stdout or stderr: the animated line is
+		// rewritten in place, so a result printed over it would interleave.
+		r.stopProgress()
 		r.result = result
 		if err != nil {
 			return err
@@ -168,11 +221,8 @@ func mutation(cmd *cobra.Command) bool {
 	if preview, _ := cmd.Flags().GetBool("preview"); preview {
 		return false
 	}
-	if cmd.Name() == "direct" {
-		return cmd.Flags().Changed("strategy")
-	}
 	switch cmd.Name() {
-	case "init", "add", "remove", "delete", "rename", "set", "modify", "clear", "apply", "enable", "disable", "ensure", "update", "uninstall", "start", "stop", "restart", "sync-dns":
+	case "init", "add", "remove", "delete", "rename", "set", "modify", "clear", "apply", "release", "enable", "disable", "ensure", "update", "uninstall", "start", "stop", "restart", "sync-dns":
 		return true
 	}
 	return false
@@ -183,9 +233,8 @@ func (r *Runner) Root() *cobra.Command {
 	root.SetIn(r.In)
 	root.SetOut(r.Out)
 	root.SetErr(r.Err)
-	root.CompletionOptions.DisableDefaultCmd = true
 	root.PersistentFlags().BoolVar(&r.JSON, "json", false, "write a structured JSON result")
-	root.PersistentFlags().BoolVar(&r.Yes, "yes", false, "confirm the selected destructive operation")
+	root.PersistentFlags().BoolVar(&r.Yes, "confirm", false, "confirm the selected destructive operation")
 	root.PersistentFlags().DurationVar(&r.Timeout, "timeout", 0, "override the operation deadline (for example 30s)")
 	root.PersistentFlags().BoolVar(&r.NoColor, "no-color", false, "disable colour in human-readable output")
 	root.RunE = func(cmd *cobra.Command, args []string) error { return cmd.Help() }
@@ -233,7 +282,14 @@ func (r *Runner) Root() *cobra.Command {
 			groups(child)
 		}
 	}
+	// Add the completion command now rather than letting cobra add it during
+	// ExecuteC. Added late it would escape the groups walk below, so bare
+	// `gproxy completion` would exit 0 and print help to stdout even under
+	// --json, which is the contract violation u-2-129 fixed for every other
+	// group.
+	root.InitDefaultCompletionCmd()
 	groups(root)
+	registerCompletions(root)
 	return root
 }
 
@@ -294,12 +350,28 @@ func (r *Runner) Run(ctx context.Context, args []string) int {
 	r.mu.Lock()
 	r.ioCtx = errorCtx
 	r.mu.Unlock()
+	if detail.JSONMessage != "" && r.JSON {
+		detail.Message = detail.JSONMessage
+	}
 	if r.JSON && !r.wroteResult {
 		_ = json.NewEncoder(contextWriter{ctx: errorCtx, writer: r.Out}).Encode(map[string]any{"ok": false, "changed": r.result.Changed || detail.Changed, "data": data, "error": detail})
 	} else {
-		r.progress("error: " + detail.Message)
+		// Colour is applied after redaction, which strips control sequences.
+		p := palette{on: colorEnabled(r.Err, r.NoColor)}
+		w := contextWriter{ctx: errorCtx, writer: r.Err}
+		// Guidance -- an error carrying the commands that complete it --
+		// prints only those commands: the error line said the same thing
+		// again. An error with nothing to show after it keeps its line. The
+		// JSON envelope carries the message either way.
+		var listed *listedError
+		if errors.As(err, &listed) && listed.list != nil {
+			listed.list(w, p)
+		}
+		if detail.Message != "" && len(detail.Hint) == 0 {
+			fmt.Fprintln(w, p.bad("error:")+" "+redact(detail.Message))
+		}
 		for _, line := range detail.Hint {
-			fmt.Fprintln(contextWriter{ctx: errorCtx, writer: r.Err}, redactValues(line))
+			fmt.Fprintln(w, commandHint(p, redactValues(line)))
 		}
 	}
 	return code
@@ -311,9 +383,12 @@ var urlUser = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)[^/@\s]+@`)
 func redact(s string) string { return strings.TrimSpace(redactValues(s)) }
 
 // redactValues applies the same redaction without trimming, so guidance keeps
-// the indentation that makes it readable as a list.
+// the indentation that makes it readable as a list. Control sequences go with
+// the secrets: an error message can quote the output of systemctl or nft, and
+// --json carries no escape sequence under any condition. Line breaks survive,
+// because a relayed message is sometimes several lines.
 func redactValues(s string) string {
 	s = secretField.ReplaceAllString(s, "${1}${2}<redacted>")
 	s = urlUser.ReplaceAllString(s, "${1}<redacted>@")
-	return s
+	return textutil.CleanText(s)
 }

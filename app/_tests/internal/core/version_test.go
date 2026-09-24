@@ -68,3 +68,74 @@ func TestEnsureSnellOnlyReusesKnownV6Runtime(t *testing.T) {
 		})
 	}
 }
+
+// `core version` and `core check` report one installation, so they have to read
+// the same version of it. Snell RC2 identifies itself as v6.0.0 and the receipt
+// beside the binary records which archive that was; reading the receipt in one
+// command and not the other made the two commands contradict each other.
+func TestInstalledVersionReadsTheSnellReceipt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "snell-server")
+	script := "#!/bin/sh\nprintf '%s\\n' 'snell-server v6.0.0' >&2\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if info := InstalledVersion(context.Background(), path, CompSnell); info.Version != "v6.0.0" {
+		t.Fatalf("no receipt should leave the reported version alone: %+v", info)
+	}
+	if err := os.WriteFile(path+".version", []byte(SnellVersion+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info := InstalledVersion(context.Background(), path, CompSnell)
+	if !info.Installed || info.Version != SnellVersion {
+		t.Fatalf("receipt was not read: %+v", info)
+	}
+	check, err := ResolveUpdate(context.Background(), CompSnell, path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if check.CurrentVersion != info.Version {
+		t.Fatalf("check reports %q where version reports %q", check.CurrentVersion, info.Version)
+	}
+	if !check.Installed || check.UpdateAvail {
+		t.Fatalf("the verified archive is not an update over itself: %+v", check)
+	}
+}
+
+// A receipt this user cannot read is the ordinary case: `core check` is a query
+// that does not require root, and the receipt sits in a root-owned directory.
+// The answer must still be "no update", because the archive that reports v6.0.0
+// is the one this project installs.
+func TestSnellNeedsNoUpdateWithoutItsReceipt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "snell-server")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf '%s\\n' 'snell-server v6.0.0' >&2\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	check, err := ResolveUpdate(context.Background(), CompSnell, path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !check.Installed || check.UpdateAvail {
+		t.Fatalf("an unreadable receipt reported an update over itself: %+v", check)
+	}
+	// The version string stays what the executable said rather than claiming a
+	// receipt that was never read.
+	if check.CurrentVersion != "v6.0.0" {
+		t.Fatalf("current version %q was not the executable self-report", check.CurrentVersion)
+	}
+}
+
+// Nothing installed has nothing to update. Reporting an update available for an
+// absent core sent a caller to `core update` for what is a first install, and
+// `installed` is the field that actually says so.
+func TestCheckReportsNoUpdateForAnAbsentCore(t *testing.T) {
+	check, err := ResolveUpdate(context.Background(), CompSnell, filepath.Join(t.TempDir(), "absent"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if check.Installed || check.UpdateAvail {
+		t.Fatalf("absent core reported as installed or updatable: %+v", check)
+	}
+	if !check.NeedsInstall() {
+		t.Fatal("absent core reported as needing no install")
+	}
+}

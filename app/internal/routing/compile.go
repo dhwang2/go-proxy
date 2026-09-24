@@ -2,6 +2,7 @@ package routing
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"go-proxy/internal/config"
@@ -21,7 +22,7 @@ func CompiledUserRouteRules(s *store.Store) []store.RouteRule {
 			rules = append(rules, compileGenericRule(rule)...)
 		}
 	}
-	return mergeRouteRulesByOutbound(rules)
+	return mergeRouteRulesByOutbound(mergeRulesAcrossUsers(rules))
 }
 
 // resolvePresets maps each UserRouteRule to its matching preset (or nil).
@@ -33,10 +34,6 @@ func resolvePresets(rules []store.UserRouteRule) []*Preset {
 		}
 	}
 	return result
-}
-
-func CompileDNSRules(s *store.Store, outboundToDNS map[string]string, defaultStrategy string) []store.DNSRule {
-	return mergeDNSRulesByServer(dnsRulesFromRouteRules(CompiledUserRouteRules(s), outboundToDNS, defaultStrategy))
 }
 
 func UserRouteLabel(rule store.UserRouteRule) string {
@@ -53,8 +50,8 @@ func UserRouteLabel(rule store.UserRouteRule) string {
 
 func OutboundLabel(outbound string) string {
 	switch outbound {
-	case "direct", "🐸 direct":
-		return "direct"
+	case store.DirectTag, store.LegacyDirectTag:
+		return store.DirectTag
 	default:
 		return outbound
 	}
@@ -75,30 +72,12 @@ func presetForRule(rule store.UserRouteRule) (Preset, bool) {
 	return Preset{}, false
 }
 
-// ruleMatchesPreset uses subset matching: a stored rule with ["geosite-google"]
-// matches the "google" preset (which has ["geosite-google","geoip-google"]).
-// This is intentional — old rules stored before geoip tags were added still match
-// their preset, and compilePresetRule expands them to full coverage.
+// ruleMatchesPreset is an equality test: PresetToRule stores the preset's own
+// rule sets and fallback domains, so a rule that came from a preset carries
+// exactly those. Matching a subset would let one preset claim another's rule.
 func ruleMatchesPreset(rule store.UserRouteRule, preset Preset) bool {
-	if len(rule.DomainSuffix) > 0 && !sameStringSlice(rule.DomainSuffix, preset.FallbackDomains) {
-		return false
-	}
-	if len(rule.RuleSet) == 0 {
-		return false
-	}
-	for _, tag := range rule.RuleSet {
-		found := false
-		for _, presetTag := range preset.RuleSets {
-			if tag == presetTag {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	return true
+	return slices.Equal(rule.RuleSet, preset.RuleSets) &&
+		slices.Equal(rule.DomainSuffix, preset.FallbackDomains)
 }
 
 func availableRuleSetTags(s *store.Store) map[string]bool {
@@ -281,7 +260,7 @@ func userRouteToRouteRule(rule store.UserRouteRule) store.RouteRule {
 	}
 }
 
-func dnsRulesFromRouteRules(routeRules []store.RouteRule, outboundToDNS map[string]string, defaultStrategy string) []store.DNSRule {
+func dnsRulesFromRouteRules(routeRules []store.RouteRule, outboundToDNS map[string]string, serverStrategy map[string]string, defaultStrategy string) []store.DNSRule {
 	rules := make([]store.DNSRule, 0, len(routeRules))
 	for _, rule := range routeRules {
 		if len(rule.AuthUser) == 0 {
@@ -291,10 +270,16 @@ func dnsRulesFromRouteRules(routeRules []store.RouteRule, outboundToDNS map[stri
 		if !ok {
 			continue
 		}
+		// The rule asks for what its server is configured to resolve. Only a
+		// chain carries its own strategy; direct keeps the configured one.
+		strategy := defaultStrategy
+		if perServer, ok := serverStrategy[server]; ok {
+			strategy = perServer
+		}
 		dnsRule := store.DNSRule{
 			Action:        "route",
 			Server:        server,
-			Strategy:      defaultStrategy,
+			Strategy:      strategy,
 			AuthUser:      append([]string(nil), rule.AuthUser...),
 			RuleSet:       append([]string(nil), rule.RuleSet...),
 			Domain:        append([]string(nil), rule.Domain...),

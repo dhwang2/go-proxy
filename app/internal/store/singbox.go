@@ -2,18 +2,38 @@ package store
 
 import (
 	"encoding/json"
+	"slices"
 
 	"go-proxy/internal/config"
+	"go-proxy/pkg/jsonorder"
 )
 
 // SingBoxConfig is the top-level sing-box configuration.
+// The field order is the order sections are written in, and matches the
+// shell-proxy layout: log, experimental, dns, inbounds, outbounds, route.
 type SingBoxConfig struct {
 	Log          *LogConfig        `json:"log,omitempty"`
+	Experimental json.RawMessage   `json:"experimental,omitempty"`
 	DNS          *DNSConfig        `json:"dns,omitempty"`
 	Inbounds     []Inbound         `json:"inbounds,omitempty"`
 	Outbounds    []json.RawMessage `json:"outbounds,omitempty"`
 	Route        *RouteConfig      `json:"route,omitempty"`
-	Experimental json.RawMessage   `json:"experimental,omitempty"`
+}
+
+// DirectTag is the tag of the direct outbound. Configurations written before
+// it was plain carry LegacyDirectTag, which loading rewrites.
+const (
+	DirectTag       = "direct"
+	LegacyDirectTag = "🐸 direct"
+)
+
+// DirectOutbound returns the tag, if any, a stored outbound name should be
+// rewritten to: the legacy direct tag becomes the plain one.
+func DirectOutbound(tag string) string {
+	if tag == LegacyDirectTag {
+		return DirectTag
+	}
+	return tag
 }
 
 // EnsureDefaultDomainResolver sets route.default_domain_resolver if missing.
@@ -69,22 +89,16 @@ func (c *SingBoxConfig) CleanDNSServers() {
 		return
 	}
 	for i, raw := range c.DNS.Servers {
-		var m map[string]interface{}
-		if err := json.Unmarshal(raw, &m); err != nil {
-			continue
-		}
-		changed := false
-		for _, field := range dnsServerFieldsToStrip {
-			if _, ok := m[field]; ok {
-				delete(m, field)
-				changed = true
+		c.DNS.Servers[i] = editRaw(raw, func(v *jsonorder.Value) {
+			keys, fields := v.Keys[:0:0], v.Fields[:0:0]
+			for index, name := range v.Keys {
+				if !slices.Contains(dnsServerFieldsToStrip, name) {
+					keys = append(keys, name)
+					fields = append(fields, v.Fields[index])
+				}
 			}
-		}
-		if changed {
-			if cleaned, err := json.Marshal(m); err == nil {
-				c.DNS.Servers[i] = cleaned
-			}
-		}
+			v.Keys, v.Fields = keys, fields
+		})
 	}
 }
 
@@ -125,10 +139,6 @@ type Inbound struct {
 	ListenPort int        `json:"listen_port,omitempty"`
 	Users      []User     `json:"users,omitempty"`
 	TLS        *TLSConfig `json:"tls,omitempty"`
-
-	// Shadowsocks-specific fields (inbound-level for single-user or server key).
-	Method   string `json:"method,omitempty"`
-	Password string `json:"password,omitempty"`
 
 	// TUIC-specific.
 	CongestionControl string `json:"congestion_control,omitempty"`
@@ -213,8 +223,8 @@ func ParseOutboundHeader(raw json.RawMessage) (OutboundHeader, error) {
 
 // RouteConfig holds sing-box route configuration.
 type RouteConfig struct {
-	DefaultDomainResolver string            `json:"default_domain_resolver,omitempty"`
 	Final                 string            `json:"final,omitempty"`
+	DefaultDomainResolver string            `json:"default_domain_resolver,omitempty"`
 	Rules                 []RouteRule       `json:"rules,omitempty"`
 	RuleSet               []json.RawMessage `json:"rule_set,omitempty"`
 }
@@ -296,8 +306,8 @@ func (c *SingBoxConfig) Normalize() {
 	if c.Route == nil {
 		c.Route = &RouteConfig{}
 	}
-	if c.Route.Final == "" || c.Route.Final == "direct" {
-		c.Route.Final = "🐸 direct"
+	if c.Route.Final == "" || c.Route.Final == LegacyDirectTag {
+		c.Route.Final = DirectTag
 	}
 	defaultRuleSets := rawMessagesFromMaps(config.DefaultRuleSetCatalog())
 	if len(c.Route.RuleSet) == 0 {
@@ -307,6 +317,102 @@ func (c *SingBoxConfig) Normalize() {
 	}
 	c.Route.Rules = ensureBaseRouteRules(c.Route.Rules)
 	c.EnsureDefaultDomainResolver()
+	c.canonicalOrder()
+}
+
+// Key orders for the entries go-proxy writes. The defaults are built as maps,
+// and encoding a map sorts its keys; these put them back in the order sing-box
+// documents them, so the file reads the way shell-proxy wrote it. Keys not
+// listed keep their place after these.
+var (
+	dnsServerOrder = []string{"tag", "type", "server", "server_port", "path", "tls", "detour", "domain_strategy"}
+	outboundOrder  = []string{"type", "tag", "server", "server_port", "version", "udp_over_tcp", "username", "password", "domain_resolver"}
+	ruleSetOrder   = []string{"tag", "type", "format", "url", "download_detour"}
+	cacheFileOrder = []string{"enabled", "cache_id", "path", "store_fakeip", "store_rdrc"}
+)
+
+func (c *SingBoxConfig) canonicalOrder() {
+	if len(c.Experimental) > 0 {
+		c.Experimental = editRaw(c.Experimental, func(v *jsonorder.Value) {
+			v.Get("cache_file").Reorder(cacheFileOrder...)
+		})
+	}
+	if c.DNS != nil {
+		for i, raw := range c.DNS.Servers {
+			c.DNS.Servers[i] = editRaw(raw, func(v *jsonorder.Value) {
+				v.Reorder(dnsServerOrder...)
+				v.Get("tls").Reorder("enabled", "server_name")
+			})
+		}
+	}
+	for i, raw := range c.Outbounds {
+		c.Outbounds[i] = editRaw(raw, func(v *jsonorder.Value) {
+			v.Reorder(outboundOrder...)
+			v.Get("domain_resolver").Reorder("server", "strategy")
+		})
+	}
+	if c.Route != nil {
+		for i, raw := range c.Route.RuleSet {
+			c.Route.RuleSet[i] = editRaw(raw, func(v *jsonorder.Value) { v.Reorder(ruleSetOrder...) })
+		}
+	}
+}
+
+// editRaw applies edit to one raw JSON object, keeping its key order. A value
+// that is not an object, or does not parse, is returned unchanged.
+func editRaw(raw json.RawMessage, edit func(*jsonorder.Value)) json.RawMessage {
+	value, err := jsonorder.Parse(raw)
+	if err != nil || value.Kind != jsonorder.Object {
+		return raw
+	}
+	edit(value)
+	encoded, err := value.MarshalJSON()
+	if err != nil {
+		return raw
+	}
+	return encoded
+}
+
+// DirectResolver reports the resolver the direct outbound's own lookups use.
+// A configuration from before go-proxy chose one per host has none.
+func (c *SingBoxConfig) DirectResolver() (server, strategy string, ok bool) {
+	for _, raw := range c.Outbounds {
+		var outbound struct {
+			Tag            string `json:"tag"`
+			DomainResolver *struct {
+				Server   string `json:"server"`
+				Strategy string `json:"strategy"`
+			} `json:"domain_resolver"`
+		}
+		if json.Unmarshal(raw, &outbound) != nil || outbound.Tag != DirectTag {
+			continue
+		}
+		if outbound.DomainResolver == nil {
+			return "", "", false
+		}
+		return outbound.DomainResolver.Server, outbound.DomainResolver.Strategy, true
+	}
+	return "", "", false
+}
+
+// SetDirectResolver points the direct outbound's lookups at server with
+// strategy. An empty strategy leaves the family choice to sing-box.
+func (c *SingBoxConfig) SetDirectResolver(server, strategy string) {
+	for i, raw := range c.Outbounds {
+		var header OutboundHeader
+		if json.Unmarshal(raw, &header) != nil || header.Tag != DirectTag {
+			continue
+		}
+		c.Outbounds[i] = editRaw(raw, func(v *jsonorder.Value) {
+			resolver := &jsonorder.Value{Kind: jsonorder.Object}
+			resolver.Set("server", jsonorder.String(server))
+			if strategy != "" {
+				resolver.Set("strategy", jsonorder.String(strategy))
+			}
+			v.Set("domain_resolver", resolver)
+			v.Reorder(outboundOrder...)
+		})
+	}
 }
 
 func rawMessagesFromMaps(items []map[string]any) []json.RawMessage {
@@ -346,32 +452,21 @@ func appendMissingTaggedRaw(existing, defaults []json.RawMessage) []json.RawMess
 }
 
 func defaultDirectOutbounds() []json.RawMessage {
-	raw, err := json.Marshal(map[string]any{
-		"type": "direct",
-		"tag":  "🐸 direct",
-	})
-	if err != nil {
-		return nil
-	}
-	return []json.RawMessage{raw}
+	return []json.RawMessage{json.RawMessage(`{"type":"direct","tag":"` + DirectTag + `"}`)}
 }
 
 func normalizeOutbounds(outbounds []json.RawMessage) []json.RawMessage {
 	hasDirect := false
 	for i, raw := range outbounds {
-		var item map[string]any
-		if err := json.Unmarshal(raw, &item); err != nil {
+		var header OutboundHeader
+		if json.Unmarshal(raw, &header) != nil {
 			continue
 		}
-		if tag, _ := item["tag"].(string); tag == "direct" {
-			item["tag"] = "🐸 direct"
-			if normalized, err := json.Marshal(item); err == nil {
-				outbounds[i] = normalized
-			}
-			hasDirect = true
-			continue
+		if header.Tag == LegacyDirectTag {
+			outbounds[i] = editRaw(raw, func(v *jsonorder.Value) { v.Set("tag", jsonorder.String(DirectTag)) })
+			header.Tag = DirectTag
 		}
-		if tag, _ := item["tag"].(string); tag == "🐸 direct" {
+		if header.Tag == DirectTag {
 			hasDirect = true
 		}
 	}
@@ -383,15 +478,11 @@ func normalizeOutbounds(outbounds []json.RawMessage) []json.RawMessage {
 
 func normalizeRuleSetCatalog(ruleSets []json.RawMessage) []json.RawMessage {
 	for i, raw := range ruleSets {
-		var item map[string]any
-		if err := json.Unmarshal(raw, &item); err != nil {
-			continue
+		var item struct {
+			Detour string `json:"download_detour"`
 		}
-		if detour, _ := item["download_detour"].(string); detour == "direct" {
-			item["download_detour"] = "🐸 direct"
-			if normalized, err := json.Marshal(item); err == nil {
-				ruleSets[i] = normalized
-			}
+		if json.Unmarshal(raw, &item) == nil && item.Detour == LegacyDirectTag {
+			ruleSets[i] = editRaw(raw, func(v *jsonorder.Value) { v.Set("download_detour", jsonorder.String(DirectTag)) })
 		}
 	}
 	return ruleSets
@@ -403,16 +494,14 @@ func ensureBaseRouteRules(rules []RouteRule) []RouteRule {
 	hasPrivateDirect := false
 
 	for i := range rules {
-		if rules[i].Outbound == "direct" {
-			rules[i].Outbound = "🐸 direct"
-		}
+		rules[i].Outbound = DirectOutbound(rules[i].Outbound)
 		if rules[i].Action == "sniff" {
 			hasSniff = true
 		}
 		if rules[i].Action == "hijack-dns" && rules[i].Protocol == "dns" {
 			hasHijackDNS = true
 		}
-		if rules[i].Action == "route" && rules[i].IPIsPrivate && rules[i].Outbound == "🐸 direct" {
+		if rules[i].Action == "route" && rules[i].IPIsPrivate && rules[i].Outbound == DirectTag {
 			hasPrivateDirect = true
 		}
 	}
@@ -433,7 +522,7 @@ func ensureBaseRouteRules(rules []RouteRule) []RouteRule {
 	if !hasPrivateDirect {
 		base = append(base, RouteRule{
 			Action:      "route",
-			Outbound:    "🐸 direct",
+			Outbound:    DirectTag,
 			IPIsPrivate: true,
 		})
 	}

@@ -2,21 +2,10 @@ package routing
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 
 	"go-proxy/internal/store"
 )
-
-func SetRules(s *store.Store, userName string, rules []store.UserRouteRule) (int, error) {
-	count := 0
-	for _, rule := range rules {
-		if err := SetRule(s, userName, rule); err != nil {
-			return count, err
-		}
-		count++
-	}
-	return count, nil
-}
 
 func DeleteUserRulesByIndex(s *store.Store, userName string, indexes []int) (int, error) {
 	if userName == "" {
@@ -31,7 +20,7 @@ func DeleteUserRulesByIndex(s *store.Store, userName string, indexes []int) (int
 	removed := 0
 	kept := make([]store.UserRouteRule, 0, len(s.UserRoutes))
 	for _, rule := range s.UserRoutes {
-		if !hasAuthUser(rule.AuthUser, userName) {
+		if !slices.Contains(rule.AuthUser, userName) {
 			kept = append(kept, rule)
 			continue
 		}
@@ -75,7 +64,7 @@ func ReplaceUserRuleOutbounds(s *store.Store, userName string, indexes []int, ou
 	updated := 0
 	rebuilt := make([]store.UserRouteRule, 0, len(s.UserRoutes)+len(selected))
 	for _, rule := range s.UserRoutes {
-		if !hasAuthUser(rule.AuthUser, userName) {
+		if !slices.Contains(rule.AuthUser, userName) {
 			rebuilt = append(rebuilt, rule)
 			continue
 		}
@@ -121,23 +110,4 @@ func normalizeRuleIndexes(indexes []int) map[int]bool {
 		}
 	}
 	return selected
-}
-
-func ExpandRuleIndexes(total int, indexes []int, all bool) []int {
-	if !all {
-		out := make([]int, 0, len(indexes))
-		seen := normalizeRuleIndexes(indexes)
-		for idx := range seen {
-			if idx <= total {
-				out = append(out, idx)
-			}
-		}
-		sort.Ints(out)
-		return out
-	}
-	out := make([]int, 0, total)
-	for i := 1; i <= total; i++ {
-		out = append(out, i)
-	}
-	return out
 }

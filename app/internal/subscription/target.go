@@ -171,18 +171,6 @@ func isShareableDomain(host string) bool {
 	return true
 }
 
-func IsIPv6(addr string) bool {
-	ip := net.ParseIP(addr)
-	return ip != nil && ip.To4() == nil
-}
-
-func FormatHost(host string) string {
-	if IsIPv6(host) {
-		return "[" + host + "]"
-	}
-	return host
-}
-
 func SanitizeServerName(sni string) string {
 	sni = strings.TrimSpace(sni)
 	sni = strings.TrimPrefix(sni, "https://")

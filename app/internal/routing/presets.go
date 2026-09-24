@@ -1,6 +1,11 @@
 package routing
 
-import "go-proxy/internal/store"
+import (
+	"regexp"
+	"strings"
+
+	"go-proxy/internal/store"
+)
 
 // PresetCategory groups presets for menu display.
 type PresetCategory struct {
@@ -55,7 +60,7 @@ func PresetCategories() []PresetCategory {
 				},
 				{
 					Name:            "ai-intl",
-					Label:           "International AI services",
+					Label:           "AI (Intl)",
 					RuleSets:        []string{"geosite-category-ai-!cn", "geoip-ai"},
 					FallbackDomains: []string{"openai.com", "anthropic.com", "claude.ai", "chatgpt.com"},
 				},
@@ -231,3 +236,87 @@ func PresetToRule(preset Preset, userName, outbound string) store.UserRouteRule 
 		DomainSuffix: preset.FallbackDomains,
 	}
 }
+
+// PresetChoice is one entry of the numbered preset menu.
+type PresetChoice struct {
+	Symbol string
+	Preset Preset
+}
+
+// presetSymbols is shell-proxy's rule menu numbering, kept so an index a
+// reader learned there selects the same preset here: 1-9 first, then letters.
+var presetSymbols = []struct{ symbol, name string }{
+	{"1", "openai"}, {"2", "anthropic"}, {"3", "google"}, {"4", "youtube"},
+	{"5", "telegram"}, {"6", "twitter"}, {"7", "whatsapp"}, {"8", "facebook"},
+	{"9", "github"}, {"g", "discord"}, {"h", "instagram"}, {"i", "reddit"},
+	{"j", "xai"}, {"k", "microsoft"}, {"l", "linkedin"}, {"m", "paypal"},
+	{"n", "meta"}, {"o", "messenger"}, {"a", "ai-intl"}, {"b", "netflix"},
+	{"d", "disney"}, {"e", "mytvsuper"}, {"s", "spotify"}, {"t", "tiktok"},
+	{"r", "ads"},
+}
+
+// PresetMenu lists the selectable presets in menu order with their index.
+func PresetMenu() []PresetChoice {
+	menu := make([]PresetChoice, 0, len(presetSymbols))
+	for _, entry := range presetSymbols {
+		if preset, ok := FindPreset(entry.name); ok {
+			menu = append(menu, PresetChoice{Symbol: entry.symbol, Preset: preset})
+		}
+	}
+	return menu
+}
+
+// ResolvePresetSelector maps a menu index to the preset name. Only the index
+// is accepted: the menu, the rule listing and every --rules value
+// use the one numbering. Letters are matched without regard to case.
+func ResolvePresetSelector(selector string) (string, bool) {
+	selector = strings.ToLower(strings.TrimSpace(selector))
+	for _, entry := range presetSymbols {
+		if entry.symbol == selector {
+			return entry.name, true
+		}
+	}
+	return "", false
+}
+
+// UserRoutePreset names the preset a stored rule was made from, or "" for a
+// custom rule.
+func UserRoutePreset(rule store.UserRouteRule) string {
+	if preset, ok := presetForRule(rule); ok {
+		return preset.Name
+	}
+	return ""
+}
+
+// PresetSymbol is a preset's menu index, "" for a name the menu does not hold.
+func PresetSymbol(name string) string {
+	for _, entry := range presetSymbols {
+		if entry.name == name {
+			return entry.symbol
+		}
+	}
+	return ""
+}
+
+// presetRank is a preset's position in the menu, for ordering a listing the
+// way the menu reads; a rule no preset made sorts after every preset.
+func PresetRank(name string) int {
+	for index, entry := range presetSymbols {
+		if entry.name == name {
+			return index
+		}
+	}
+	return len(presetSymbols)
+}
+
+// ValidRuleSelector reports whether a --rules value can name a rule: a menu
+// index, or cN for the Nth rule no preset made.
+func ValidRuleSelector(selector string) bool {
+	selector = strings.ToLower(strings.TrimSpace(selector))
+	if _, ok := ResolvePresetSelector(selector); ok {
+		return true
+	}
+	return customSelector.MatchString(selector)
+}
+
+var customSelector = regexp.MustCompile(`^c[1-9][0-9]*$`)

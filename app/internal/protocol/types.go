@@ -19,7 +19,6 @@ const (
 	VLESSReality Type = "vless-reality"
 	TUIC         Type = "tuic"
 	AnyTLS       Type = "anytls"
-	Shadowsocks  Type = "shadowsocks"
 	Snell        Type = "snell"
 	ShadowTLS    Type = "shadow-tls"
 )
@@ -52,10 +51,6 @@ var specs = map[Type]Spec{
 	AnyTLS: {
 		Type: AnyTLS, DisplayName: "anytls", SingBoxType: "anytls",
 		DedicatedPort: false, NeedsTLS: true,
-	},
-	Shadowsocks: {
-		Type: Shadowsocks, DisplayName: "ss", SingBoxType: "shadowsocks",
-		DedicatedPort: true, NeedsTLS: false,
 	},
 	Snell: {
 		Type: Snell, DisplayName: "snell-v6", SingBoxType: "",
@@ -92,8 +87,6 @@ func CommonPorts(pt Type) []int {
 		return []int{443, 2053, 2083, 2087, 2096, 8443, 9443}
 	case Snell:
 		return []int{443, 1443, 8443, 10443}
-	case Shadowsocks:
-		return []int{443, 8388, 8443, 9443}
 	case ShadowTLS:
 		return []int{8443, 443, 9443, 10443}
 	case TUIC:

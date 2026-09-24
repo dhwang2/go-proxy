@@ -82,7 +82,7 @@ func TestRootUsageErrorsHaveNoEffectsAndOneJSONResult(t *testing.T) {
 		{"route", "chain", "unknown"},
 		{"--unknown"},
 		{"version", "--unknown"},
-		{"network", "status", "--unknown"},
+		{"network", "firewall", "status", "--unknown"},
 		{"user", "rename", "alice"},
 		{"route", "test", "--user", "alice"},
 		{"protocol", "add"},
@@ -291,5 +291,23 @@ func TestRootDoesNotAppendErrorJSONAfterPartialWrite(t *testing.T) {
 	}
 	if stderr.Len() == 0 {
 		t.Fatal("partial write failure lacked a diagnostic")
+	}
+}
+
+// An error message can quote another program's output: systemctl's combined
+// output is part of an activation failure, and that message reaches the JSON
+// envelope. The envelope carries no escape sequence under any condition, so the
+// redaction pass strips them while leaving the line breaks a quoted message has.
+func TestRelayedMessagesCarryNoEscapeSequences(t *testing.T) {
+	message := "activate sing-box: \x1b[1;31mFailed\x1b[0m to start\nsee journalctl\x07"
+	got := redact(message)
+	if strings.ContainsAny(got, "\x1b\x07") {
+		t.Fatalf("redaction kept a control sequence: %q", got)
+	}
+	if got != "activate sing-box: Failed to start\nsee journalctl" {
+		t.Fatalf("redaction changed the message text: %q", got)
+	}
+	if secret := redact("psk: s3cret-value\x1b[0m"); !strings.Contains(secret, "<redacted>") || strings.ContainsRune(secret, 0x1b) {
+		t.Fatalf("a secret behind an escape survived: %q", secret)
 	}
 }

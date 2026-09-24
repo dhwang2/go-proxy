@@ -9,8 +9,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
-	"time"
 )
 
 type Address struct {
@@ -34,7 +32,9 @@ type Observation struct {
 	Issues    []string          `json:"issues,omitempty"`
 }
 
-func Observe(ctx context.Context, probe bool) (Observation, error) {
+// Observe reads the host's addresses and routes locally. It makes no network
+// call; the public address of a NATed family is looked up by ProbeFamily.
+func Observe(ctx context.Context) (Observation, error) {
 	info := Observation{Addresses: []Address{}, IPv4: Probe{State: "not_checked"}, IPv6: Probe{State: "not_checked"}, Routes: map[string]string{}, Complete: true}
 	interfaces, err := net.Interfaces()
 	if err != nil {
@@ -82,30 +82,6 @@ func Observe(ctx context.Context, probe bool) (Observation, error) {
 		}
 		info.Routes[family] = string(raw)
 	}
-	if !probe {
-		return info, ctx.Err()
-	}
-	probeCtx := ctx
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-		var cancel context.CancelFunc
-		probeCtx, cancel = context.WithTimeout(ctx, 2*time.Second)
-		defer cancel()
-	}
-	var wg sync.WaitGroup
-	for _, job := range []struct {
-		network, endpoint string
-		target            *Probe
-	}{{"tcp4", "https://api.ipify.org", &info.IPv4}, {"tcp6", "https://api64.ipify.org", &info.IPv6}} {
-		wg.Add(1)
-		go func(network, endpoint string, target *Probe) {
-			defer wg.Done()
-			*target = probeAddress(probeCtx, network, endpoint)
-		}(job.network, job.endpoint, job.target)
-	}
-	wg.Wait()
-	if info.IPv4.State != "available" || info.IPv6.State != "available" {
-		info.Complete = false
-	}
 	return info, ctx.Err()
 }
 
@@ -146,4 +122,36 @@ func probeAddress(ctx context.Context, network, endpoint string) Probe {
 	result.State = "available"
 	result.Address = ip.String()
 	return result
+}
+
+// HasGlobal reports whether an interface carries a public address of family
+// ("ipv4" or "ipv6"), one clients can reach without translation.
+func (o Observation) HasGlobal(family string) bool {
+	for _, address := range o.Addresses {
+		if address.Family == family && address.Scope == "global" {
+			return true
+		}
+	}
+	return false
+}
+
+// HasFamily reports whether any non-loopback, non-link-local address of family
+// is configured.
+func (o Observation) HasFamily(family string) bool {
+	for _, address := range o.Addresses {
+		if address.Family == family && address.Scope != "loopback" && address.Scope != "link_local" {
+			return true
+		}
+	}
+	return false
+}
+
+// ProbeFamily asks a public endpoint which address of family ("ipv4" or
+// "ipv6") this host's traffic leaves from: the only way to learn the address a
+// NAT gives a host whose interfaces carry only a private one.
+func ProbeFamily(ctx context.Context, family string) Probe {
+	if family == "ipv6" {
+		return probeAddress(ctx, "tcp6", "https://api64.ipify.org")
+	}
+	return probeAddress(ctx, "tcp4", "https://api.ipify.org")
 }

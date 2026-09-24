@@ -3,7 +3,6 @@ package routing
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"go-proxy/internal/store"
 )
@@ -41,6 +40,37 @@ func AddChain(s *store.Store, tag, server string, port int, username, password s
 	return nil
 }
 
+// ReplaceChain rewrites an existing chain outbound in place, keeping its
+// position so the rules that select it by tag are untouched.
+func ReplaceChain(s *store.Store, desired ChainOutbound) error {
+	if desired.Tag == "" || desired.Server == "" || desired.ServerPort < 1 || desired.ServerPort > 65535 {
+		return fmt.Errorf("invalid chain parameters")
+	}
+	raw, err := json.Marshal(desired)
+	if err != nil {
+		return err
+	}
+	for i, existing := range s.SingBox.Outbounds {
+		header, err := store.ParseOutboundHeader(existing)
+		if err != nil {
+			return err
+		}
+		if header.Tag == desired.Tag && header.Type == "socks" {
+			// Compared as values, not as bytes: what is stored came back from a
+			// file written with indentation, so identical settings never have
+			// identical encodings.
+			var current ChainOutbound
+			if json.Unmarshal(existing, &current) == nil && current == desired {
+				return nil
+			}
+			s.SingBox.Outbounds[i] = raw
+			s.MarkDirty(store.FileSingBox)
+			return nil
+		}
+	}
+	return fmt.Errorf("chain %q not found", desired.Tag)
+}
+
 func RemoveChain(s *store.Store, tag string) error {
 	for i, raw := range s.SingBox.Outbounds {
 		header, err := store.ParseOutboundHeader(raw)
@@ -71,8 +101,18 @@ func ListChains(s *store.Store) []ChainOutbound {
 	return chains
 }
 
-const ChainDNSTagPrefix = "gproxy-chain-"
+// ChainDNSTag names a chain's DNS server: the chain's tag with "-dns". The
+// server carries the shell-proxy fields only -- tag, type, address, TLS and the
+// detour through the chain -- and the families its lookups ask for are set on
+// the DNS rules that use it.
+func ChainDNSTag(tag string) string { return tag + "-dns" }
 
-func ChainDNSTag(tag string) string { return ChainDNSTagPrefix + tag }
+// legacyChainDNSPrefix is how chain DNS servers were named before u-2-144.
+// A sync renames them.
+const legacyChainDNSPrefix = "gproxy-chain-"
 
-func isChainDNS(tag string) bool { return strings.HasPrefix(tag, ChainDNSTagPrefix) }
+// isChainDNS reports whether a DNS server belongs to the chain its detour
+// names, under the current name or the legacy one.
+func isChainDNS(tag, detour string) bool {
+	return detour != "" && (tag == ChainDNSTag(detour) || tag == legacyChainDNSPrefix+detour)
+}

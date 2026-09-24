@@ -2,6 +2,7 @@ package routing
 
 import (
 	"fmt"
+	"slices"
 
 	"go-proxy/internal/store"
 )
@@ -33,7 +34,7 @@ func SetRule(s *store.Store, userName string, rule store.UserRouteRule) error {
 	}
 
 	for i := range s.UserRoutes {
-		if !hasAuthUser(s.UserRoutes[i].AuthUser, userName) {
+		if !slices.Contains(s.UserRoutes[i].AuthUser, userName) {
 			continue
 		}
 		if !rulesMatchForDedup(s.UserRoutes[i], rule) {
@@ -70,24 +71,12 @@ func rulesMatchForDedup(existing, incoming store.UserRouteRule) bool {
 			return ep.Name == ip.Name
 		}
 	}
-	return sameStringSlice(existing.RuleSet, incoming.RuleSet) &&
-		sameStringSlice(existing.Domain, incoming.Domain) &&
-		sameStringSlice(existing.DomainSuffix, incoming.DomainSuffix) &&
-		sameStringSlice(existing.DomainKeyword, incoming.DomainKeyword) &&
-		sameStringSlice(existing.DomainRegex, incoming.DomainRegex) &&
-		sameStringSlice(existing.IPCIDR, incoming.IPCIDR)
-}
-
-func sameStringSlice(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
+	return slices.Equal(existing.RuleSet, incoming.RuleSet) &&
+		slices.Equal(existing.Domain, incoming.Domain) &&
+		slices.Equal(existing.DomainSuffix, incoming.DomainSuffix) &&
+		slices.Equal(existing.DomainKeyword, incoming.DomainKeyword) &&
+		slices.Equal(existing.DomainRegex, incoming.DomainRegex) &&
+		slices.Equal(existing.IPCIDR, incoming.IPCIDR)
 }
 
 func removeAuthUser(users []string, userName string) []string {

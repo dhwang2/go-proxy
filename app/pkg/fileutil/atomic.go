@@ -9,14 +9,29 @@ import (
 // AtomicWrite writes data to path atomically using a temp file + rename.
 // It preserves original permissions, or uses 0600 for new files.
 func AtomicWrite(path string, data []byte) error {
+	return atomicWrite(path, data, 0, false)
+}
+
+// AtomicWriteMode is AtomicWrite with an explicit mode, applied whether or not
+// the file already exists. Use it where the permissions are part of what the
+// caller is deciding: a version receipt beside a 0755 binary has to be readable
+// by whoever can run that binary, and a copy left at 0600 has to be corrected
+// rather than preserved.
+func AtomicWriteMode(path string, data []byte, perm os.FileMode) error {
+	return atomicWrite(path, data, perm, true)
+}
+
+func atomicWrite(path string, data []byte, mode os.FileMode, force bool) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("create directory %s: %w", dir, err)
 	}
 
-	// Preserve existing permissions.
+	// Preserve existing permissions unless the caller named a mode.
 	perm := os.FileMode(0600)
-	if info, err := os.Stat(path); err == nil {
+	if force {
+		perm = mode
+	} else if info, err := os.Stat(path); err == nil {
 		perm = info.Mode().Perm()
 	}
 

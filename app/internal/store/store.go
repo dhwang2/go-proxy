@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -20,9 +21,7 @@ type Store struct {
 	Firewall     *FirewallConfig
 	SnellConf    *SnellConfig // nil if snell is not installed
 
-	dirty   map[string]bool
-	applied bool  // true after Apply() writes to disk — signals that Reload() should refresh
-	version int64 // incremented on each MarkDirty or successful Reload
+	dirty map[string]bool
 }
 
 // File keys for MarkDirty/Apply.
@@ -67,6 +66,12 @@ func Load() (*Store, error) {
 		return nil, fmt.Errorf("load %s: %w", FileUserRoutes, err)
 	}
 	s.UserRoutes = ur
+	for i := range s.UserRoutes {
+		if tag := DirectOutbound(s.UserRoutes[i].Outbound); tag != s.UserRoutes[i].Outbound {
+			s.UserRoutes[i].Outbound = tag
+			s.MarkDirty(FileUserRoutes)
+		}
+	}
 
 	// user-route-templates.json
 	ut, err := loadJSON[UserRouteTemplates](config.UserTemplateFile)
@@ -76,6 +81,14 @@ func Load() (*Store, error) {
 	s.UserTemplate = ut
 	if s.UserTemplate.Templates == nil {
 		s.UserTemplate.Templates = make(map[string][]TemplateRule)
+	}
+	for _, rules := range s.UserTemplate.Templates {
+		for i := range rules {
+			if tag := DirectOutbound(rules[i].Outbound); tag != rules[i].Outbound {
+				rules[i].Outbound = tag
+				s.MarkDirty(FileUserTemplate)
+			}
+		}
 	}
 
 	fw, err := loadJSON[FirewallConfig](config.FirewallConfigFile)
@@ -99,31 +112,59 @@ func Load() (*Store, error) {
 	return s, nil
 }
 
-// Reload re-reads all configuration files from disk into this store.
-// Only performs I/O if the store was modified since last load (via Apply).
-func (s *Store) Reload() error {
-	if !s.applied {
-		return nil
-	}
-	fresh, err := Load()
-	if err != nil {
-		return err
-	}
-	prev := s.version
-	*s = *fresh
-	s.version = prev + 1
-	return nil
-}
-
-// Version returns the store's change counter, incremented on each MarkDirty or Reload.
-func (s *Store) Version() int64 {
-	return s.version
-}
-
-// MarkDirty flags a config file for saving on the next Apply() call.
+// MarkDirty flags a config file for saving on the next commit.
 func (s *Store) MarkDirty(file string) {
 	s.dirty[file] = true
-	s.version++
+}
+
+// Settled reports whether a dirty file would be written back byte for byte as
+// it already is on disk, and drops it from the dirty set when so. Recompiling a
+// configuration that was already correct produces the same bytes; treating that
+// as a change makes an operation claim it did something it did not.
+//
+// A file that cannot be read or rendered stays dirty: the answer is unknown,
+// and writing it is the safe direction.
+func (s *Store) Settled(file string) bool {
+	if !s.dirty[file] {
+		return true
+	}
+	rendered, err := s.render(file)
+	if err != nil {
+		return false
+	}
+	current, err := os.ReadFile(s.filePath(file))
+	if err != nil || !bytes.Equal(current, rendered) {
+		return false
+	}
+	delete(s.dirty, file)
+	return true
+}
+
+// render produces exactly what saveFile would write, without writing it.
+func (s *Store) render(file string) ([]byte, error) {
+	switch file {
+	case FileSingBox:
+		s.SingBox.Normalize()
+		return marshalJSON(s.SingBox)
+	case FileUserMeta:
+		return marshalJSON(s.UserMeta)
+	case FileUserRoutes:
+		return marshalJSON(s.UserRoutes)
+	case FileUserTemplate:
+		return marshalJSON(s.UserTemplate)
+	case FileFirewall:
+		if s.Firewall == nil {
+			s.Firewall = &FirewallConfig{}
+		}
+		s.Firewall.Normalize()
+		return marshalJSON(s.Firewall)
+	case FileSnellConf:
+		if s.SnellConf == nil {
+			return nil, fmt.Errorf("no snell configuration to render")
+		}
+		return s.SnellConf.MarshalSnellConfig(), nil
+	}
+	return nil, fmt.Errorf("unknown file: %s", file)
 }
 
 // IsDirty returns whether any files are flagged for saving.
@@ -142,18 +183,6 @@ func (s *Store) Save() error {
 	}
 	s.dirty = make(map[string]bool)
 	return nil
-}
-
-// Apply saves dirty files, validates sing-box config, and returns.
-// Service restart is handled by the caller (service package).
-func (s *Store) Apply(ctx context.Context) error {
-	if !s.IsDirty() {
-		return nil
-	}
-	if err := s.ValidatePending(ctx); err != nil {
-		return err
-	}
-	return s.ApplyValidated()
 }
 
 func (s *Store) ApplyValidated() error {
@@ -186,7 +215,6 @@ func (s *Store) ApplyValidated() error {
 	for file := range backups {
 		fileutil.CleanBackup(s.filePath(file))
 	}
-	s.applied = true
 	return nil
 }
 
@@ -316,12 +344,19 @@ func loadJSONSlice[T any](path string) ([]T, error) {
 }
 
 func writeJSON(path string, v any) error {
-	data, err := json.MarshalIndent(v, "", "  ")
+	data, err := marshalJSON(v)
 	if err != nil {
 		return fmt.Errorf("marshal %s: %w", path, err)
 	}
-	data = append(data, '\n')
 	return fileutil.AtomicWrite(path, data)
+}
+
+func marshalJSON(v any) ([]byte, error) {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
 }
 
 func ensureMetaMaps(um *UserManagement) {

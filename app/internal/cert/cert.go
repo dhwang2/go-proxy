@@ -65,11 +65,6 @@ func WriteDomain(domain string) error {
 	return os.WriteFile(config.DomainFile, []byte(domain+"\n"), 0644)
 }
 
-// DefaultEmail returns a default Let's Encrypt email address.
-func DefaultEmail() string {
-	return ""
-}
-
 // GenerateCaddyfile creates a Caddyfile for TLS certificate issuance.
 func GenerateCaddyfile(domain, email string) error {
 	if !IsValidDomain(domain) {
@@ -141,7 +136,11 @@ func CertExists(domain string) bool {
 	return leaf.VerifyHostname(domain) == nil && time.Now().After(leaf.NotBefore) && time.Now().Before(leaf.NotAfter)
 }
 
-// WaitForCert polls for certificate files until they appear or timeout.
+// WaitForCert waits for caddy to place the certificate, and reads caddy's log
+// while it waits. A file that has not appeared says only that it has not;
+// caddy already knows why, so a refusal that names the hour it lifts ends the
+// wait immediately instead of spending a deadline on it, and a wait that does
+// run out reports what the authority actually said.
 func WaitForCert(ctx context.Context, domain string, timeout time.Duration) error {
 	deadline := time.After(timeout)
 	ticker := time.NewTicker(2 * time.Second)
@@ -151,10 +150,16 @@ func WaitForCert(ctx context.Context, domain string, timeout time.Duration) erro
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-deadline:
+			if problem, found := lastIssuanceProblem(domain); found && problem.Reason != "" {
+				return fmt.Errorf("certificate was not issued after %v: %s", timeout, problem.Reason)
+			}
 			return fmt.Errorf("certificate issuance timed out after %v; check domain dns records", timeout)
 		case <-ticker.C:
 			if CertExists(domain) {
 				return nil
+			}
+			if problem, found := lastIssuanceProblem(domain); found && problem.Final {
+				return fmt.Errorf("certificate was refused: %s", problem.Reason)
 			}
 		}
 	}
@@ -303,9 +308,6 @@ func Inspect() Status {
 	return result
 }
 
-func EnsureCertificate(ctx context.Context, domain, email string, progress func(string)) error {
-	return EnsureCertificateState(ctx, domain, email, progress, func(fn func() error) error { return fn() })
-}
 func EnsureCertificateState(ctx context.Context, domain, email string, progress func(string), state func(func() error) error) error {
 	if !IsValidDomain(domain) {
 		return fmt.Errorf("invalid certificate domain")

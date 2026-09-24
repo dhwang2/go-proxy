@@ -18,12 +18,16 @@ const SnellVersion = "6.0.0rc2"
 
 type UpdateCheck struct {
 	Component      Component `json:"component"`
+	Installed      bool      `json:"installed"`
 	CurrentVersion string    `json:"current_version"`
 	CurrentError   string    `json:"current_error,omitempty"`
 	LatestVersion  string    `json:"latest_version"`
-	UpdateAvail    bool      `json:"update_available"`
-	DownloadURL    string    `json:"-"`
-	Digest         string    `json:"-"`
+	// UpdateAvail compares an installed version against the latest one. A
+	// component that is not installed has nothing to update, so this is false
+	// and installed is what says a first install is available instead.
+	UpdateAvail bool   `json:"update_available"`
+	DownloadURL string `json:"-"`
+	Digest      string `json:"-"`
 }
 
 func BinaryPath(c Component) string {
@@ -45,8 +49,8 @@ func CheckUpdate(ctx context.Context, component Component, binPath string) (*Upd
 }
 
 func ResolveUpdate(ctx context.Context, component Component, binPath, version string) (*UpdateCheck, error) {
-	info := DetectVersion(ctx, binPath, component)
-	check := &UpdateCheck{Component: component, CurrentVersion: info.Version, CurrentError: info.Error}
+	info := InstalledVersion(ctx, binPath, component)
+	check := &UpdateCheck{Component: component, Installed: info.Installed, CurrentVersion: info.Version, CurrentError: info.Error}
 	if component == CompSnell {
 		if version != "" && normalizeVersion(version) != SnellVersion {
 			return nil, fmt.Errorf("supported snell version is %s", SnellVersion)
@@ -63,12 +67,6 @@ func ResolveUpdate(ctx context.Context, component Component, binPath, version st
 		}
 		check.LatestVersion = SnellVersion
 		check.DownloadURL = fmt.Sprintf("https://dl.nssurge.com/snell/snell-server-v%s-linux-%s.zip", SnellVersion, arch)
-		// RC2 identifies itself as v6.0.0; remember the verified archive version.
-		if normalizeVersion(info.Version) == "6.0.0" {
-			if data, err := os.ReadFile(binPath + ".version"); err == nil {
-				check.CurrentVersion = strings.TrimSpace(string(data))
-			}
-		}
 	} else {
 		repo := componentRepo(component)
 		if repo == "" {
@@ -108,9 +106,28 @@ func ResolveUpdate(ctx context.Context, component Component, binPath, version st
 			return nil, fmt.Errorf("release has no sha256 digest for %s", component)
 		}
 	}
-	check.UpdateAvail = !info.Installed || normalizeVersion(check.CurrentVersion) != normalizeVersion(check.LatestVersion)
+	check.UpdateAvail = info.Installed && normalizeVersion(check.CurrentVersion) != normalizeVersion(check.LatestVersion)
+	if component == CompSnell {
+		// The verified archive is 6.0.0rc2 and its executable reports v6.0.0,
+		// so either spelling is the same installation. Comparing the strings
+		// reported an update over itself whenever the receipt that tells them
+		// apart was unreadable, which is every query run without root.
+		check.UpdateAvail = info.Installed && !snellSatisfied(check.CurrentVersion)
+	}
 	return check, nil
 }
+
+func snellSatisfied(version string) bool {
+	switch normalizeVersion(version) {
+	case "6.0.0", SnellVersion:
+		return true
+	}
+	return false
+}
+
+// NeedsInstall reports whether applying this check would change anything: a
+// first install, or a replacement of an older version.
+func (c *UpdateCheck) NeedsInstall() bool { return !c.Installed || c.UpdateAvail }
 
 func Ensure(ctx context.Context, component Component, version string) error {
 	path := BinaryPath(component)
@@ -118,7 +135,7 @@ func Ensure(ctx context.Context, component Component, version string) error {
 		return fmt.Errorf("unknown core component")
 	}
 	if version == "" {
-		if info := DetectVersion(ctx, path, component); info.Installed && info.Error == "" && (component != CompSnell || normalizeVersion(info.Version) == "6.0.0") {
+		if info := DetectVersion(ctx, path, component); info.Installed && info.Error == "" && (component != CompSnell || snellSatisfied(info.Version)) {
 			return nil
 		}
 	}
@@ -126,7 +143,7 @@ func Ensure(ctx context.Context, component Component, version string) error {
 	if err != nil {
 		return err
 	}
-	if !check.UpdateAvail {
+	if !check.NeedsInstall() {
 		return nil
 	}
 	return ApplyUpdate(ctx, check)
@@ -159,14 +176,16 @@ func ApplyUpdate(ctx context.Context, check *UpdateCheck) error {
 		return err
 	}
 	if check.Component == CompSnell {
-		return fileutil.AtomicWrite(path+".version", []byte(check.LatestVersion+"\n"))
+		// 0644, beside a 0755 binary: it records which public archive produced
+		// that executable, and `core check` is a query that does not require
+		// root. At 0600 an unprivileged check could not read it and reported an
+		// update over the version it already had.
+		return fileutil.AtomicWriteMode(path+".version", []byte(check.LatestVersion+"\n"), 0644)
 	}
 	return nil
 }
 
 func normalizeVersion(v string) string { return strings.TrimPrefix(strings.TrimSpace(v), "v") }
-func HasRepo(c Component) bool         { return componentRepo(c) != "" }
-func UpdatableComponents() []Component { return AllComponents() }
 func componentRepo(c Component) string {
 	switch c {
 	case CompSingBox:

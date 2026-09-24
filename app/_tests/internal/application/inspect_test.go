@@ -15,7 +15,7 @@ import (
 
 func TestConfigViewRedactsTypedAndArbitrarySecretsWithoutWriting(t *testing.T) {
 	a := protocolTestApp(t)
-	configJSON := []byte(`{"inbounds":[{"type":"vless","tag":"test","password":"secret-server","users":[{"name":"alice","uuid":"secret-uuid","password":"secret-user"}],"tls":{"enabled":true,"reality":{"enabled":true,"private_key":"secret-reality"}}}],"outbounds":[{"type":"socks","tag":"relay","password":"secret-relay"}],"dns":{"servers":[{"tag":"test","password":"secret-dns"}]},"route":{"rule_set":[{"tag":"test","headers":{"key":"secret-header"}}]},"experimental":{"nested":[{"PSK":"secret-experimental"}]}}`)
+	configJSON := []byte(`{"inbounds":[{"type":"vless","tag":"test","users":[{"name":"alice","uuid":"secret-uuid","password":"secret-user"}],"tls":{"enabled":true,"reality":{"enabled":true,"private_key":"secret-reality"}}}],"outbounds":[{"type":"socks","tag":"relay","password":"secret-relay"}],"dns":{"servers":[{"tag":"test","password":"secret-dns"}]},"route":{"rule_set":[{"tag":"test","headers":{"key":"secret-header"}}]},"experimental":{"nested":[{"PSK":"secret-experimental"}]}}`)
 	if err := os.WriteFile(config.SingBoxConfig, configJSON, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestConfigViewRedactsTypedAndArbitrarySecretsWithoutWriting(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, secret := range []string{"server", "uuid", "user", "reality", "relay", "dns", "header", "experimental"} {
+		for _, secret := range []string{"uuid", "user", "reality", "relay", "dns", "header", "experimental"} {
 			if strings.Contains(string(encoded), "secret-"+secret) != secrets {
 				t.Fatalf("secret inclusion mismatch for %s, show-secrets=%v", secret, secrets)
 			}
@@ -54,7 +54,7 @@ func TestStatusMissingConfiguredServiceIsUnhealthy(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	result, err := a.Status(context.Background(), false)
+	result, err := a.Status(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestStatusInstalledButStoppedServiceIsExplainedInIssues(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	result, err := a.Status(context.Background(), false)
+	result, err := a.Status(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,15 +103,21 @@ func TestShadowTLSValidationChecksCoreAndBinding(t *testing.T) {
 	if err := os.WriteFile(validator, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	oldSing, oldShadow := config.SingBoxBin, config.ShadowTLSBin
-	config.SingBoxBin, config.ShadowTLSBin = validator, shadow
-	t.Cleanup(func() { config.SingBoxBin = oldSing; config.ShadowTLSBin = oldShadow })
+	snell := filepath.Join(dir, "snell-server")
+	if err := os.WriteFile(snell, []byte("binary fixture"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	oldSing, oldShadow, oldSnell := config.SingBoxBin, config.ShadowTLSBin, config.SnellBin
+	config.SingBoxBin, config.ShadowTLSBin, config.SnellBin = validator, shadow, snell
+	t.Cleanup(func() {
+		config.SingBoxBin, config.ShadowTLSBin, config.SnellBin = oldSing, oldShadow, oldSnell
+	})
 	snapshot, err := a.Snapshot(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot.Store.SingBox.Inbounds = []store.Inbound{{Type: "shadowsocks", Tag: "ss_8388", ListenPort: 8388}}
-	valid := service.ShadowTLSBinding{ListenPort: 8443, BackendPort: 8388, BackendProto: "ss", Password: "not-for-diagnostics", SNI: "www.netbsd.org", Version: 3}
+	snapshot.Store.SnellConf = &store.SnellConfig{Listen: "0.0.0.0:8388", PSK: "not-for-diagnostics"}
+	valid := service.ShadowTLSBinding{ListenPort: 8443, BackendPort: 8388, BackendProto: "snell", Password: "not-for-diagnostics", SNI: "www.netbsd.org", Version: 3}
 	snapshot.Bindings = []service.ShadowTLSBinding{valid}
 	if _, err := validateConfiguration(context.Background(), snapshot); err == nil || !strings.Contains(err.Error(), "core is not installed") {
 		t.Fatalf("missing core was accepted: %v", err)
@@ -168,5 +174,19 @@ func TestConfigValidationUsesCapturedSnapshot(t *testing.T) {
 	content, _ := os.ReadFile(config.SingBoxConfig)
 	if string(content) != "external change" {
 		t.Fatal("query changed persisted state")
+	}
+}
+
+// The short names the dashboard prints select the same services as the unit
+// names, so a name read off `gproxy status` works in `log` and `server`.
+func TestDashboardServiceNamesSelectTheirUnits(t *testing.T) {
+	for alias, want := range map[string]string{"snell": "snell-v6", "caddy": "caddy-sub", "watchdog": "proxy-watchdog", "snell-v6": "snell-v6", "sing-box": "sing-box"} {
+		names, err := ManagedServices(alias, false)
+		if err != nil || len(names) != 1 || string(names[0]) != want {
+			t.Fatalf("%s selected %v %v, want %s", alias, names, err, want)
+		}
+	}
+	if _, err := ManagedServices("nosuch", false); err == nil {
+		t.Fatal("an unknown service was accepted")
 	}
 }

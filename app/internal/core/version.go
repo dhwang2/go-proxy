@@ -76,6 +76,28 @@ func DetectVersion(ctx context.Context, binPath string, component Component) Ver
 	return info
 }
 
+// InstalledVersion is DetectVersion plus what the binary cannot say about
+// itself. The verified snell archive is 6.0.0rc2 while its executable reports
+// v6.0.0, so `core version` and `core check` gave two answers about one
+// installation until both read the receipt written beside the binary.
+//
+// The receipt only refines the version the executable reports; a receipt left
+// behind by an unrelated build never replaces a version that disagrees with it.
+func InstalledVersion(ctx context.Context, binPath string, component Component) VersionInfo {
+	info := DetectVersion(ctx, binPath, component)
+	if component != CompSnell || strings.TrimPrefix(strings.TrimSpace(info.Version), "v") != "6.0.0" {
+		return info
+	}
+	data, err := os.ReadFile(binPath + ".version")
+	if err != nil {
+		return info
+	}
+	if recorded := strings.TrimSpace(string(data)); recorded != "" {
+		info.Version = recorded
+	}
+	return info
+}
+
 func parseVersion(output string, component Component) string {
 	output = strings.TrimSpace(output)
 	switch component {

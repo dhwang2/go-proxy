@@ -25,9 +25,6 @@ type SelfUpdateCheck struct {
 	Digest         string `json:"-"`
 }
 
-func CheckSelfUpdate(ctx context.Context, currentVersion string) (*SelfUpdateCheck, error) {
-	return ResolveSelfUpdate(ctx, currentVersion, "")
-}
 func ResolveSelfUpdate(ctx context.Context, currentVersion, version string) (*SelfUpdateCheck, error) {
 	var release *github.Release
 	var err error

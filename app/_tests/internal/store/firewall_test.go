@@ -1,8 +1,6 @@
 package store
 
 import (
-	"encoding/json"
-	"strings"
 	"testing"
 )
 
@@ -32,16 +30,5 @@ func TestFirewallConfigNormalize(t *testing.T) {
 		if got != want[i] {
 			t.Fatalf("cfg.Ports[%d] = %+v, want %+v", i, got, want[i])
 		}
-	}
-}
-
-func TestFirewallConfigRejectsLegacyFormat(t *testing.T) {
-	var cfg FirewallConfig
-	err := json.Unmarshal([]byte(`{"tcp":[443],"udp":[53]}`), &cfg)
-	if err == nil {
-		t.Fatal("expected legacy firewall config to be rejected")
-	}
-	if !strings.Contains(err.Error(), "legacy firewall config format is no longer supported") {
-		t.Fatalf("err = %v, want legacy format error", err)
 	}
 }

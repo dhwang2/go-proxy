@@ -7,23 +7,21 @@ import (
 	"testing"
 )
 
-func TestParseShadowTLSBindingPrefersExplicitBackendMetadata(t *testing.T) {
+func TestParseShadowTLSBindingReadsTheBackendFromTheUnitName(t *testing.T) {
 	unit := `[Unit]
 Description=Shadow-TLS v3 Service
 
 [Service]
 Type=simple
-Environment=GPROXY_SHADOWTLS_BACKEND=ss
-Environment=GPROXY_SHADOWTLS_BACKEND_PORT=8388
 ExecStart=/etc/go-proxy/bin/shadow-tls --v3 server --listen 0.0.0.0:443 --server 127.0.0.1:8388 --tls www.microsoft.com --password secret
 `
 
-	binding, ok := parseShadowTLSBinding("shadow-tls-ss-8388", "/etc/systemd/system/shadow-tls-ss-8388.service", unit)
+	binding, ok := parseShadowTLSBinding("shadow-tls-snell-8388", "/etc/systemd/system/shadow-tls-snell-8388.service", unit)
 	if !ok {
 		t.Fatal("expected binding to parse")
 	}
-	if binding.BackendProto != "ss" {
-		t.Fatalf("BackendProto = %q, want ss", binding.BackendProto)
+	if binding.BackendProto != "snell" {
+		t.Fatalf("BackendProto = %q, want snell", binding.BackendProto)
 	}
 	if binding.BackendPort != 8388 {
 		t.Fatalf("BackendPort = %d, want 8388", binding.BackendPort)
@@ -55,17 +53,15 @@ func TestRemoveShadowTLSBindingByBackendRemovesMatchingUnit(t *testing.T) {
 		shadowTLSUnitDir = prevDir
 	})
 
-	unitPath := filepath.Join(dir, "shadow-tls-ss-8388.service")
+	unitPath := filepath.Join(dir, "shadow-tls-snell-8388.service")
 	if err := os.WriteFile(unitPath, []byte(`[Unit]
 [Service]
-Environment=GPROXY_SHADOWTLS_BACKEND=ss
-Environment=GPROXY_SHADOWTLS_BACKEND_PORT=8388
 ExecStart=/etc/go-proxy/bin/shadow-tls --v3 server --listen 0.0.0.0:443 --server 127.0.0.1:8388 --tls www.microsoft.com --password secret
 `), 0o644); err != nil {
 		t.Fatalf("write unit: %v", err)
 	}
 
-	if err := RemoveShadowTLSBindingByBackend(context.Background(), "ss", 8388); err != nil {
+	if err := RemoveShadowTLSBindingByBackend(context.Background(), "snell", 8388); err != nil {
 		t.Fatalf("RemoveShadowTLSBindingByBackend error: %v", err)
 	}
 	if _, err := os.Stat(unitPath); !os.IsNotExist(err) {
@@ -89,7 +85,7 @@ ExecStart=/etc/go-proxy/bin/shadow-tls --v3 server --listen 0.0.0.0:8443 --serve
 		t.Fatalf("write unit: %v", err)
 	}
 
-	bindings, err := ListShadowTLSBindings(nil)
+	bindings, err := ListShadowTLSBindings()
 	if err != nil {
 		t.Fatalf("ListShadowTLSBindings error: %v", err)
 	}

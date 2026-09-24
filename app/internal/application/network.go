@@ -2,33 +2,16 @@ package application
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"reflect"
+	"slices"
+	"strings"
 
+	"go-proxy/internal/config"
 	"go-proxy/internal/network"
 	"go-proxy/internal/store"
+	"go-proxy/pkg/fileutil"
 )
-
-func (a *App) NetworkStatus(ctx context.Context, probe bool) (Result, error) {
-	snapshot, err := a.Snapshot(ctx)
-	if err != nil {
-		return Result{}, err
-	}
-	observationCtx, cancel := ObservationContext(ctx)
-	defer cancel()
-	ports, portErr := network.DesiredFirewallPortsWithBindings(observationCtx, snapshot.Store, snapshot.Bindings)
-	info, observationErr := network.Observe(observationCtx, probe)
-	if portErr != nil {
-		info.Complete = false
-		info.Issues = append(info.Issues, "inspect desired ports: "+portErr.Error())
-	}
-	if observationErr != nil {
-		info.Complete = false
-		info.Issues = append(info.Issues, observationErr.Error())
-	}
-	return Result{Data: map[string]any{"network": info, "desired_ports": ports}}, ctx.Err()
-}
 
 func (a *App) NetworkBBR(ctx context.Context, enable bool) (Result, error) {
 	if !enable {
@@ -96,21 +79,35 @@ func (a *App) NetworkFirewallClear(ctx context.Context) (Result, error) {
 			return Result{}, err
 		}
 		if !managed {
-			return Result{Data: map[string]any{"managed": false}}, nil
+			// removed says which of the two happened: there was no managed table
+			// to release, which is the same envelope otherwise.
+			return Result{Data: map[string]any{"managed": false, "removed": false}}, nil
 		}
 		a.Progress("removing managed firewall")
 		if err := network.RemoveFirewallRules(ctx); err != nil {
 			return Result{}, &Error{Code: "activation_failed", Message: err.Error(), Stage: "firewall", Changed: true}
 		}
-		return Result{Changed: true, Data: map[string]any{"managed": false}}, nil
+		return Result{Changed: true, Data: map[string]any{"managed": false, "removed": true}}, nil
 	})
 }
+
+// FirewallPortChange is what one custom-port request did to one transport:
+// added, already added, removed or not found.
+type FirewallPortChange struct {
+	Port      int    `json:"port"`
+	Transport string `json:"transport"`
+	Result    string `json:"result"`
+}
+
+// FirewallTransports lists the accepted custom-port transports, shared by the
+// validator below and shell completion.
+func FirewallTransports() []string { return []string{"tcp", "udp", "both"} }
 
 func (a *App) NetworkFirewallPort(ctx context.Context, port int, transport string, remove bool) (Result, error) {
 	if port < 1 || port > 65535 {
 		return Result{}, Invalid("port must be between 1 and 65535")
 	}
-	if transport != "tcp" && transport != "udp" && transport != "both" {
+	if !slices.Contains(FirewallTransports(), transport) {
 		return Result{}, Invalid("transport must be tcp, udp or both")
 	}
 	return a.Operation(ctx, func() (Result, error) {
@@ -127,6 +124,27 @@ func (a *App) NetworkFirewallPort(ctx context.Context, port int, transport strin
 			s.Firewall = &store.FirewallConfig{}
 		}
 		before := append([]store.FirewallPort(nil), s.Firewall.Ports...)
+		// What happened to each transport the argument named, so the reply
+		// can say it per port: "both" is two entries.
+		changes := []FirewallPortChange{}
+		for _, proto := range []string{"tcp", "udp"} {
+			if transport != proto && transport != "both" {
+				continue
+			}
+			had := slices.Contains(before, store.FirewallPort{Proto: proto, Port: port})
+			var result string
+			switch {
+			case remove && had:
+				result = "removed"
+			case remove:
+				result = "not found"
+			case had:
+				result = "already added"
+			default:
+				result = "added"
+			}
+			changes = append(changes, FirewallPortChange{Port: port, Transport: proto, Result: result})
+		}
 		if remove {
 			kept := s.Firewall.Ports[:0]
 			for _, entry := range s.Firewall.Ports {
@@ -156,7 +174,11 @@ func (a *App) NetworkFirewallPort(ctx context.Context, port int, transport strin
 				return Result{}, &Error{Code: "activation_failed", Message: err.Error(), Stage: "firewall", Changed: changed, Data: map[string]any{"pending": "firewall convergence"}}
 			}
 		}
-		return Result{Changed: changed, Data: map[string]any{"ports": s.Firewall.Ports, "managed": managed}}, nil
+		ports := s.Firewall.Ports
+		if ports == nil {
+			ports = []store.FirewallPort{}
+		}
+		return Result{Changed: changed, Data: map[string]any{"ports": ports, "managed": managed, "changes": changes}}, nil
 	})
 }
 
@@ -165,23 +187,40 @@ func (a *App) NetworkFail2Ban(ctx context.Context, action string) (Result, error
 		observationCtx, cancel := ObservationContext(ctx)
 		defer cancel()
 		info, err := network.Fail2BanStatus(observationCtx)
+		if err == nil {
+			recordBanned(&info)
+		}
 		return Result{Data: info}, err
 	}
 	return a.Operation(ctx, func() (Result, error) {
-		a.Progress(fmt.Sprintf("%s managed fail2ban protection", action))
 		before, err := network.Fail2BanStatus(ctx)
 		if err != nil {
 			return Result{}, err
 		}
-		if action == "disable" && !before.Managed {
+		// Already off: said in the result, with no progress line claiming
+		// work that did not happen.
+		if action == "disable" && !before.Running && !before.StartsAtBoot && !before.Managed {
+			recordBanned(&before)
+			before.Change = "already stopped"
 			return Result{Data: before}, nil
 		}
-		changed := true
+		changed, change := true, "added"
 		switch action {
 		case "enable":
+			switch {
+			case !before.Running:
+				change = "started"
+			case before.Managed:
+				// Written again so an edited file is put back, but the jail
+				// was already gproxy's.
+				changed, change = false, "already managed"
+			}
+			a.Progress("enabling the fail2ban ssh jail")
 			err = network.Fail2BanEnable(ctx)
 		case "disable":
-			err = network.Fail2BanDisable(ctx)
+			change = "stopped"
+			a.Progress("stopping fail2ban")
+			err = network.Fail2BanStop(ctx)
 		default:
 			return Result{}, Invalid("unknown fail2ban action")
 		}
@@ -195,6 +234,31 @@ func (a *App) NetworkFail2Ban(ctx context.Context, action string) (Result, error
 		if action == "enable" && (!info.Running || !info.SSHJailEnabled) {
 			return Result{}, &Error{Code: "activation_failed", Message: "fail2ban sshd jail is not active", Stage: "verify", Changed: true}
 		}
+		if action == "disable" {
+			if info.Running {
+				return Result{}, &Error{Code: "activation_failed", Message: "fail2ban is still running", Stage: "verify", Changed: true}
+			}
+			info.BansLifted = before.CurrentlyBanned
+		}
+		recordBanned(&info)
+		info.Change = change
 		return Result{Changed: changed, Data: info}, nil
 	})
+}
+
+// recordBanned writes the banned addresses to their file, one per line, and
+// names the file in the result. It is a report rather than state: rewritten
+// whole on every call, empty when nothing is banned. A write that fails leaves
+// the path out, and the list still travels in the result.
+func recordBanned(info *network.Fail2BanInfo) {
+	if !info.Installed {
+		return
+	}
+	content := strings.Join(info.BannedIPs, "\n")
+	if content != "" {
+		content += "\n"
+	}
+	if err := fileutil.AtomicWriteMode(config.Fail2BanBannedFile, []byte(content), 0o644); err == nil {
+		info.BannedFile = config.Fail2BanBannedFile
+	}
 }

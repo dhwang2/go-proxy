@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"go-proxy/internal/cert"
 	"go-proxy/internal/config"
@@ -57,6 +58,19 @@ func (a *App) Init(ctx context.Context) (Result, error) {
 			if err := service.EnsureWatchdogRunningForCurrentBinary(ctx); err != nil {
 				return Result{}, &Error{Code: "initialization_failed", Stage: "watchdog", Message: err.Error(), Changed: true}
 			}
+		} else if !service.IsStopped(service.Watchdog) {
+			// Re-running the installer replaces the binary and calls init; a
+			// watchdog that kept running the replaced file would go on with
+			// the old code until something restarted it. `gproxy update`
+			// hands over the same way. An intentionally stopped watchdog is
+			// left stopped.
+			if stale, err := service.WatchdogRunsStaleBinary(ctx); err == nil && stale {
+				changed = true
+				a.Progress("restarting the watchdog on the new binary")
+				if err := service.EnsureWatchdogRunningForCurrentBinary(ctx); err != nil {
+					return Result{}, &Error{Code: "initialization_failed", Stage: "watchdog", Message: err.Error(), Changed: true}
+				}
+			}
 		}
 		return Result{Changed: changed, Data: map[string]any{"initialized": true, "runtime": config.WorkDir}}, nil
 	})
@@ -75,10 +89,28 @@ func ManagedServiceNames() []string {
 	return names
 }
 
+// serviceAliases are the short names the dashboard prints for a service,
+// accepted wherever a service is selected: a name read off `gproxy status`
+// has to work in the next command.
+var serviceAliases = map[string]service.Name{
+	"snell":    service.Snell,
+	"caddy":    service.CaddySub,
+	"watchdog": service.Watchdog,
+}
+
+// canonicalService turns a short dashboard name into the unit name.
+func canonicalService(selector string) string {
+	if name, ok := serviceAliases[selector]; ok {
+		return string(name)
+	}
+	return selector
+}
+
 func ManagedServices(selector string, all bool) ([]service.Name, error) {
 	if all && selector != "" || !all && selector == "" {
 		return nil, Invalid("select one service or --all")
 	}
+	selector = canonicalService(selector)
 	if all {
 		return service.AllServices(), nil
 	}
@@ -228,7 +260,7 @@ func Components(selector string, all bool) ([]core.Component, error) {
 func (a *App) CoreVersions(ctx context.Context) (Result, error) {
 	infos := make([]core.VersionInfo, 0, 4)
 	for _, c := range core.AllComponents() {
-		infos = append(infos, core.DetectVersion(ctx, core.BinaryPath(c), c))
+		infos = append(infos, core.InstalledVersion(ctx, core.BinaryPath(c), c))
 	}
 	return Result{Data: infos}, nil
 }
@@ -370,8 +402,26 @@ func (a *App) Log(ctx context.Context, selector string, lines, maxBytes int, fol
 	if selector == "" {
 		selector = string(service.SingBox)
 	}
+	selector = canonicalService(selector)
 	if _, err := ManagedServices(selector, false); err != nil {
 		return Result{}, err
+	}
+	// shadow-tls names a group: one unit per wrapped node, each with its own
+	// log. The group itself has none, so its log is the one unit's, and a
+	// choice when there are several.
+	if selector == string(service.ShadowTLS) {
+		units, err := service.ShadowTLSServiceNames()
+		if err != nil {
+			return Result{}, err
+		}
+		switch len(units) {
+		case 0:
+			return Result{}, Invalid("no shadow-tls service is installed")
+		case 1:
+			selector = units[0]
+		default:
+			return Result{}, Invalid("several shadow-tls services; select one: " + strings.Join(units, ", "))
+		}
 	}
 	if lines <= 0 || maxBytes <= 0 {
 		return Result{}, Invalid("log limits must be positive")
@@ -392,7 +442,8 @@ func (a *App) Uninstall(ctx context.Context, preview bool) (Result, error) {
 		if err != nil {
 			return nil, err
 		}
-		paths = append(paths, config.WorkDir, network.BBRSysctlPath, network.Fail2BanJailPath, config.LockSetupFile)
+		paths = append(paths, config.WorkDir, a.LockDir, network.BBRSysctlPath, network.Fail2BanJailPath, config.LockSetupFile,
+			config.BashCompletionPath, config.ZshCompletionPath)
 		executable, err := os.Executable()
 		if err != nil {
 			return nil, err
@@ -425,11 +476,22 @@ func (a *App) Uninstall(ctx context.Context, preview bool) (Result, error) {
 			return fail(err)
 		}
 		if _, err := os.Stat(network.Fail2BanJailPath); err == nil {
-			if err := network.Fail2BanDisable(ctx); err != nil {
+			if err := network.Fail2BanRemoveJail(ctx); err != nil {
 				return fail(err)
 			}
 		}
 		if err := os.Remove(network.BBRSysctlPath); err != nil && !os.IsNotExist(err) {
+			return fail(err)
+		}
+		// Completion scripts are absent when the CLI was built from source
+		// rather than installed, so a missing file is not a failure. Only these
+		// two exact paths are removed; the directories belong to the shells.
+		for _, path := range []string{config.BashCompletionPath, config.ZshCompletionPath} {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				return fail(err)
+			}
+		}
+		if err := removeMarkedBlock(config.SystemBashrc, config.BashrcCompletionBeginMark, config.BashrcCompletionEndMark); err != nil {
 			return fail(err)
 		}
 		if err := service.Uninstall(ctx, func(fn func() error) error { return a.State(ctx, fn) }); err != nil {
@@ -446,6 +508,49 @@ func (a *App) Uninstall(ctx context.Context, preview bool) (Result, error) {
 		if err := os.Remove(executable); err != nil {
 			return fail(err)
 		}
+		// Last, because everything above ran under these locks. Unlinking a
+		// flocked file leaves this process's lock valid and the descriptors
+		// closable, while a concurrent gproxy fails to open them at all --
+		// which is the right answer once the runtime is gone. Left behind, the
+		// directory outlived every reinstall on a host that had not rebooted.
+		if err := os.RemoveAll(a.LockDir); err != nil {
+			return fail(err)
+		}
 		return Result{Changed: true, Data: data}, nil
 	})
+}
+
+// removeMarkedBlock deletes the lines from begin to end, both included, from a
+// file this program does not own, leaving every other line as it was. A file
+// without the block, or no file at all, is not an error.
+func removeMarkedBlock(path, begin, end string) error {
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	lines := strings.SplitAfter(string(data), "\n")
+	kept := make([]string, 0, len(lines))
+	inside, found := false, false
+	for _, line := range lines {
+		trimmed := strings.TrimRight(line, "\n")
+		switch {
+		case !inside && trimmed == begin:
+			inside, found = true, true
+		case inside && trimmed == end:
+			inside = false
+		case !inside:
+			kept = append(kept, line)
+		}
+	}
+	if !found || inside {
+		return nil
+	}
+	return fileutil.AtomicWriteMode(path, []byte(strings.Join(kept, "")), info.Mode().Perm())
 }

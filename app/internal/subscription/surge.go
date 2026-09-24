@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 
-	"go-proxy/internal/crypto"
 	"go-proxy/internal/derived"
 	"go-proxy/internal/service"
 	"go-proxy/internal/store"
@@ -17,7 +16,7 @@ import (
 // renderSurge generates a Surge-format proxy line for an inbound membership.
 // targetHost is the IP/host to connect to; sniHost is used for SNI (original domain or configured SNI).
 // tagSuffix is appended to the proxy tag (e.g. "-v4", "-v6", or "").
-func renderSurge(ib *store.Inbound, entry derived.MembershipEntry, targetHost, sniHost, tagSuffix string, user *store.User) string {
+func renderSurge(ib *store.Inbound, entry derived.MembershipEntry, targetHost, sniHost, tag string, user *store.User) string {
 	fmtHost := targetHost
 	sni := ib.ServerName()
 	if sni == "" {
@@ -27,7 +26,6 @@ func renderSurge(ib *store.Inbound, entry derived.MembershipEntry, targetHost, s
 			sni = cleaned
 		}
 	}
-	tag := surgeProxyTag(surgeProtoLabel(ib.Type), entry.UserName, tagSuffix)
 
 	switch ib.Type {
 	case "vless":
@@ -38,57 +36,33 @@ func renderSurge(ib *store.Inbound, entry derived.MembershipEntry, targetHost, s
 			return ""
 		}
 		uuid := user.UUID
-		congestion := ib.CongestionControl
-		if congestion == "" {
-			congestion = "bbr"
-		}
 		if looksLikeUUID(uuid) {
 			uuid = strings.ToUpper(uuid)
 		}
-		return fmt.Sprintf("%s = tuic-v5, %s, %d, password=%s, uuid=%s, alpn=h3, sni=%s, skip-cert-verify=false, congestion-controller=%s, udp-relay=true",
-			tag, fmtHost, ib.ListenPort, user.Password, uuid, sni, congestion)
+		// Only what Surge's tuic-v5 defines. Congestion control is the
+		// server's choice and has no Surge parameter, and UDP relay is always
+		// on for TUIC, so neither is written.
+		return fmt.Sprintf("%s = tuic-v5, %s, %d, password=%s, uuid=%s, alpn=h3, sni=%s, skip-cert-verify=false",
+			tag, fmtHost, ib.ListenPort, user.Password, uuid, sni)
 
 	case "anytls":
 		return fmt.Sprintf("%s = anytls, %s, %d, password=%s, sni=%s, skip-cert-verify=false, reuse=true",
 			tag, fmtHost, ib.ListenPort, entry.UserID, sni)
-
-	case "shadowsocks":
-		method := ib.Method
-		if method == "" {
-			method = crypto.DefaultSSMethod
-		}
-		return fmt.Sprintf("%s = ss, %s, %d, encrypt-method=%s, password=\"%s\", udp-relay=true",
-			tag, fmtHost, ib.ListenPort, method, escapeSurgeQuoted(ssPassword(ib, entry.UserID)))
 
 	default:
 		return ""
 	}
 }
 
-func renderSnellSurge(entry derived.MembershipEntry, conf *store.SnellConfig, targetHost, tagSuffix string) string {
+func renderSnellSurge(entry derived.MembershipEntry, conf *store.SnellConfig, targetHost, tag string) string {
 	if conf == nil || conf.PSK == "" {
 		return ""
 	}
-	tag := surgeProxyTag("snell", entry.UserName, tagSuffix)
 	return fmt.Sprintf("%s = snell, %s, %d, psk=%s, version=6, reuse=true, tfo=true",
 		tag, targetHost, conf.Port(), conf.PSK)
 }
 
-func renderShadowTLSShadowsocksSurge(ib *store.Inbound, entry derived.MembershipEntry, binding service.ShadowTLSBinding, targetHost, tagSuffix string) string {
-	method := ib.Method
-	if method == "" {
-		method = crypto.DefaultSSMethod
-	}
-	version := binding.Version
-	if version == 0 {
-		version = 3
-	}
-	tag := surgeProxyTag("ss", entry.UserName, tagSuffix)
-	return fmt.Sprintf("%s = ss, %s, %d, encrypt-method=%s, password=\"%s\", shadow-tls-password=%s, shadow-tls-sni=%s, shadow-tls-version=%s, udp-relay=true",
-		tag, targetHost, binding.ListenPort, method, escapeSurgeQuoted(ssPassword(ib, entry.UserID)), binding.Password, binding.SNI, strconv.Itoa(version))
-}
-
-func renderShadowTLSSnellSurge(entry derived.MembershipEntry, conf *store.SnellConfig, binding service.ShadowTLSBinding, targetHost, tagSuffix string) string {
+func renderShadowTLSSnellSurge(entry derived.MembershipEntry, conf *store.SnellConfig, binding service.ShadowTLSBinding, targetHost, tag string) string {
 	if conf == nil || conf.PSK == "" {
 		return ""
 	}
@@ -96,17 +70,8 @@ func renderShadowTLSSnellSurge(entry derived.MembershipEntry, conf *store.SnellC
 	if version == 0 {
 		version = 3
 	}
-	tag := surgeProxyTag("snell", entry.UserName, tagSuffix)
 	return fmt.Sprintf("%s = snell, %s, %d, psk=%s, version=6, reuse=true, tfo=true, shadow-tls-password=%s, shadow-tls-sni=%s, shadow-tls-version=%s",
 		tag, targetHost, binding.ListenPort, conf.PSK, binding.Password, binding.SNI, strconv.Itoa(version))
-}
-
-// surgeProtoLabel returns a short, user-facing protocol label for surge proxy names.
-func surgeProtoLabel(ibType string) string {
-	if ibType == "shadowsocks" {
-		return "ss"
-	}
-	return ibType
 }
 
 var (
@@ -125,25 +90,28 @@ var serverName = func() string {
 	return serverNameValue
 }
 
-func surgeProxyTag(proto, userName, tagSuffix string) string {
-	sn := serverName()
-	suffix := strings.TrimPrefix(tagSuffix, "-")
+// proxyName builds the name a client shows for one link: the host, the
+// protocol, the address family and the owner. The node tag is not in it -- a
+// tag begins with its own protocol, so including it named the protocol twice
+// ("gcp-oregon-snell-snell-v6-v4-alice").
+//
+// A port is added only where it is needed to tell two links apart, which is
+// when one user has more than one node of the same protocol. Names key the
+// proxy list in every client that reads these, so two links sharing one would
+// silently replace each other.
+func proxyName(proto, userName, family string, needsPort bool, port int) string {
 	parts := []string{}
-	if sn != "" {
-		parts = append(parts, sn)
+	if name := serverName(); name != "" {
+		parts = append(parts, name)
 	}
 	parts = append(parts, proto)
-	if suffix != "" {
-		parts = append(parts, suffix)
+	if needsPort {
+		parts = append(parts, strconv.Itoa(port))
 	}
-	parts = append(parts, userName)
-	return strings.Join(parts, "-")
-}
-
-func escapeSurgeQuoted(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "\"", "\\\"")
-	return s
+	if family != "" {
+		parts = append(parts, family)
+	}
+	return strings.Join(append(parts, userName), "-")
 }
 
 func looksLikeUUID(s string) bool {

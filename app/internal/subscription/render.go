@@ -13,9 +13,9 @@ import (
 type Format string
 
 const (
-	FormatSurge   Format = "surge"
-	FormatSingBox Format = "sing-box"
-	FormatURI     Format = "uri"
+	FormatSurge  Format = "surge"
+	FormatURI    Format = "uri"
+	FormatMihomo Format = "mihomo"
 )
 
 type Link struct {
@@ -23,14 +23,20 @@ type Link struct {
 	Tag      string `json:"tag"`
 	Port     int    `json:"port"`
 	UserName string `json:"user"`
-	Content  string `json:"content"`
+	// Family is the address family this link's target belongs to, empty when
+	// only one target was resolved.
+	Family  string `json:"family,omitempty"`
+	Content string `json:"content"`
 }
 
 type Renderer struct {
-	store   *store.Store
-	nodes   map[string]*renderNode
-	host    string
-	targets []SurgeTarget
+	// ambiguous marks a user and protocol pair that has more than one node, so
+	// the link names for it need the port to stay distinct.
+	ambiguous map[string]bool
+	store     *store.Store
+	nodes     map[string]*renderNode
+	host      string
+	targets   []SurgeTarget
 }
 
 type renderNode struct {
@@ -58,22 +64,44 @@ func NewRenderer(s *store.Store, bindings []service.ShadowTLSBinding, host strin
 		}
 		switch ib.Type {
 		case "vless":
-			n.formats = []Format{FormatURI, FormatSingBox}
-		case "shadowsocks", "tuic", "anytls":
-			n.formats = []Format{FormatURI, FormatSurge, FormatSingBox}
-		}
-		if ib.Type == "shadowsocks" {
-			n.binding = byBackend[shadowTLSBackendKey("ss", ib.ListenPort)]
-			if n.binding != nil {
-				n.formats = []Format{FormatSurge}
-			}
+			n.formats = []Format{FormatURI, FormatMihomo}
+		case "tuic", "anytls":
+			n.formats = []Format{FormatURI, FormatSurge, FormatMihomo}
 		}
 		r.nodes[ib.Tag] = n
 	}
 	if s.SnellConf != nil {
 		r.nodes[store.SnellTag] = &renderNode{binding: byBackend[shadowTLSBackendKey("snell", s.SnellConf.Port())], formats: []Format{FormatSurge}}
 	}
+	counts := map[string]int{}
+	for name, entries := range derived.Membership(s) {
+		for _, entry := range entries {
+			counts[name+"\x00"+r.protoLabel(entry)]++
+		}
+	}
+	r.ambiguous = make(map[string]bool, len(counts))
+	for key, count := range counts {
+		if count > 1 {
+			r.ambiguous[key] = true
+		}
+	}
 	return r
+}
+
+// protoLabel is the protocol as a link names it: the inbound's own type, or
+// "snell" for the one node that is not an inbound.
+func (r *Renderer) protoLabel(entry derived.MembershipEntry) string {
+	if node := r.nodes[entry.Tag]; node != nil && node.inbound != nil {
+		return node.inbound.Type
+	}
+	return "snell"
+}
+
+// linkName is the one place a link's name is built, so every format calls the
+// same node the same thing.
+func (r *Renderer) linkName(entry derived.MembershipEntry, family string) string {
+	label := r.protoLabel(entry)
+	return proxyName(label, entry.UserName, family, r.ambiguous[entry.UserName+"\x00"+label], entry.Port)
 }
 
 func (r *Renderer) SetTargets(host string, targets []SurgeTarget) { r.host, r.targets = host, targets }
@@ -109,7 +137,8 @@ func (r *Renderer) Render(ctx context.Context, entry derived.MembershipEntry, fo
 			return nil, fmt.Errorf("node %q has missing tuic credentials", entry.Tag)
 		}
 	}
-	if ib != nil && ib.TLS != nil && node.tls == nil && (format == FormatSingBox || format == FormatURI && ib.Type == "vless") {
+	if ib != nil && ib.TLS != nil && node.tls == nil && (format == FormatMihomo ||
+		format == FormatURI && ib.Type == "vless") {
 		var err error
 		node.tls, err = buildClientTLS(ib.TLS)
 		if err != nil {
@@ -128,35 +157,32 @@ func (r *Renderer) Render(ctx context.Context, entry derived.MembershipEntry, fo
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		suffix := entry.Tag
-		if len(r.targets) > 1 && target.Family != "" {
-			suffix += "-" + target.Family
+		family := ""
+		if len(r.targets) > 1 {
+			family = target.Family
 		}
+		name := r.linkName(entry, family)
 		var content string
 		switch format {
 		case FormatSurge:
 			if entry.Tag == store.SnellTag {
 				if binding != nil {
-					content = renderShadowTLSSnellSurge(entry, r.store.SnellConf, *binding, target.Host, suffix)
+					content = renderShadowTLSSnellSurge(entry, r.store.SnellConf, *binding, target.Host, name)
 				} else {
-					content = renderSnellSurge(entry, r.store.SnellConf, target.Host, suffix)
+					content = renderSnellSurge(entry, r.store.SnellConf, target.Host, name)
 				}
-			} else if binding != nil {
-				content = renderShadowTLSShadowsocksSurge(ib, entry, *binding, target.Host, suffix)
 			} else {
-				content = renderSurge(ib, entry, target.Host, r.host, suffix, u)
+				content = renderSurge(ib, entry, target.Host, r.host, name, u)
 			}
 		case FormatURI:
-			content = renderURI(ib, entry, target.Host, u, node.tls)
-		case FormatSingBox:
-			copyEntry := entry
-			copyEntry.Tag = entry.UserName + "@" + suffix
-			content = renderSingBox(ib, copyEntry, target.Host, u, node.tls)
+			content = renderURI(ib, entry, target.Host, name, u, node.tls)
+		case FormatMihomo:
+			content = renderMihomo(ib, entry, target.Host, name, u, node.tls)
 		}
 		if content == "" {
 			return nil, fmt.Errorf("node %q has invalid or incomplete export credentials", entry.Tag)
 		}
-		links = append(links, Link{Proto: entry.Proto, Tag: entry.Tag, Port: port, UserName: entry.UserName, Content: content})
+		links = append(links, Link{Proto: entry.Proto, Tag: entry.Tag, Port: port, UserName: entry.UserName, Family: target.Family, Content: content})
 	}
 	return links, nil
 }

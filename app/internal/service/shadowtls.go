@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"go-proxy/internal/config"
-	"go-proxy/internal/store"
 	"go-proxy/pkg/sysutil"
 )
 
@@ -46,32 +45,19 @@ func ShadowTLSServiceName(backendProto string, backendPort int) string {
 
 func ProvisionShadowTLSBinding(ctx context.Context, backendProto string, listenPort int, password, sni string, backendPort int) (string, error) {
 	backendProto = strings.ToLower(strings.TrimSpace(backendProto))
-	if backendProto != "ss" && backendProto != "snell" {
+	if backendProto != "snell" {
 		return "", fmt.Errorf("invalid shadow-tls backend: %s", backendProto)
 	}
 	serviceName := ShadowTLSServiceName(backendProto, backendPort)
-	if err := writeShadowTLSUnit(ctx, shadowTLSServicePath(serviceName), shadowTLSServiceLog(serviceName), backendProto, listenPort, password, sni, backendPort); err != nil {
+	if err := writeShadowTLSUnit(ctx, shadowTLSServicePath(serviceName), shadowTLSServiceLog(serviceName), listenPort, password, sni, backendPort); err != nil {
 		return "", err
 	}
 	return serviceName, nil
 }
 
-func FindShadowTLSBindingByBackend(s *store.Store, backendProto string, backendPort int) (*ShadowTLSBinding, error) {
-	bindings, err := ListShadowTLSBindings(s)
-	if err != nil {
-		return nil, err
-	}
-	for i := range bindings {
-		if bindings[i].BackendProto == backendProto && bindings[i].BackendPort == backendPort {
-			return &bindings[i], nil
-		}
-	}
-	return nil, nil
-}
-
 func RemoveShadowTLSBindingByBackend(ctx context.Context, backendProto string, backendPort int) error {
 	backendProto = strings.ToLower(strings.TrimSpace(backendProto))
-	if backendProto != "ss" && backendProto != "snell" {
+	if backendProto != "snell" {
 		return nil
 	}
 	serviceName := ShadowTLSServiceName(backendProto, backendPort)
@@ -99,8 +85,7 @@ func RemoveShadowTLSBindingByBackend(ctx context.Context, backendProto string, b
 	return nil
 }
 
-func ListShadowTLSBindings(s *store.Store) ([]ShadowTLSBinding, error) {
-	_ = s
+func ListShadowTLSBindings() ([]ShadowTLSBinding, error) {
 	paths, err := shadowTLSUnitPaths()
 	if err != nil {
 		return nil, err
@@ -116,12 +101,6 @@ func ListShadowTLSBindings(s *store.Store) ([]ShadowTLSBinding, error) {
 		binding, ok := parseShadowTLSBinding(serviceName, path, string(data))
 		if !ok {
 			return nil, fmt.Errorf("invalid shadow-tls binding: %s", serviceName)
-		}
-		if binding.BackendProto == "" || binding.BackendProto == "unknown" {
-			binding.BackendProto = shadowTLSBackendProtoFromServiceName(serviceName)
-		}
-		if binding.BackendProto == "" {
-			binding.BackendProto = "unknown"
 		}
 		bindings = append(bindings, binding)
 	}
@@ -147,17 +126,16 @@ func ShadowTLSServiceNames() ([]string, error) {
 	return names, nil
 }
 
-func writeShadowTLSUnit(ctx context.Context, unitPath, logPath, backendProto string, listenPort int, password, sni string, backendPort int) error {
+func writeShadowTLSUnit(ctx context.Context, unitPath, logPath string, listenPort int, password, sni string, backendPort int) error {
 	listenHost := "0.0.0.0"
 	if sysutil.IPv6Available() {
 		listenHost = "[::]"
 	}
+	// The unit is named for its backend, so the name is where the backend is
+	// read back from; ExecStart carries everything else. Repeating either in
+	// Environment gave the same fact two spellings that could disagree.
 	return provisionUnit(ctx, unitPath, renderUnit(unitSpec{
 		Description: "Shadow-TLS v3 Service",
-		Environment: []string{
-			fmt.Sprintf("GPROXY_SHADOWTLS_BACKEND=%s", backendProto),
-			fmt.Sprintf("GPROXY_SHADOWTLS_BACKEND_PORT=%d", backendPort),
-		},
 		ExecStart: fmt.Sprintf("%s --v3 server --listen %s:%d --server 127.0.0.1:%d --tls %s --password %s",
 			config.ShadowTLSBin, listenHost, listenPort, backendPort, sni, password),
 		LogPath: logPath,
@@ -190,27 +168,16 @@ func shadowTLSServiceLog(serviceName string) string {
 
 func parseShadowTLSBinding(serviceName, servicePath, unit string) (ShadowTLSBinding, bool) {
 	binding := ShadowTLSBinding{
-		ServiceName: serviceName,
-		ServicePath: servicePath,
-		Version:     2,
+		ServiceName:  serviceName,
+		ServicePath:  servicePath,
+		BackendProto: shadowTLSBackendProtoFromServiceName(serviceName),
 	}
 	execStart := ""
 	for _, line := range strings.Split(unit, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "ExecStart=") {
 			execStart = strings.TrimSpace(strings.TrimPrefix(line, "ExecStart="))
-			continue
-		}
-		if strings.HasPrefix(line, "Environment=") {
-			envLine := strings.TrimSpace(strings.TrimPrefix(line, "Environment="))
-			switch {
-			case strings.HasPrefix(envLine, "GPROXY_SHADOWTLS_BACKEND="):
-				binding.BackendProto = strings.TrimSpace(strings.TrimPrefix(envLine, "GPROXY_SHADOWTLS_BACKEND="))
-			case strings.HasPrefix(envLine, "GPROXY_SHADOWTLS_BACKEND_PORT="):
-				if port := parsePortArg(strings.TrimSpace(strings.TrimPrefix(envLine, "GPROXY_SHADOWTLS_BACKEND_PORT="))); port > 0 {
-					binding.BackendPort = port
-				}
-			}
+			break
 		}
 	}
 	if execStart == "" {
@@ -234,9 +201,7 @@ func parseShadowTLSBinding(serviceName, servicePath, unit string) (ShadowTLSBind
 		case "--listen":
 			binding.ListenPort = parsePortArg(fields[i+1])
 		case "--server":
-			if binding.BackendPort == 0 {
-				binding.BackendPort = parsePortArg(fields[i+1])
-			}
+			binding.BackendPort = parsePortArg(fields[i+1])
 		case "--tls":
 			binding.SNI = fields[i+1]
 		case "--password":
@@ -269,7 +234,7 @@ func shadowTLSBackendProtoFromServiceName(serviceName string) string {
 	rest := strings.TrimPrefix(serviceName, "shadow-tls-")
 	if idx := strings.LastIndex(rest, "-"); idx > 0 {
 		switch rest[:idx] {
-		case "ss", "snell":
+		case "snell":
 			return rest[:idx]
 		}
 	}

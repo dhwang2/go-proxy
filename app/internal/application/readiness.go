@@ -21,9 +21,6 @@ func verifyListeners(ctx context.Context, snapshot *Snapshot, name service.Name)
 			} else {
 				wanted["tcp"][ib.ListenPort] = true
 			}
-			if ib.Type == "shadowsocks" {
-				wanted["udp"][ib.ListenPort] = true
-			}
 		}
 	} else if name == service.Snell && snapshot.Store.SnellConf != nil {
 		wanted["tcp"][snapshot.Store.SnellConf.Port()] = true
