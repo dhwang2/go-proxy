@@ -1620,7 +1620,7 @@ func TestUninstallPreviewGroupsByFolder(t *testing.T) {
 	var plain bytes.Buffer
 	render(&plain, palette{}, "gproxy uninstall", fields)
 	want := "/etc/systemd/system/sing-box.service\n/etc/systemd/system/caddy-sub.service\n/etc/go-proxy\n/usr/bin/gproxy\n" +
-		"/etc/bash.bashrc  (go-proxy completion block)\ninet proxy_firewall  (nftables table)\n"
+		"/etc/bash.bashrc(go-proxy completion block)\ninet proxy_firewall(nftables table)\n"
 	if plain.String() != want {
 		t.Fatalf("got\n%s\nwant\n%s", plain.String(), want)
 	}
@@ -1635,5 +1635,24 @@ func TestUninstallPreviewGroupsByFolder(t *testing.T) {
 	render(&empty, palette{}, "gproxy uninstall", map[string]any{"paths": []string{}})
 	if empty.String() != "nothing to remove\n" {
 		t.Fatalf("empty = %q", empty.String())
+	}
+}
+
+// core check puts the version first and what it means attached in brackets,
+// one numbered row per core with the names aligned.
+func TestCoreCheckAttachesTheNote(t *testing.T) {
+	var out bytes.Buffer
+	render(&out, palette{}, "gproxy core check", []*core.UpdateCheck{
+		{Component: core.CompSingBox, Installed: true, CurrentVersion: "1.14.1", LatestVersion: "v1.14.2", UpdateAvail: true},
+		{Component: core.CompSnell, Installed: true, CurrentVersion: "6.0.0rc2", LatestVersion: "6.0.0rc2"},
+		{Component: core.CompShadowTLS, Installed: true, CurrentVersion: "", LatestVersion: "0.2.25"},
+		{Component: core.CompCaddy, LatestVersion: "v2.11.4"},
+	})
+	want := "1.sing-box    1.14.1 -> v1.14.2(update available)\n" +
+		"2.snell       6.0.0rc2(up to date)\n" +
+		"3.shadow-tls  version unknown(latest 0.2.25)\n" +
+		"4.caddy       not installed(latest v2.11.4)\n"
+	if out.String() != want {
+		t.Fatalf("got\n%s\nwant\n%s", out.String(), want)
 	}
 }

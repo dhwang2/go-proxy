@@ -660,11 +660,11 @@ func renderUninstall(w io.Writer, p palette, fields map[string]any) bool {
 		}
 	}
 	if block := text(fields["bashrc_block"]); block != "" {
-		fmt.Fprintln(w, clean(block)+"  "+p.hint("(go-proxy completion block)"))
+		fmt.Fprintln(w, clean(block)+p.hint("(go-proxy completion block)"))
 		lines++
 	}
 	if table := text(fields["firewall_table"]); table != "" {
-		fmt.Fprintln(w, clean(table)+"  "+p.hint("(nftables table)"))
+		fmt.Fprintln(w, clean(table)+p.hint("(nftables table)"))
 		lines++
 	}
 	if lines == 0 {
@@ -1087,20 +1087,22 @@ func renderCores(w io.Writer, p palette, data any) bool {
 	case []*core.UpdateCheck:
 		rows := make([]row, 0, len(items))
 		for _, item := range items {
+			// The version first, then what it means, attached in brackets:
+			// "1.14.1 -> v1.14.2(update available)", "0.2.25(up to date)".
 			var detail string
 			switch {
 			case !item.Installed:
 				// Nothing installed has nothing to update; reporting an update
 				// here would send the reader to `core update` for a first install.
-				detail = p.unknown("not installed") + gap + p.hint("latest "+clean(item.LatestVersion))
+				detail = p.unknown("not installed") + p.hint("(latest "+clean(item.LatestVersion)+")")
 			case item.CurrentVersion == "":
 				// Installed but unreadable: the binary is there and did not
 				// answer --version, which is not the same as absent.
-				detail = p.stopped("version unknown") + gap + p.hint("latest "+clean(item.LatestVersion))
+				detail = p.stopped("version unknown") + p.hint("(latest "+clean(item.LatestVersion)+")")
 			case item.UpdateAvail:
-				detail = p.sys("update available") + gap + p.hint(clean(item.CurrentVersion)+" -> "+clean(item.LatestVersion))
+				detail = p.hint(clean(item.CurrentVersion)) + " -> " + p.sys(clean(item.LatestVersion)) + p.hint("(update available)")
 			default:
-				detail = p.running("up to date") + gap + p.hint(clean(item.CurrentVersion))
+				detail = p.running(clean(item.CurrentVersion)) + p.hint("(up to date)")
 			}
 			rows = append(rows, row{clean(string(item.Component)), detail})
 		}
