@@ -509,7 +509,8 @@ func renderChainChange(w io.Writer, p palette, data any) bool {
 	if !ok {
 		return false
 	}
-	return writeRows(w, p, []row{chainRow(p, chain)})
+	fmt.Fprintln(w, chainLine(p, chain, 0))
+	return true
 }
 
 func renderChainRemoval(w io.Writer, p palette, fields map[string]any) bool {
@@ -1257,37 +1258,35 @@ func renderChains(w io.Writer, p palette, fields map[string]any) bool {
 		fmt.Fprintln(w, p.hint("no chain outbounds"))
 		return true
 	}
-	rows := make([]row, 0, len(chains))
+	width := 0
 	for _, chain := range chains {
-		rows = append(rows, chainRow(p, chain))
+		width = max(width, displayWidth(clean(chain.Tag)))
 	}
-	return writeRows(w, p, rows)
+	for _, chain := range chains {
+		fmt.Fprintln(w, chainLine(p, chain, width))
+	}
+	return true
 }
 
-// chainRow is one chain listing line, shared with the rendering of a chain just
-// added.
-func chainRow(p palette, chain application.ChainView) row {
-	detail := target(p, "", chain.Address)
-	if chain.DomainStrategy != "" {
-		detail += gap + p.hint(clean(chain.DomainStrategy))
-	}
-	if chain.Resolver != "" {
-		detail += gap + p.hint(clean(chain.Resolver))
-	}
-	if chain.Authenticated {
-		detail += gap + p.hint("authenticated")
-	}
-	if len(chain.Users) > 0 {
-		users := make([]string, 0, len(chain.Users))
-		for _, user := range chain.Users {
-			users = append(users, p.count(clean(user)))
+// chainLine is one chain as a rule names it, "res1 -> host:port", with how
+// its lookups are made in brackets: the address family and the resolver
+// reached through it. Who selects the chain is route rule list's to say. A
+// chain that is the route final says so, since it then carries everything.
+func chainLine(p palette, chain application.ChainView, width int) string {
+	line := pad(p.wrap(ansiChainTag, clean(chain.Tag)), width) + " -> " + p.wrap(ansiChainAddress, clean(chain.Address))
+	lookups := []string{}
+	for _, part := range []string{chain.DomainStrategy, chain.Resolver} {
+		if part != "" {
+			lookups = append(lookups, clean(part))
 		}
-		detail += gap + strings.Join(users, p.hint("/"))
+	}
+	if len(lookups) > 0 {
+		line += " " + p.hint("("+strings.Join(lookups, "/")+")")
 	}
 	if chain.Final {
-		detail += gap + p.sys("final")
+		line += " " + p.sys("final")
 	}
-	return row{clean(chain.Tag), detail}
+	return line
 }
 
 // renderFinal is one line: where unmatched traffic leaves, as a rule line
@@ -1311,7 +1310,8 @@ func renderDirect(w io.Writer, p palette, fields map[string]any) bool {
 	if !ok {
 		return false
 	}
-	return writeRows(w, p, []row{{"strategy", p.sys(clean(strategy))}})
+	fmt.Fprintln(w, "direct strategy: "+p.sys(clean(strategy)))
+	return true
 }
 
 // renderBBR is one line: enabled is the congestion control being bbr, so a

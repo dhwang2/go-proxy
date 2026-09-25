@@ -288,15 +288,11 @@ func numberedLayoutCases() map[string]any {
 			{Name: service.Watchdog, Installed: false},
 		}},
 		"gproxy protocol list": map[string]any{"protocols": catalogueData()},
-		"gproxy route chain list": map[string]any{"chains": []application.ChainView{
-			{Tag: "relay", Host: "127.0.0.1", Port: 1080, Address: "127.0.0.1:1080", Users: []string{"alice"}},
-		}},
 		"gproxy route rule list": map[string]any{"rules": []application.RouteEntry{
 			{User: "alice", Index: 1, Label: "OpenAI/ChatGPT", Outbound: "relay", Address: "198.51.100.10:1080"},
 			{User: "alice", Index: 2, Label: "Google", Outbound: "direct"},
 			{User: "bob", Index: 1, Label: "Netflix", Outbound: "relay", Address: "198.51.100.10:1080"},
 		}},
-		"gproxy route direct list": map[string]any{"strategy": "prefer_ipv6"},
 		"gproxy network fail2ban status": network.Fail2BanInfo{
 			Installed: true, Running: true, SSHJailEnabled: true,
 			MaxRetry: "5", BanTime: "600", FindTime: "600", BannedIPs: []string{"198.51.100.5"},
@@ -306,12 +302,8 @@ func numberedLayoutCases() map[string]any {
 		"gproxy protocol add": application.ProtocolNode{
 			Tag: "vless_reality_443", Type: "vless", Port: 443, Security: "reality", Users: []string{"alice"},
 		},
-		"gproxy protocol remove": map[string]any{"tag": "vless_reality_443", "removed": true, "user": "bob"},
-		"gproxy route chain add": application.ChainView{
-			Tag: "relay", Host: "127.0.0.1", Port: 1080, Address: "127.0.0.1:1080", DomainStrategy: "ipv4_only",
-		},
+		"gproxy protocol remove":         map[string]any{"tag": "vless_reality_443", "removed": true, "user": "bob"},
 		"gproxy route chain remove":      map[string]any{"tag": "relay", "removed": true},
-		"gproxy route sync-dns":          map[string]any{"strategy": "prefer_ipv4"},
 		"gproxy network fail2ban enable": network.Fail2BanInfo{Installed: true, Running: true, SSHJailEnabled: true},
 		"gproxy server restart": []service.Status{
 			{Name: service.SingBox, Installed: true, Running: true, State: "active"},
@@ -421,39 +413,32 @@ func TestEmptyRuleListingSaysSo(t *testing.T) {
 	}
 }
 
-// The chain listing is the rule listing read from the other end: it names the
-// users whose rules select the chain, which is also what makes a refused
-// removal predictable.
-func TestChainListingNamesItsUsers(t *testing.T) {
+// A chain is listed as a rule names it, "tag -> host:port", with how its
+// lookups are made in brackets; who selects it is route rule list's to say.
+// Tags are padded so the arrows line up.
+func TestChainListingIsTagArrowAddress(t *testing.T) {
+	fields := map[string]any{"chains": []application.ChainView{
+		{Tag: "res1", Address: "198.51.100.10:1080", DomainStrategy: "ipv4_only", Resolver: "https dns.google 8.8.8.8:443", Authenticated: true, Users: []string{"alice"}},
+		{Tag: "spare6", Address: "[2001:db8::1]:1080", DomainStrategy: "ipv6_only", Final: true},
+	}}
 	var out bytes.Buffer
-	if !render(&out, palette{}, "gproxy route chain list", map[string]any{"chains": []application.ChainView{
-		{Tag: "relay", Host: "198.51.100.10", Port: 1080, Address: "198.51.100.10:1080", Authenticated: true, Users: []string{"alice", "bob"}},
-		{Tag: "spare", Host: "2001:db8::1", Port: 1080, Address: "[2001:db8::1]:1080", Users: []string{}},
-	}}) {
-		t.Fatal("chain listing produced no rendering")
+	render(&out, palette{}, "gproxy route chain list", fields)
+	want := "res1   -> 198.51.100.10:1080 (ipv4_only/https dns.google 8.8.8.8:443)\n" +
+		"spare6 -> [2001:db8::1]:1080 (ipv6_only) final\n"
+	if out.String() != want {
+		t.Fatalf("got\n%s\nwant\n%s", out.String(), want)
 	}
-	text := out.String()
-	assertNumberedLayout(t, text)
-	for _, want := range []string{"1.relay", "-> 198.51.100.10:1080", "authenticated", "alice/bob", "2.spare", "[2001:db8::1]:1080"} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("chain listing is missing %q:\n%s", want, text)
-		}
-	}
-	// An unused chain reports no users rather than an empty separator.
-	for _, line := range strings.Split(text, "\n") {
-		if strings.Contains(line, "spare") && strings.Contains(line, "/") && !strings.Contains(line, "::") {
-			t.Fatalf("unused chain rendered a user separator: %q", line)
-		}
+	var added bytes.Buffer
+	render(&added, palette{}, "gproxy route chain add", application.ChainView{Tag: "res1", Address: "198.51.100.10:1080", DomainStrategy: "ipv4_only"})
+	if added.String() != "res1 -> 198.51.100.10:1080 (ipv4_only)\n" {
+		t.Fatalf("chain add = %q", added.String())
 	}
 }
 
-func TestDirectStrategyRendersAsARow(t *testing.T) {
+func TestDirectStrategyIsOneLine(t *testing.T) {
 	for _, command := range []string{"gproxy route direct list", "gproxy route direct set", "gproxy route sync-dns"} {
 		var out bytes.Buffer
-		if !render(&out, palette{}, command, map[string]any{"strategy": "prefer_ipv6"}) {
-			t.Fatalf("%s produced no rendering", command)
-		}
-		if strings.TrimSpace(out.String()) != "1.strategy  prefer_ipv6" {
+		if !render(&out, palette{}, command, map[string]any{"strategy": "prefer_ipv6"}) || out.String() != "direct strategy: prefer_ipv6\n" {
 			t.Fatalf("%s rendered %q", command, out.String())
 		}
 	}
