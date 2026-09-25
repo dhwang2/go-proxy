@@ -152,27 +152,22 @@ func TestCompletionGeneratorIsAvailable(t *testing.T) {
 	}
 }
 
-// The bash script lists candidates one per line as "name (description)": it
-// ends with gproxy's own description formatting, which bash takes over
-// cobra's earlier definition; without descriptions there is nothing to format.
-func TestBashCompletionListsOnePerLine(t *testing.T) {
-	for _, c := range []struct {
-		args []string
-		want bool
-	}{{[]string{"completion", "bash"}, true}, {[]string{"completion", "bash", "--no-descriptions"}, false}} {
+// Tab lists bare names: every shell's script asks for completions without
+// descriptions, and there is no --no-descriptions flag to turn them back on.
+func TestCompletionListsNamesOnly(t *testing.T) {
+	for _, shell := range []string{"bash", "zsh", "fish", "powershell"} {
 		var out, stderr bytes.Buffer
 		r := New("test", "test", strings.NewReader(""), &out, &stderr)
-		if code := r.Run(context.Background(), c.args); code != 0 {
-			t.Fatalf("%v: exit %d: %s", c.args, code, stderr.String())
+		if code := r.Run(context.Background(), []string{"completion", shell}); code != 0 {
+			t.Fatalf("%s: exit %d: %s", shell, code, stderr.String())
 		}
-		script := out.String()
-		last := strings.LastIndex(script, "__gproxy_format_comp_descriptions()")
-		overridden := last > strings.Index(script, "__gproxy_format_comp_descriptions()") && strings.Contains(script[last:], `comp="${comp%%$tab*} (${desc,,})"`)
-		if overridden != c.want {
-			t.Fatalf("%v: override present = %v, want %v", c.args, overridden, c.want)
+		if !strings.Contains(out.String(), "__completeNoDesc") {
+			t.Fatalf("%s: the script asks for descriptions", shell)
 		}
-		if !strings.Contains(script, "__start_gproxy") {
-			t.Fatalf("%v: not a cobra completion script", c.args)
-		}
+	}
+	var out, stderr bytes.Buffer
+	r := New("test", "test", strings.NewReader(""), &out, &stderr)
+	if code := r.Run(context.Background(), []string{"completion", "bash", "--no-descriptions"}); code != 2 {
+		t.Fatalf("--no-descriptions still accepted: exit %d", code)
 	}
 }

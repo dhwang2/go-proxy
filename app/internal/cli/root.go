@@ -288,10 +288,12 @@ func (r *Runner) Root() *cobra.Command {
 	// `gproxy completion` would exit 0 and print help to stdout even under
 	// --json, which is the contract violation u-2-129 fixed for every other
 	// group.
+	// Tab lists bare names, the way most commands complete; what each one
+	// does is --help's to say.
+	root.CompletionOptions.DisableDescriptions = true
 	root.InitDefaultCompletionCmd()
 	groups(root)
 	registerCompletions(root)
-	useBashDescriptionFormat(root)
 	root.SetHelpFunc(r.help)
 	return root
 }
