@@ -316,8 +316,7 @@ func numberedLayoutCases() map[string]any {
 		"gproxy server restart": []service.Status{
 			{Name: service.SingBox, Installed: true, Running: true, State: "active"},
 		},
-		"gproxy core update": map[string]any{"updated": []core.Component{core.CompSingBox}},
-		"gproxy init":        map[string]any{"initialized": true, "runtime": "/etc/go-proxy"},
+		"gproxy init": map[string]any{"initialized": true, "runtime": "/etc/go-proxy"},
 	}
 }
 
@@ -1654,5 +1653,24 @@ func TestCoreCheckAttachesTheNote(t *testing.T) {
 		"4.caddy       not installed(latest v2.11.4)\n"
 	if out.String() != want {
 		t.Fatalf("got\n%s\nwant\n%s", out.String(), want)
+	}
+}
+
+// core update is one line per core it looked at: from -> to when it moved,
+// the version it has when it was current.
+func TestCoreUpdateShowsTheVersions(t *testing.T) {
+	var out bytes.Buffer
+	render(&out, palette{}, "gproxy core update", map[string]any{"results": []application.CoreUpdateResult{
+		{Component: core.CompSingBox, From: "1.14.1", To: "v1.14.2", Updated: true},
+		{Component: core.CompShadowTLS, From: "0.2.25", To: "0.2.25"},
+	}})
+	want := "sing-box    1.14.1 -> v1.14.2\nshadow-tls  0.2.25(up to date)\n"
+	if out.String() != want {
+		t.Fatalf("got %q, want %q", out.String(), want)
+	}
+	var none bytes.Buffer
+	render(&none, palette{}, "gproxy core update", map[string]any{"results": []application.CoreUpdateResult{}})
+	if none.String() != "no installed core to update\n" {
+		t.Fatalf("none = %q", none.String())
 	}
 }

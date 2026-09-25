@@ -578,20 +578,29 @@ func renderCertificate(w io.Writer, p palette, data any) bool {
 	return true
 }
 
+// renderCoreUpdate is one line per core the update looked at, names aligned:
+// the version it moved from and to, or the version it already had.
 func renderCoreUpdate(w io.Writer, p palette, fields map[string]any) bool {
-	updated, ok := fields["updated"].([]core.Component)
+	results, ok := fields["results"].([]application.CoreUpdateResult)
 	if !ok {
 		return false
 	}
-	if len(updated) == 0 {
-		fmt.Fprintln(w, p.hint("already up to date"))
+	if len(results) == 0 {
+		fmt.Fprintln(w, p.hint("no installed core to update"))
 		return true
 	}
-	rows := make([]row, 0, len(updated))
-	for _, component := range updated {
-		rows = append(rows, row{clean(string(component)), p.running("updated")})
+	width := 0
+	for _, result := range results {
+		width = max(width, displayWidth(clean(string(result.Component))))
 	}
-	return writeRows(w, p, rows)
+	for _, result := range results {
+		detail := p.running(clean(result.To)) + p.hint("(up to date)")
+		if result.Updated {
+			detail = p.hint(clean(result.From)) + " -> " + p.running(clean(result.To))
+		}
+		fmt.Fprintln(w, pad(clean(string(result.Component)), width)+"  "+detail)
+	}
+	return true
 }
 
 func renderSelfUpdate(w io.Writer, p palette, data any) bool {

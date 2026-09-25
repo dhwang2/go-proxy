@@ -294,6 +294,16 @@ func (a *App) CoreCheck(ctx context.Context, selector string) (Result, error) {
 	}
 	return Result{Data: checks}, nil
 }
+
+// CoreUpdateResult is one core that update looked at: the version it had and
+// the one it has now, equal when it was already current.
+type CoreUpdateResult struct {
+	Component core.Component `json:"component"`
+	From      string         `json:"from"`
+	To        string         `json:"to"`
+	Updated   bool           `json:"updated"`
+}
+
 func (a *App) CoreUpdate(ctx context.Context, selector, version string, all bool) (Result, error) {
 	components, err := Components(selector, all)
 	if err != nil {
@@ -324,6 +334,7 @@ func (a *App) CoreUpdate(ctx context.Context, selector, version string, all bool
 		}
 		changed := false
 		applied := []core.Component{}
+		results := []CoreUpdateResult{}
 		for _, c := range components {
 			if all {
 				if _, err := os.Stat(core.BinaryPath(c)); os.IsNotExist(err) {
@@ -338,7 +349,10 @@ func (a *App) CoreUpdate(ctx context.Context, selector, version string, all bool
 				if err == nil {
 					changed = true
 					applied = append(applied, c)
+					results = append(results, CoreUpdateResult{Component: c, From: check.CurrentVersion, To: check.LatestVersion, Updated: true})
 				}
+			} else if err == nil {
+				results = append(results, CoreUpdateResult{Component: c, From: check.CurrentVersion, To: check.CurrentVersion})
 			}
 			if err != nil {
 				return Result{}, &Error{Code: "core_update_failed", Stage: "update", Message: err.Error(), Changed: changed, Data: map[string]any{"applied": applied, "pending": c}}
@@ -362,7 +376,7 @@ func (a *App) CoreUpdate(ctx context.Context, selector, version string, all bool
 				}
 			}
 		}
-		return Result{Changed: changed, Data: map[string]any{"updated": applied}}, nil
+		return Result{Changed: changed, Data: map[string]any{"updated": applied, "results": results}}, nil
 	})
 }
 func (a *App) SelfUpdate(ctx context.Context, current, version string, checkOnly bool) (Result, error) {
