@@ -2,7 +2,7 @@
 
 Executable: `gproxy`. It needs no TTY and has no menus or confirmation prompts. Nothing it writes to stdout ever carries a terminal control code, and neither does stderr unless stderr is itself a terminal, where a step that takes minutes animates in place. Use `--json` for automation and capture stdout and stderr separately.
 
-This guide describes v0.3.1. Since v0.2.0, service verbs moved under `server`, `protocol install` became `protocol add`, and `routing` became `route` with rules and chains as their own groups. One object is removed with one verb and listed with one verb: `user remove`, `route rule list`, `route chain list`. Rules are selected by preset index (`--rules 1,3,a`), a chain endpoint is one `--parameter`, and a custom firewall port is written `<port>/<tcp|udp|both>`. See the migration table in [the redesign](../docs/plans/v0.3/cli-ux-redesign.md). Do not self-update a development build to an unrelated stable binary during testing.
+This guide describes v0.3.2. Since v0.2.0, service verbs moved under `server`, `protocol install` became `protocol add`, and `routing` became `route` with rules and chains as their own groups. One object is removed with one verb and listed with one verb: `user remove`, `route rule list`, `route chain list`. Rules are selected by preset index (`--rules 1,3,a`), a chain endpoint is one `--parameter`, and a custom firewall port is written `<port>/<tcp|udp|both>`. See the migration table in [the redesign](../docs/plans/v0.3/cli-ux-redesign.md). Do not self-update a development build to an unrelated stable binary during testing.
 
 ## Operating contract
 
