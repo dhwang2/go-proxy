@@ -171,3 +171,18 @@ func TestCompletionListsNamesOnly(t *testing.T) {
 		t.Fatalf("--no-descriptions still accepted: exit %d", code)
 	}
 }
+
+// Nothing gproxy takes is a file, so Tab never falls back to file names:
+// after a command with no arguments, in a free-form argument and in every
+// value flag, the answer is nothing, with file completion switched off.
+func TestTabNeverOffersFiles(t *testing.T) {
+	for _, args := range [][]string{
+		{"status", "."}, {"status", ""}, {"version", ""}, {"user", "add", ""}, {"route", "chain", "add", ""},
+		{"sub", ""}, {"route", "rule", "add", "--user", ""}, {"status", "--timeout", ""}, {"log", "--lines", ""},
+	} {
+		got, directive, _ := complete(t, args...)
+		if len(got) != 0 || directive != noFileComp {
+			t.Fatalf("%v: offered %v with directive %q, want nothing and %q", args, got, directive, noFileComp)
+		}
+	}
+}

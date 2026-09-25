@@ -2,6 +2,7 @@ package cli
 
 import (
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"go-proxy/internal/application"
 	"go-proxy/internal/core"
@@ -76,12 +77,6 @@ func registerCompletions(root *cobra.Command) {
 		"gproxy route rule modify": {"out": {"direct"}},
 	}
 
-	// Flags whose value is free-form: offer nothing rather than file names.
-	freeForm := []string{
-		"user", "domain", "email", "sni", "shadow-tls-sni", "port", "shadow-tls-port",
-		"target", "node", "host", "parameter", "dns", "rules", "version", "lines", "max-bytes", "timeout",
-	}
-
 	var walk func(cmd *cobra.Command)
 	walk = func(cmd *cobra.Command) {
 		path := cmd.CommandPath()
@@ -97,10 +92,20 @@ func registerCompletions(root *cobra.Command) {
 				claimed[flag] = true
 			}
 		}
-		for _, name := range freeForm {
-			if !claimed[name] && cmd.Flags().Lookup(name) != nil {
-				_ = cmd.RegisterFlagCompletionFunc(name, noFiles)
-			}
+		// Nothing gproxy takes is a file, so where there is no candidate to
+		// offer, Tab offers nothing: without this the shell falls back to
+		// listing the files in the current directory, as after `gproxy status`.
+		if cmd.ValidArgsFunction == nil && len(cmd.ValidArgs) == 0 {
+			cmd.ValidArgsFunction = noFiles
+		}
+		for _, set := range []*pflag.FlagSet{cmd.Flags(), cmd.PersistentFlags()} {
+			set.VisitAll(func(flag *pflag.Flag) {
+				if !claimed[flag.Name] && flag.Value.Type() != "bool" {
+					// A flag already registered, or one inherited, keeps its
+					// own completion; the error only says so.
+					_ = cmd.RegisterFlagCompletionFunc(flag.Name, noFiles)
+				}
+			})
 		}
 		for _, child := range cmd.Commands() {
 			walk(child)
