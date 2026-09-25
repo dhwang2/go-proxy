@@ -290,6 +290,7 @@ func (r *Runner) Root() *cobra.Command {
 	root.InitDefaultCompletionCmd()
 	groups(root)
 	registerCompletions(root)
+	useBashDescriptionFormat(root)
 	return root
 }
 

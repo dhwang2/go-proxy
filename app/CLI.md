@@ -239,7 +239,7 @@ The installer writes the bash and zsh scripts (`/usr/share/bash-completion/compl
 gproxy completion zsh > "${fpath[1]}/_gproxy"      # or bash / fish / powershell
 ```
 
-Completion covers subcommands and every argument whose values are a closed set: protocol types, configuration sources, managed services, core components, routing preset indexes (each described by its preset), direct strategies, a firewall port's transport once its number is typed (`8443<Tab>` offers `8443/tcp`, `8443/udp`, `8443/both`), SS methods and TUIC congestion. Flags taking a free-form value, `--parameter` included, offer nothing rather than file names.
+Completion covers subcommands and every argument whose values are a closed set: protocol types, configuration sources, managed services, core components, routing preset indexes (each described by its preset), direct strategies, a firewall port's transport once its number is typed (`8443<Tab>` offers `8443/tcp`, `8443/udp`, `8443/both`), SS methods and TUIC congestion. Flags taking a free-form value, `--parameter` included, offer nothing rather than file names. In bash, several candidates are listed one per line as `name (description)`, the description in lowercase; `gproxy completion bash` appends that formatting to cobra's script, and `--no-descriptions` omits both.
 
 Values that come from runtime state — user names, node tags, chain tags, rule indexes — are deliberately **not** completed. Reading them requires the state lock and root, while a completion script runs as the invoking user, so it would contend with a running mutation and still return nothing. Those values are surfaced by the guidance above, inside the command that needs them.
 

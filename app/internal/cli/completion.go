@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"bytes"
+
 	"github.com/spf13/cobra"
 
 	"go-proxy/internal/application"
@@ -108,4 +110,57 @@ func registerCompletions(root *cobra.Command) {
 		}
 	}
 	walk(root)
+}
+
+// bashDescriptionFormat replaces cobra's description formatting in the bash
+// script, which pads every name to the longest and lets bash fit the
+// candidates side by side. Here each is "name (description)", the description
+// in lowercase, padded to the terminal width so bash lists one per line. A
+// single candidate never reaches this function: cobra strips its description
+// and inserts the name alone.
+const bashDescriptionFormat = `
+# gproxy: one candidate per line, "name (description)".
+__gproxy_format_comp_descriptions()
+{
+    local tab=$'\t' comp desc ci
+    local width=$(( ${COLUMNS:-80} - 1 ))
+    for ci in ${!COMPREPLY[*]}; do
+        comp=${COMPREPLY[ci]}
+        [[ "$comp" == *$tab* ]] || continue
+        desc=${comp#*$tab}
+        comp="${comp%%$tab*} (${desc,,})"
+        if (( ${#comp} > width )); then
+            comp="${comp:0:width-1}…"
+        fi
+        printf -v comp '%-*s' "$width" "$comp"
+        COMPREPLY[ci]=$comp
+    done
+}
+`
+
+// useBashDescriptionFormat makes `completion bash` emit cobra's script with
+// bashDescriptionFormat appended; bash keeps the later definition.
+func useBashDescriptionFormat(root *cobra.Command) {
+	for _, command := range root.Commands() {
+		if command.Name() != "completion" {
+			continue
+		}
+		for _, shell := range command.Commands() {
+			if shell.Name() != "bash" {
+				continue
+			}
+			shell.RunE = func(cmd *cobra.Command, _ []string) error {
+				noDescriptions, _ := cmd.Flags().GetBool("no-descriptions")
+				var script bytes.Buffer
+				if err := cmd.Root().GenBashCompletionV2(&script, !noDescriptions); err != nil {
+					return err
+				}
+				if !noDescriptions {
+					script.WriteString(bashDescriptionFormat)
+				}
+				_, err := cmd.OutOrStdout().Write(script.Bytes())
+				return err
+			}
+		}
+	}
 }

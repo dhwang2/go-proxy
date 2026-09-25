@@ -151,3 +151,28 @@ func TestCompletionGeneratorIsAvailable(t *testing.T) {
 		t.Fatalf("zsh completion script looks wrong: %.120s", out.String())
 	}
 }
+
+// The bash script lists candidates one per line as "name (description)": it
+// ends with gproxy's own description formatting, which bash takes over
+// cobra's earlier definition; without descriptions there is nothing to format.
+func TestBashCompletionListsOnePerLine(t *testing.T) {
+	for _, c := range []struct {
+		args []string
+		want bool
+	}{{[]string{"completion", "bash"}, true}, {[]string{"completion", "bash", "--no-descriptions"}, false}} {
+		var out, stderr bytes.Buffer
+		r := New("test", "test", strings.NewReader(""), &out, &stderr)
+		if code := r.Run(context.Background(), c.args); code != 0 {
+			t.Fatalf("%v: exit %d: %s", c.args, code, stderr.String())
+		}
+		script := out.String()
+		last := strings.LastIndex(script, "__gproxy_format_comp_descriptions()")
+		overridden := last > strings.Index(script, "__gproxy_format_comp_descriptions()") && strings.Contains(script[last:], `comp="${comp%%$tab*} (${desc,,})"`)
+		if overridden != c.want {
+			t.Fatalf("%v: override present = %v, want %v", c.args, overridden, c.want)
+		}
+		if !strings.Contains(script, "__start_gproxy") {
+			t.Fatalf("%v: not a cobra completion script", c.args)
+		}
+	}
+}
