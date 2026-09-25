@@ -52,7 +52,7 @@ func TestStatusRenderingReportsEveryDashboardRow(t *testing.T) {
 		"1.system", "Debian GNU/Linux 12 (bookworm)",
 		"2.network", "10.0.0.2", "2001:db8::1",
 		"3.protocol", "alice:anytls/vless", "bob:tuic",
-		"4.service", "sing-box(running)/snell(stopped)/shadow-tls(absent)",
+		"4.service", "sing-box (running)/snell (stopped)/shadow-tls (absent)",
 		"5.domain", "example.com", "(expires in 89 days)",
 	} {
 		if !strings.Contains(text, want) {
@@ -125,7 +125,7 @@ func TestServiceRowNamesTheThreeStatesWithoutColour(t *testing.T) {
 	var out bytes.Buffer
 	render(&out, palette{}, "gproxy status", statusFields())
 	text := out.String()
-	for _, want := range []string{"sing-box(running)", "snell(stopped)", "shadow-tls(absent)"} {
+	for _, want := range []string{"sing-box (running)", "snell (stopped)", "shadow-tls (absent)"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("colour-free service row is missing %q:\n%s", want, text)
 		}
@@ -563,7 +563,7 @@ func TestFirewallStatusListsWhatApplyWouldOpen(t *testing.T) {
 		"22/tcp     ssh\n" +
 		"443/tcp    anytls, caddy\n" +
 		"28218/udp  tuic\n" +
-		"gproxy network firewall apply   (opens these 3 ports, drops other inbound)\n"
+		"gproxy network firewall apply (opens these 3 ports, drops other inbound)\n"
 	if out.String() != want {
 		t.Fatalf("got\n%s\nwant\n%s", out.String(), want)
 	}
@@ -612,12 +612,12 @@ func TestFirewallPortChangesArePerPort(t *testing.T) {
 	}{
 		{map[string]any{"managed": true, "changes": []application.FirewallPortChange{
 			{Port: 8443, Transport: "tcp", Result: "added"}, {Port: 8443, Transport: "udp", Result: "already added"},
-		}}, "8443/tcp  custom  (added)\n8443/udp  custom  (already added)\n"},
+		}}, "8443/tcp  custom (added)\n8443/udp  custom (already added)\n"},
 		{map[string]any{"managed": false, "changes": []application.FirewallPortChange{{Port: 8443, Transport: "tcp", Result: "added"}}},
-			"8443/tcp  custom  (added; firewall not applied)\n"},
+			"8443/tcp  custom (added; firewall not applied)\n"},
 		{map[string]any{"managed": true, "changes": []application.FirewallPortChange{
 			{Port: 8443, Transport: "tcp", Result: "removed"}, {Port: 8443, Transport: "udp", Result: "not found"},
-		}}, "8443/tcp  custom (removed)\n8443/udp  custom  (not found)\n"},
+		}}, "8443/tcp  custom (removed)\n8443/udp  custom (not found)\n"},
 	}
 	for _, c := range cases {
 		var out bytes.Buffer
@@ -896,7 +896,7 @@ func TestProtocolListIsTheInstallableCatalogue(t *testing.T) {
 	if !render(&out, palette{}, "gproxy protocol list", map[string]any{"protocols": catalogueData()}) {
 		t.Fatal("catalogue produced no rendering")
 	}
-	want := []string{"1.vless(tls/reality)", "2.tuic", "3.anytls", "4.snell(v6/tls)"}
+	want := []string{"1.vless (tls/reality)", "2.tuic", "3.anytls", "4.snell (v6/tls)"}
 	got := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("catalogue is\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -1193,7 +1193,7 @@ func TestRuleChangesListTheUsersRules(t *testing.T) {
 	}
 	var plain bytes.Buffer
 	render(&plain, palette{}, "gproxy route rule remove", map[string]any{"user": "dhwang1", "rules": rules, "removed": removed})
-	want := "dhwang1:\n1.OpenAI/ChatGPT  -> res2: 198.51.100.7:12334\n3.Google          -> res1: 198.51.100.8:12434  (removed)\n7.WhatsApp        -> res1: 198.51.100.8:12434\n"
+	want := "dhwang1:\n1.OpenAI/ChatGPT  -> res2: 198.51.100.7:12334\n3.Google          -> res1: 198.51.100.8:12434 (removed)\n7.WhatsApp        -> res1: 198.51.100.8:12434\n"
 	if plain.String() != want {
 		t.Fatalf("remove rendered\n%s\nwant\n%s", plain.String(), want)
 	}
@@ -1208,7 +1208,7 @@ func TestRuleChangesListTheUsersRules(t *testing.T) {
 	}
 	// Struck-through marks take no extra columns.
 	stripped := regexp.MustCompile("\x1b\\[[0-9;]*m").ReplaceAllString(text, "")
-	if strings.ReplaceAll(stripped, "  (removed)", "") != strings.ReplaceAll(plain.String(), "  (removed)", "") {
+	if strings.ReplaceAll(stripped, " (removed)", "") != strings.ReplaceAll(plain.String(), " (removed)", "") {
 		t.Fatalf("strike changed the layout:\n%s", stripped)
 	}
 }
@@ -1433,7 +1433,7 @@ func TestRuleAddMarksWhatWasAlreadyAdded(t *testing.T) {
 	fields := map[string]any{"user": "dhwang6", "presets": []string{"netflix"}, "already_added": []string{"openai"}, "rules": rules}
 	var plain bytes.Buffer
 	render(&plain, palette{}, "gproxy route rule add", fields)
-	want := "dhwang6:\n1.OpenAI/ChatGPT  -> res2: 198.51.100.7:12334  (already added)\nb.Netflix         -> res1: 198.51.100.8:12434\n"
+	want := "dhwang6:\n1.OpenAI/ChatGPT  -> res2: 198.51.100.7:12334 (already added)\nb.Netflix         -> res1: 198.51.100.8:12434\n"
 	if plain.String() != want {
 		t.Fatalf("plain =\n%s\nwant\n%s", plain.String(), want)
 	}
@@ -1496,7 +1496,7 @@ func TestFail2banChangesAreOneLine(t *testing.T) {
 		JailSources: []string{"jail.d/defaults-debian.conf", "jail.d/sshd.local"}}
 	var status bytes.Buffer
 	render(&status, palette{}, "gproxy network fail2ban status", managed)
-	if !strings.Contains(status.String(), "ssh jail      on  (gproxy, jail.d/defaults-debian.conf, jail.d/sshd.local)\n") {
+	if !strings.Contains(status.String(), "ssh jail      on (gproxy, jail.d/defaults-debian.conf, jail.d/sshd.local)\n") {
 		t.Fatalf("status:\n%s", status.String())
 	}
 	for _, c := range []struct {
@@ -1604,7 +1604,7 @@ func TestUninstallPreviewGroupsByFolder(t *testing.T) {
 	var plain bytes.Buffer
 	render(&plain, palette{}, "gproxy uninstall", fields)
 	want := "/etc/systemd/system/sing-box.service\n/etc/systemd/system/caddy-sub.service\n/etc/go-proxy\n/usr/bin/gproxy\n" +
-		"/etc/bash.bashrc(go-proxy completion block)\ninet proxy_firewall(nftables table)\n"
+		"/etc/bash.bashrc (go-proxy completion block)\ninet proxy_firewall (nftables table)\n"
 	if plain.String() != want {
 		t.Fatalf("got\n%s\nwant\n%s", plain.String(), want)
 	}
@@ -1632,10 +1632,10 @@ func TestCoreCheckAttachesTheNote(t *testing.T) {
 		{Component: core.CompShadowTLS, Installed: true, CurrentVersion: "", LatestVersion: "0.2.25"},
 		{Component: core.CompCaddy, LatestVersion: "v2.11.4"},
 	})
-	want := "1.sing-box    1.14.1 -> v1.14.2(update available)\n" +
-		"2.snell       6.0.0rc2(up to date)\n" +
-		"3.shadow-tls  version unknown(latest 0.2.25)\n" +
-		"4.caddy       not installed(latest v2.11.4)\n"
+	want := "1.sing-box    1.14.1 -> v1.14.2 (update available)\n" +
+		"2.snell       6.0.0rc2 (up to date)\n" +
+		"3.shadow-tls  version unknown (latest 0.2.25)\n" +
+		"4.caddy       not installed (latest v2.11.4)\n"
 	if out.String() != want {
 		t.Fatalf("got\n%s\nwant\n%s", out.String(), want)
 	}
@@ -1649,7 +1649,7 @@ func TestCoreUpdateShowsTheVersions(t *testing.T) {
 		{Component: core.CompSingBox, From: "1.14.1", To: "v1.14.2", Updated: true},
 		{Component: core.CompShadowTLS, From: "0.2.25", To: "0.2.25"},
 	}})
-	want := "sing-box    1.14.1 -> v1.14.2\nshadow-tls  0.2.25(up to date)\n"
+	want := "sing-box    1.14.1 -> v1.14.2\nshadow-tls  0.2.25 (up to date)\n"
 	if out.String() != want {
 		t.Fatalf("got %q, want %q", out.String(), want)
 	}
@@ -1657,5 +1657,59 @@ func TestCoreUpdateShowsTheVersions(t *testing.T) {
 	render(&none, palette{}, "gproxy core update", map[string]any{"results": []application.CoreUpdateResult{}})
 	if none.String() != "no installed core to update\n" {
 		t.Fatalf("none = %q", none.String())
+	}
+}
+
+// Every bracketed note in human output is lowercase and follows its value
+// after one space: "v0.3.1 (already latest version)", never "v0.3.1(…)" and
+// never an uppercase letter inside the brackets.
+func TestBracketedNotesAreLowercaseAndSpaced(t *testing.T) {
+	expires := time.Now().Add(88*24*time.Hour + time.Hour)
+	cases := []struct {
+		command string
+		data    any
+	}{
+		{"gproxy update", &update.SelfUpdateCheck{CurrentVersion: "v0.3.0", LatestVersion: "v0.3.1", UpdateAvail: true}},
+		{"gproxy update", &update.SelfUpdateCheck{CurrentVersion: "v0.3.1", LatestVersion: "v0.3.1"}},
+		{"gproxy core check", []*core.UpdateCheck{
+			{Component: core.CompSingBox, Installed: true, CurrentVersion: "1.14.1", LatestVersion: "v1.14.2", UpdateAvail: true},
+			{Component: core.CompCaddy, LatestVersion: "v2.11.4"},
+		}},
+		{"gproxy core update", map[string]any{"results": []application.CoreUpdateResult{{Component: core.CompSnell, From: "6.0.0", To: "6.0.0"}}}},
+		{"gproxy cert status", cert.Status{Domain: "proxy.example.com", Ready: true, ExpiresAt: &expires}},
+		{"gproxy user add", map[string]any{"user": "Alice", "added": false}},
+		{"gproxy user remove", map[string]any{"user": "bob", "removed": true, "rules_removed": 2}},
+		{"gproxy user rename", map[string]any{"user": "carol", "previous": "bob", "renamed": true}},
+		{"gproxy route chain list", map[string]any{"chains": []application.ChainView{{Tag: "res1", Address: "198.51.100.7:1080", DomainStrategy: "ipv4_only", Resolver: "HTTPS dns.google 8.8.8.8:443"}}}},
+		{"gproxy route rule add", map[string]any{"already_added": []string{"openai"}, "rules": []application.RouteEntry{{User: "alice", Label: "OpenAI/ChatGPT", Preset: "openai", Selector: "1", Outbound: "direct"}}}},
+		{"gproxy network firewall add", map[string]any{"managed": false, "changes": []application.FirewallPortChange{{Port: 8443, Transport: "tcp", Result: "added"}}}},
+		{"gproxy network firewall status", network.FirewallInfo{Available: true, Desired: []network.FirewallPortSpec{{Proto: "tcp", Port: 22, Sources: []string{"ssh"}}}}},
+		{"gproxy network fail2ban disable", network.Fail2BanInfo{Installed: true, Change: "stopped", BansLifted: 3}},
+		{"gproxy network fail2ban status", network.Fail2BanInfo{Installed: true, Running: true, SSHJailEnabled: true, Managed: true, JailSources: []string{"jail.d/sshd.local"}}},
+		{"gproxy network bbr status", map[string]any{"current": "cubic", "enabled": false}},
+		{"gproxy uninstall", map[string]any{"paths": []string{"/usr/bin/gproxy"}, "bashrc_block": "/etc/bash.bashrc", "firewall_table": "inet proxy_firewall"}},
+		{"gproxy protocol list", map[string]any{"protocols": catalogueData()}},
+	}
+	for command, data := range numberedLayoutCases() {
+		cases = append(cases, struct {
+			command string
+			data    any
+		}{command, data})
+	}
+	unspaced := regexp.MustCompile(`[^\s(\[]\(`)
+	bracketed := regexp.MustCompile(`\(([^()]*)\)`)
+	for _, c := range cases {
+		var out bytes.Buffer
+		render(&out, palette{}, c.command, c.data)
+		for _, line := range strings.Split(out.String(), "\n") {
+			if unspaced.MatchString(line) {
+				t.Fatalf("%s: a note is attached to its value: %q", c.command, line)
+			}
+			for _, match := range bracketed.FindAllStringSubmatch(line, -1) {
+				if match[1] != strings.ToLower(match[1]) {
+					t.Fatalf("%s: uppercase inside brackets: %q", c.command, line)
+				}
+			}
+		}
 	}
 }

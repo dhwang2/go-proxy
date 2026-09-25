@@ -11,7 +11,7 @@ import (
 func registerSub(r *Runner, root *cobra.Command) {
 	var p application.SubscriptionOptions
 	var surge, uri, mihomo bool
-	cmd := r.leaf("sub [user]", "Export credential-bearing client links or configuration", cobra.MaximumNArgs(1), func(ctx context.Context, cmd *cobra.Command, args []string) (application.Result, error) {
+	cmd := r.leaf("sub [user]", "Export credential-bearing client links or configuration", atMostOne("user"), func(ctx context.Context, cmd *cobra.Command, args []string) (application.Result, error) {
 		if len(args) > 0 {
 			p.User = args[0]
 		}

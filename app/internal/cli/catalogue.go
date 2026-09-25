@@ -5,6 +5,8 @@ import (
 	"io"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"go-proxy/internal/application"
 	"go-proxy/internal/routing"
 )
@@ -104,7 +106,7 @@ func (e protocolEntry) display() string {
 	if len(e.Variants) == 0 {
 		return e.Name
 	}
-	return e.Name + "(" + strings.Join(e.Variants, "/") + ")"
+	return e.Name + " (" + strings.Join(e.Variants, "/") + ")"
 }
 
 // guidance is the failure a command returns when it was named but not given
@@ -113,6 +115,17 @@ func (e protocolEntry) display() string {
 // in a form a machine reader can use.
 func guidance(message string, hint []string, data any) error {
 	return &application.Error{Code: "invalid_argument", Message: message, Hint: hint, Data: data}
+}
+
+// atMostOne refuses a second argument in this CLI's words; cobra's own
+// MaximumNArgs answers "accepts at most 1 arg(s), received 2".
+func atMostOne(what string) cobra.PositionalArgs {
+	return func(_ *cobra.Command, args []string) error {
+		if len(args) > 1 {
+			return application.Invalid("select one " + what)
+		}
+		return nil
+	}
 }
 
 // listedError is guidance that shows what is in the way before the commands

@@ -129,11 +129,22 @@ func commandHint(p palette, line string) string {
 	if !strings.HasPrefix(body, "gproxy ") {
 		return line
 	}
-	note := ""
-	if index := strings.Index(body, "   "); index >= 0 {
-		body, note = body[:index], body[index:]
+	// A trailing "(note)" is said about the command, not typed with it.
+	remarkText := ""
+	if strings.HasSuffix(body, ")") {
+		if index := strings.LastIndex(body, " ("); index >= 0 {
+			body, remarkText = body[:index], body[index+1:]
+		}
 	}
-	return indent + prefix + p.command(body) + note
+	if remarkText != "" {
+		return indent + prefix + p.command(body) + " " + remark(p, remarkText)
+	}
+	// An explanation without brackets follows the command after three spaces.
+	explanation := ""
+	if index := strings.Index(body, "   "); index >= 0 {
+		body, explanation = body[:index], body[index:]
+	}
+	return indent + prefix + p.command(body) + explanation
 }
 
 // colorEnabled reports whether to emit escape sequences. Anything that is not a
@@ -365,10 +376,10 @@ func renderUser(w io.Writer, p palette, fields map[string]any) bool {
 	// Renaming to the same name changes nothing and says so.
 	if previous, isRename := fields["previous"].(string); isRename {
 		if renamed, _ := fields["renamed"].(bool); !renamed {
-			fmt.Fprintln(w, user+" "+p.hint("(unchanged)"))
+			fmt.Fprintln(w, user+" "+note(p, "unchanged"))
 			return true
 		}
-		fmt.Fprintln(w, p.user(clean(previous))+" -> "+user+" "+p.hint("(changed)"))
+		fmt.Fprintln(w, p.user(clean(previous))+" -> "+user+" "+note(p, "changed"))
 		return true
 	}
 	if added, isAdd := fields["added"].(bool); isAdd {
@@ -376,7 +387,7 @@ func renderUser(w io.Writer, p palette, fields map[string]any) bool {
 		if !added {
 			note = "already exists"
 		}
-		fmt.Fprintln(w, user+" "+p.hint("("+note+")"))
+		fmt.Fprintln(w, user+" "+remark(p, note))
 		return true
 	}
 	removed, isRemoval := fields["removed"].(bool)
@@ -384,7 +395,7 @@ func renderUser(w io.Writer, p palette, fields map[string]any) bool {
 		return false
 	}
 	if !removed {
-		fmt.Fprintln(w, user+" "+p.hint("(not found)"))
+		fmt.Fprintln(w, user+" "+note(p, "not found"))
 		return true
 	}
 	with := []string{}
@@ -405,7 +416,7 @@ func renderUser(w io.Writer, p palette, fields map[string]any) bool {
 		fmt.Fprintln(w, clean(name)+" ("+note+")")
 		return true
 	}
-	fmt.Fprintln(w, struck(p, user)+" "+p.hint("("+note+")"))
+	fmt.Fprintln(w, struck(p, user)+" "+remark(p, note))
 	return true
 }
 
@@ -420,7 +431,7 @@ func renderNodeChange(w io.Writer, p palette, data any) bool {
 		if node.AlreadyMember {
 			note = "already a member"
 		}
-		fmt.Fprintln(w, p.user(clean(node.Added))+": "+membershipLine(p, application.NodeMembership(&node))+" "+p.hint("("+note+")"))
+		fmt.Fprintln(w, p.user(clean(node.Added))+": "+membershipLine(p, application.NodeMembership(&node))+" "+remark(p, note))
 		return true
 	}
 	if ok {
@@ -478,7 +489,7 @@ func renderNodeRemoval(w io.Writer, p palette, fields map[string]any) bool {
 			if exists, _ := fields["user_exists"].(bool); !exists {
 				reason = "no such user"
 			}
-			fmt.Fprintln(w, p.user(clean(name))+": "+membershipLine(p, membership)+" "+p.hint("("+reason+")"))
+			fmt.Fprintln(w, p.user(clean(name))+": "+membershipLine(p, membership)+" "+note(p, reason))
 			return true
 		}
 	}
@@ -548,11 +559,11 @@ func renderPorts(w io.Writer, p palette, fields map[string]any) bool {
 			continue
 		case "added":
 			if !managed {
-				fmt.Fprintln(w, entry+"  "+p.hint("(added; firewall not applied)"))
+				fmt.Fprintln(w, entry+" "+note(p, "added; firewall not applied"))
 				continue
 			}
 		}
-		fmt.Fprintln(w, entry+"  "+p.hint("("+clean(change.Result)+")"))
+		fmt.Fprintln(w, entry+" "+note(p, change.Result))
 	}
 	return true
 }
@@ -595,7 +606,7 @@ func renderCoreUpdate(w io.Writer, p palette, fields map[string]any) bool {
 		width = max(width, displayWidth(clean(string(result.Component))))
 	}
 	for _, result := range results {
-		detail := p.running(clean(result.To)) + p.hint("(up to date)")
+		detail := p.running(clean(result.To)) + " " + note(p, "up to date")
 		if result.Updated {
 			detail = p.hint(clean(result.From)) + " -> " + p.running(clean(result.To))
 		}
@@ -613,19 +624,19 @@ func renderSelfUpdate(w io.Writer, p palette, data any) bool {
 	current, latest := versionLabel(check.CurrentVersion), versionLabel(check.LatestVersion)
 	switch {
 	case check.Updated:
-		line += p.hint(current) + " -> " + p.running(latest) + " " + p.hint("(updated)")
+		line += p.hint(current) + " -> " + p.running(latest) + " " + note(p, "updated")
 	case check.UpdateAvail:
-		note := "(updates available)"
+		remarkText := "updates available"
 		// --version can name an older release: moving to it is a downgrade.
 		if semver.IsValid(current) && semver.Compare(latest, current) < 0 {
-			note = "(downgrade available)"
+			remarkText = "downgrade available"
 		}
-		line += p.hint(current) + " -> " + p.sys(latest) + " " + p.hint(note)
+		line += p.hint(current) + " -> " + p.sys(latest) + " " + note(p, remarkText)
 	case !semver.IsValid(current):
 		// A development build has no place in the release order to compare.
-		line += p.sys(current) + " " + p.hint("(development build; latest "+latest+")")
+		line += p.sys(current) + " " + note(p, "development build; latest "+latest)
 	default:
-		line += p.running(current) + " " + p.hint("(already latest version)")
+		line += p.running(current) + " " + note(p, "already latest version")
 	}
 	fmt.Fprintln(w, line)
 	return true
@@ -670,11 +681,11 @@ func renderUninstall(w io.Writer, p palette, fields map[string]any) bool {
 		}
 	}
 	if block := text(fields["bashrc_block"]); block != "" {
-		fmt.Fprintln(w, clean(block)+p.hint("(go-proxy completion block)"))
+		fmt.Fprintln(w, clean(block)+" "+note(p, "go-proxy completion block"))
 		lines++
 	}
 	if table := text(fields["firewall_table"]); table != "" {
-		fmt.Fprintln(w, clean(table)+p.hint("(nftables table)"))
+		fmt.Fprintln(w, clean(table)+" "+note(p, "nftables table"))
 		lines++
 	}
 	if lines == 0 {
@@ -860,11 +871,23 @@ func renderServices(p palette, states []service.Status) string {
 	return strings.Join(parts, p.hint("/"))
 }
 
+// note is a value's bracketed remark, in lowercase: every parenthesised note
+// in human output goes through it, written one space after its value.
+func note(p palette, text string) string {
+	return p.hint("(" + strings.ToLower(clean(text)) + ")")
+}
+
+// remark is note for a text that already carries its brackets, as the user
+// results build them.
+func remark(p palette, text string) string {
+	return note(p, strings.TrimSuffix(strings.TrimPrefix(text, "("), ")"))
+}
+
 func stateWord(p palette, state string) string {
 	if p.on {
 		return ""
 	}
-	return "(" + state + ")"
+	return " (" + state + ")"
 }
 
 func renderCert(p palette, certificate cert.Status) string {
@@ -1104,15 +1127,15 @@ func renderCores(w io.Writer, p palette, data any) bool {
 			case !item.Installed:
 				// Nothing installed has nothing to update; reporting an update
 				// here would send the reader to `core update` for a first install.
-				detail = p.unknown("not installed") + p.hint("(latest "+clean(item.LatestVersion)+")")
+				detail = p.unknown("not installed") + " " + note(p, "latest "+item.LatestVersion)
 			case item.CurrentVersion == "":
 				// Installed but unreadable: the binary is there and did not
 				// answer --version, which is not the same as absent.
-				detail = p.stopped("version unknown") + p.hint("(latest "+clean(item.LatestVersion)+")")
+				detail = p.stopped("version unknown") + " " + note(p, "latest "+item.LatestVersion)
 			case item.UpdateAvail:
-				detail = p.hint(clean(item.CurrentVersion)) + " -> " + p.sys(clean(item.LatestVersion)) + p.hint("(update available)")
+				detail = p.hint(clean(item.CurrentVersion)) + " -> " + p.sys(clean(item.LatestVersion)) + " " + note(p, "update available")
 			default:
-				detail = p.running(clean(item.CurrentVersion)) + p.hint("(up to date)")
+				detail = p.running(clean(item.CurrentVersion)) + " " + note(p, "up to date")
 			}
 			rows = append(rows, row{clean(string(item.Component)), detail})
 		}
@@ -1199,7 +1222,7 @@ func writeRuleList(w io.Writer, p palette, entries, removed []application.RouteE
 				}
 				switch {
 				case !p.on:
-					current.rows = append(current.rows, row{label, target + "  " + note})
+					current.rows = append(current.rows, row{label, target + " " + note})
 					current.marks = append(current.marks, mark)
 				case item.removed:
 					current.rows = append(current.rows, row{p.wrap(ansiRemoved, label), p.wrap(ansiRemoved, target)})
@@ -1207,7 +1230,7 @@ func writeRuleList(w io.Writer, p palette, entries, removed []application.RouteE
 				default:
 					// Struck, and the reason beside it: a strike alone would
 					// read as a removal.
-					current.rows = append(current.rows, row{p.wrap(ansiRemoved, label), p.wrap(ansiRemoved, target) + "  " + p.hint(note)})
+					current.rows = append(current.rows, row{p.wrap(ansiRemoved, label), p.wrap(ansiRemoved, target) + " " + remark(p, note)})
 					current.marks = append(current.marks, p.wrap(ansiRemoved, mark))
 				}
 				continue
@@ -1281,7 +1304,7 @@ func chainLine(p palette, chain application.ChainView, width int) string {
 		}
 	}
 	if len(lookups) > 0 {
-		line += " " + p.hint("("+strings.Join(lookups, "/")+")")
+		line += " " + note(p, strings.Join(lookups, "/"))
 	}
 	if chain.Final {
 		line += " " + p.sys("final")
@@ -1326,7 +1349,7 @@ func renderBBR(w io.Writer, p palette, fields map[string]any) bool {
 	if enabled, _ := fields["enabled"].(bool); !enabled {
 		line = "bbr " + p.stopped("not enabled")
 		if current != "" {
-			line += " " + p.hint("(using "+clean(current)+")")
+			line += " " + note(p, "using "+current)
 		}
 	}
 	fmt.Fprintln(w, line)
@@ -1358,15 +1381,15 @@ func fail2banChange(p palette, info network.Fail2BanInfo) string {
 		if info.BansLifted > 0 {
 			detail += fmt.Sprintf("; %d bans lifted", info.BansLifted)
 		}
-		return line + p.stopped("stopped") + " " + p.hint("("+detail+")")
+		return line + p.stopped("stopped") + " " + note(p, detail)
 	case "already stopped":
 		return line + p.hint("already stopped")
 	case "started":
-		return line + p.running("running") + " " + p.hint("(started with gproxy's ssh jail)")
+		return line + p.running("running") + " " + note(p, "started with gproxy's ssh jail")
 	case "added":
-		return line + p.running("running") + " " + p.hint("(gproxy ssh jail added)")
+		return line + p.running("running") + " " + note(p, "gproxy ssh jail added")
 	case "already managed":
-		return line + p.running("running") + " " + p.hint("(gproxy ssh jail already in place)")
+		return line + p.running("running") + " " + note(p, "gproxy ssh jail already in place")
 	}
 	return line + clean(info.Change)
 }
@@ -1392,7 +1415,7 @@ func renderFail2ban(w io.Writer, p palette, data any) bool {
 		jail = p.running("on")
 		// Who keeps it on, since disable removes only gproxy's own jail.
 		if owners := jailOwners(info); len(owners) > 0 {
-			jail += "  " + p.hint("("+clean(strings.Join(owners, ", "))+")")
+			jail += " " + note(p, strings.Join(owners, ", "))
 		}
 	}
 	rows := []row{{"fail2ban", state}, {"ssh jail", jail}}
@@ -1500,8 +1523,8 @@ func renderFirewall(w io.Writer, p palette, data any) bool {
 	}
 	switch {
 	case !info.Managed && len(info.Desired) > 0:
-		fmt.Fprintln(w, p.command("gproxy network firewall apply")+"   "+
-			p.hint(fmt.Sprintf("(opens these %d ports, drops other inbound)", len(info.Desired))))
+		fmt.Fprintln(w, p.command("gproxy network firewall apply")+" "+
+			note(p, fmt.Sprintf("opens these %d ports, drops other inbound", len(info.Desired))))
 	case info.Managed && pending > 0:
 		fmt.Fprintln(w, p.command("gproxy network firewall apply"))
 	}
@@ -1656,7 +1679,7 @@ func renderRouteTest(w io.Writer, p palette, fields map[string]any) bool {
 		rule = p.hint("rule " + strconv.Itoa(decision.Rule+1))
 	}
 	if decision.Value != "" {
-		rule += " " + p.hint("("+clean(decision.Value)+")")
+		rule += " " + note(p, decision.Value)
 	}
 	fmt.Fprintln(w, p.label(clean(result.Target))+"  "+rule+"  "+ruleTarget(p, decision.Outbound, address)+"  "+routeDNS(p, decision))
 	if len(result.Unchecked) > 0 {

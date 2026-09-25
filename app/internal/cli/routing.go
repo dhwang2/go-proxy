@@ -353,7 +353,7 @@ func chainInUse(err error) error {
 			"gproxy route rule remove --user "+user+" --rules "+selected+" --confirm")
 	}
 	if final {
-		hint = append(hint, "gproxy route final set direct   (the chain is also the route final)")
+		hint = append(hint, "gproxy route final set direct (the chain is also the route final)")
 	}
 	guided := *refusal
 	guided.Hint = hint

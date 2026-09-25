@@ -78,7 +78,7 @@ func registerSystem(r *Runner, root *cobra.Command) {
 	cores.AddCommand(r.leaf("version", "Inspect installed core versions", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
 		return r.App.CoreVersions(ctx)
 	}))
-	cores.AddCommand(r.leaf("check [component]", "Check available core updates", cobra.MaximumNArgs(1), func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
+	cores.AddCommand(r.leaf("check [component]", "Check available core updates", atMostOne("component"), func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
 		selector := ""
 		if len(args) > 0 {
 			selector = args[0]
@@ -87,7 +87,7 @@ func registerSystem(r *Runner, root *cobra.Command) {
 	}))
 	var coreVersion string
 	var coreAll bool
-	coreUpdate := r.leaf("update [component]", "Update a selected core or all installed cores", cobra.MaximumNArgs(1), func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
+	coreUpdate := r.leaf("update [component]", "Update a selected core or all installed cores", atMostOne("component"), func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
 		selector := ""
 		if len(args) > 0 {
 			selector = args[0]

@@ -360,7 +360,7 @@ func TestCatalogueIsTerseInTheGuidanceEnvelope(t *testing.T) {
 	for _, protocol := range envelope.Data.Protocols {
 		got = append(got, protocol.Display)
 	}
-	want := []string{"vless(tls/reality)", "tuic", "anytls", "snell(v6/tls)"}
+	want := []string{"vless (tls/reality)", "tuic", "anytls", "snell (v6/tls)"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("catalogue is\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}

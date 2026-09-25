@@ -95,7 +95,11 @@ func (a *App) Subscription(ctx context.Context, p SubscriptionOptions) (Result, 
 		}
 		entries = kept
 		if len(skipped) > 0 {
-			a.Progress(fmt.Sprintf("skipped %d node(s) with no %s export: %s", len(skipped), p.Format, strings.Join(skipped, ", ")))
+			noun := "nodes"
+			if len(skipped) == 1 {
+				noun = "node"
+			}
+			a.Progress(fmt.Sprintf("skipped %d %s with no %s export: %s", len(skipped), noun, p.Format, strings.Join(skipped, ", ")))
 		}
 	}
 	var host string

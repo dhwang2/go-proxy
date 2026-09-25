@@ -183,7 +183,7 @@ func TestChainRemoveListsTheRulesInTheWay(t *testing.T) {
 		"gproxy route rule remove --user alice --rules 1,b --confirm\n" +
 		"gproxy route rule modify --user bob --rules 9 --out direct\n" +
 		"gproxy route rule remove --user bob --rules 9 --confirm\n" +
-		"gproxy route final set direct   (the chain is also the route final)\n"
+		"gproxy route final set direct (the chain is also the route final)\n"
 	if code != 1 || out != "" || stderr != want {
 		t.Fatalf("exit %d, stdout %q, stderr:\n%s\nwant:\n%s", code, out, stderr, want)
 	}
