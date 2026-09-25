@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"go-proxy/internal/application"
 	"go-proxy/pkg/textutil"
@@ -235,7 +236,7 @@ func (r *Runner) Root() *cobra.Command {
 	root.SetErr(r.Err)
 	root.PersistentFlags().BoolVar(&r.JSON, "json", false, "write a structured JSON result")
 	root.PersistentFlags().BoolVar(&r.Yes, "confirm", false, "confirm the selected destructive operation")
-	root.PersistentFlags().DurationVar(&r.Timeout, "timeout", 0, "override the operation deadline (for example 30s)")
+	root.PersistentFlags().DurationVar(&r.Timeout, "timeout", 0, "override the operation deadline, such as 30s")
 	root.PersistentFlags().BoolVar(&r.NoColor, "no-color", false, "disable colour in human-readable output")
 	root.RunE = func(cmd *cobra.Command, args []string) error { return cmd.Help() }
 	root.AddCommand(r.leaf("version", "show the build version", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
@@ -268,7 +269,7 @@ func (r *Runner) Root() *cobra.Command {
 			c.RunE = func(cmd *cobra.Command, args []string) error {
 				names := []string{}
 				for _, child := range cmd.Commands() {
-					if child.IsAvailableCommand() {
+					if child.IsAvailableCommand() || child.Name() == "help" {
 						names = append(names, child.Name())
 					}
 				}
@@ -291,6 +292,7 @@ func (r *Runner) Root() *cobra.Command {
 	groups(root)
 	registerCompletions(root)
 	useBashDescriptionFormat(root)
+	root.SetHelpFunc(r.help)
 	return root
 }
 
@@ -392,4 +394,69 @@ func redactValues(s string) string {
 	s = secretField.ReplaceAllString(s, "${1}${2}<redacted>")
 	s = urlUser.ReplaceAllString(s, "${1}<redacted>@")
 	return textutil.CleanText(s)
+}
+
+// help replaces cobra's help template with this CLI's layout: one line per
+// command or flag, its explanation as a bracketed note after one space, in
+// lowercase and the note colour, and no blank lines between the sections.
+func (r *Runner) help(cmd *cobra.Command, _ []string) {
+	w := cmd.OutOrStdout()
+	p := palette{on: colorEnabled(r.Out, r.NoColor)}
+	about := cmd.Long
+	if about == "" {
+		about = cmd.Short
+	}
+	for _, line := range strings.Split(about, "\n") {
+		if strings.TrimSpace(line) != "" {
+			fmt.Fprintln(w, strings.TrimRight(line, " \t"))
+		}
+	}
+	fmt.Fprintln(w, "Usage:")
+	if cmd.Runnable() {
+		fmt.Fprintln(w, "  "+cmd.UseLine())
+	}
+	if cmd.HasAvailableSubCommands() {
+		fmt.Fprintln(w, "  "+cmd.CommandPath()+" [command]")
+		fmt.Fprintln(w, "Available Commands:")
+		for _, child := range cmd.Commands() {
+			if child.IsAvailableCommand() || child.Name() == "help" {
+				fmt.Fprintln(w, "  "+child.Name()+" "+note(p, child.Short))
+			}
+		}
+	}
+	writeHelpFlags(w, p, "Flags:", cmd.LocalFlags())
+	writeHelpFlags(w, p, "Global Flags:", cmd.InheritedFlags())
+	if cmd.HasAvailableSubCommands() {
+		fmt.Fprintf(w, "Use \"%s [command] --help\" for more information about a command.\n", cmd.CommandPath())
+	}
+}
+
+// writeHelpFlags lists flags as "--name type (what it does; default x)".
+// Shorthands are not shown: --help is the only one, and one spelling per
+// flag reads more plainly.
+func writeHelpFlags(w io.Writer, p palette, title string, flags *pflag.FlagSet) {
+	lines := []string{}
+	flags.VisitAll(func(flag *pflag.Flag) {
+		if flag.Hidden {
+			return
+		}
+		name, usage := pflag.UnquoteUsage(flag)
+		line := "--" + flag.Name
+		if name != "" {
+			line += " " + name
+		}
+		switch flag.DefValue {
+		case "", "false", "0", "0s", "[]":
+		default:
+			usage += "; default " + flag.DefValue
+		}
+		lines = append(lines, "  "+line+" "+note(p, usage))
+	})
+	if len(lines) == 0 {
+		return
+	}
+	fmt.Fprintln(w, title)
+	for _, line := range lines {
+		fmt.Fprintln(w, line)
+	}
 }

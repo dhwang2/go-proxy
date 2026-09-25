@@ -105,7 +105,7 @@ func registerRouting(r *Runner, root *cobra.Command) {
 		return r.App.RoutingSet(ctx, addUser, addPresets, addOut)
 	})
 	ruleAdd.Flags().StringVar(&addUser, "user", "", "User the rules belong to")
-	ruleAdd.Flags().StringSliceVar(&addPresets, "rules", nil, "Comma-separated preset indexes from the menu (1,3,a)")
+	ruleAdd.Flags().StringSliceVar(&addPresets, "rules", nil, "Comma-separated preset indexes from the menu, such as 1,3,a")
 	ruleAdd.Flags().StringVar(&addOut, "out", "", "Outbound: direct or a chain tag")
 	rule.AddCommand(ruleAdd)
 	for _, action := range []string{"remove", "modify"} {
@@ -154,7 +154,7 @@ func registerRouting(r *Runner, root *cobra.Command) {
 			return r.App.RoutingRules(ctx, user, indexes, out, action == "remove")
 		})
 		cmd.Flags().StringVar(&user, "user", "", "User the rules belong to")
-		cmd.Flags().StringSliceVar(&indexes, "rules", nil, "Comma-separated rule numbers from route rule list (1,3,a)")
+		cmd.Flags().StringSliceVar(&indexes, "rules", nil, "Comma-separated rule numbers from route rule list, such as 1,3,a")
 		if action == "modify" {
 			cmd.Flags().StringVar(&out, "out", "", "Outbound: direct or a chain tag")
 		} else {
@@ -263,7 +263,7 @@ func registerRouting(r *Runner, root *cobra.Command) {
 		return r.App.RoutingChainAdd(ctx, args[0], host, port, username, password, strings.TrimSpace(resolver))
 	})
 	add.Flags().String("parameter", "", "SOCKS5 server as host:port or host:port:username:password")
-	add.Flags().String("dns", "", "Resolver for this chain, reached through it (default: https://dns.google/dns-query)")
+	add.Flags().String("dns", "", "Resolver for this chain, reached through it; google dns over https when omitted")
 	chain.AddCommand(add)
 	modifyArgs := func(cmd *cobra.Command, args []string) error {
 		if len(args) > 1 {

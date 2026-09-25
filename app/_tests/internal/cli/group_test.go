@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -298,4 +299,50 @@ func initializedRuntimeFixture(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return lockDir
+}
+
+// Every help page lists commands as "name (what it does)" and flags as
+// "--flag type (what it does)": each explanation a lowercase note one space
+// after what it explains, and no blank line between the sections.
+func TestHelpPutsExplanationsInLowercaseNotes(t *testing.T) {
+	var paths [][]string
+	var walk func(cmd *cobra.Command, path []string)
+	walk = func(cmd *cobra.Command, path []string) {
+		paths = append(paths, path)
+		for _, child := range cmd.Commands() {
+			if child.IsAvailableCommand() {
+				walk(child, append(append([]string(nil), path...), child.Name()))
+			}
+		}
+	}
+	walk(New("test", "test", strings.NewReader(""), io.Discard, io.Discard).Root(), nil)
+	unspaced := regexp.MustCompile(`[^\s(\[<]\(`)
+	for _, path := range paths {
+		var out, stderr bytes.Buffer
+		r := New("test", "test", strings.NewReader(""), &out, &stderr)
+		if code := r.Run(context.Background(), append(append([]string(nil), path...), "--help")); code != 0 {
+			t.Fatalf("%v --help: exit %d: %s", path, code, stderr.String())
+		}
+		text := out.String()
+		if strings.Contains(text, "\n\n") {
+			t.Fatalf("%v --help has a blank line:\n%s", path, text)
+		}
+		section := ""
+		for _, line := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
+			if strings.HasSuffix(line, ":") && !strings.HasPrefix(line, " ") {
+				section = line
+				continue
+			}
+			if section != "Available Commands:" && section != "Flags:" && section != "Global Flags:" || strings.HasPrefix(line, "Use ") {
+				continue
+			}
+			open := strings.Index(line, " (")
+			if open < 0 || !strings.HasSuffix(line, ")") || unspaced.MatchString(line) {
+				t.Fatalf("%v --help: %q is not \"name (note)\"", path, line)
+			}
+			if inside := line[open+2 : len(line)-1]; inside != strings.ToLower(inside) {
+				t.Fatalf("%v --help: uppercase in %q", path, line)
+			}
+		}
+	}
 }

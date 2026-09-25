@@ -70,7 +70,7 @@ func registerSystem(r *Runner, root *cobra.Command) {
 	ensure := r.leaf("ensure", "Issue a certificate for --domain, or check the configured one", ensureArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
 		return r.App.CertificateEnsure(ctx, domain, email)
 	})
-	ensure.Flags().StringVar(&domain, "domain", "", "Certificate domain (default: the configured domain)")
+	ensure.Flags().StringVar(&domain, "domain", "", "Certificate domain; the configured domain when omitted")
 	ensure.Flags().StringVar(&email, "email", "", "ACME contact email")
 	certificates.AddCommand(ensure)
 	root.AddCommand(certificates)
