@@ -21,8 +21,10 @@ type SelfUpdateCheck struct {
 	CurrentVersion string `json:"current_version"`
 	LatestVersion  string `json:"latest_version"`
 	UpdateAvail    bool   `json:"update_available"`
-	DownloadURL    string `json:"-"`
-	Digest         string `json:"-"`
+	// Updated is set once update has replaced the executable.
+	Updated     bool   `json:"updated,omitempty"`
+	DownloadURL string `json:"-"`
+	Digest      string `json:"-"`
 }
 
 func ResolveSelfUpdate(ctx context.Context, currentVersion, version string) (*SelfUpdateCheck, error) {

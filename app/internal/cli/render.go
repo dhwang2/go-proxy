@@ -13,6 +13,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"golang.org/x/mod/semver"
+
 	"go-proxy/internal/application"
 	"go-proxy/internal/cert"
 	"go-proxy/internal/core"
@@ -595,11 +597,36 @@ func renderSelfUpdate(w io.Writer, p palette, data any) bool {
 	if !ok || check == nil {
 		return false
 	}
-	detail := p.running("up to date") + gap + p.hint(clean(check.CurrentVersion))
-	if check.UpdateAvail {
-		detail = p.sys("update available") + gap + p.hint(clean(check.CurrentVersion)+" -> "+clean(check.LatestVersion))
+	line := "go-proxy-cli version: "
+	current, latest := versionLabel(check.CurrentVersion), versionLabel(check.LatestVersion)
+	switch {
+	case check.Updated:
+		line += p.hint(current) + " -> " + p.running(latest) + " " + p.hint("(updated)")
+	case check.UpdateAvail:
+		note := "(updates available)"
+		// --version can name an older release: moving to it is a downgrade.
+		if semver.IsValid(current) && semver.Compare(latest, current) < 0 {
+			note = "(downgrade available)"
+		}
+		line += p.hint(current) + " -> " + p.sys(latest) + " " + p.hint(note)
+	case !semver.IsValid(current):
+		// A development build has no place in the release order to compare.
+		line += p.sys(current) + " " + p.hint("(development build; latest "+latest+")")
+	default:
+		line += p.running(current) + " " + p.hint("(already latest version)")
 	}
-	return writeRows(w, p, []row{{"go-proxy", detail}})
+	fmt.Fprintln(w, line)
+	return true
+}
+
+// versionLabel spells a release version with its v, as the tags do; a build
+// stamped without one, or a development label, is shown as it is.
+func versionLabel(version string) string {
+	version = clean(strings.TrimSpace(version))
+	if version != "" && version[0] >= '0' && version[0] <= '9' {
+		return "v" + version
+	}
+	return version
 }
 
 // renderUninstall lists the removal scope, which is what --preview is for and

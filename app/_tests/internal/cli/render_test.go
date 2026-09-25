@@ -319,7 +319,6 @@ func numberedLayoutCases() map[string]any {
 		"gproxy cert status": cert.Status{Domain: "a.example", Ready: true},
 		"gproxy cert ensure": map[string]any{"domain": "a.example", "ready": true},
 		"gproxy core update": map[string]any{"updated": []core.Component{core.CompSingBox}},
-		"gproxy update":      &update.SelfUpdateCheck{CurrentVersion: "0.3.0", LatestVersion: "v0.3.1", UpdateAvail: true},
 		"gproxy uninstall":   map[string]any{"paths": []string{"/etc/go-proxy"}, "firewall_table": "inet proxy_firewall"},
 		"gproxy init":        map[string]any{"initialized": true, "runtime": "/etc/go-proxy"},
 	}
@@ -1567,5 +1566,26 @@ func TestUserChangesAreOneLine(t *testing.T) {
 	render(&coloured, palette{on: true}, "gproxy user remove", map[string]any{"user": "bob", "removed": true, "rules_removed": 2})
 	if !strings.HasPrefix(coloured.String(), "\x1b[9m") || !strings.Contains(coloured.String(), "(removed; 2 rules)") {
 		t.Fatalf("a removed user is not struck through: %q", coloured.String())
+	}
+}
+
+// update answers in one line: the running version, the release it would move
+// to when there is one, and whether it moved.
+func TestSelfUpdateIsOneLine(t *testing.T) {
+	for _, c := range []struct {
+		check update.SelfUpdateCheck
+		want  string
+	}{
+		{update.SelfUpdateCheck{CurrentVersion: "v0.3.1", LatestVersion: "v0.3.1"}, "go-proxy-cli version: v0.3.1 (already latest version)\n"},
+		{update.SelfUpdateCheck{CurrentVersion: "0.3.0", LatestVersion: "v0.3.1", UpdateAvail: true}, "go-proxy-cli version: v0.3.0 -> v0.3.1 (updates available)\n"},
+		{update.SelfUpdateCheck{CurrentVersion: "v0.3.0", LatestVersion: "v0.3.1", UpdateAvail: true, Updated: true}, "go-proxy-cli version: v0.3.0 -> v0.3.1 (updated)\n"},
+		{update.SelfUpdateCheck{CurrentVersion: "v0.3.1", LatestVersion: "v0.3.0", UpdateAvail: true}, "go-proxy-cli version: v0.3.1 -> v0.3.0 (downgrade available)\n"},
+		{update.SelfUpdateCheck{CurrentVersion: "dev", LatestVersion: "v0.3.1"}, "go-proxy-cli version: dev (development build; latest v0.3.1)\n"},
+	} {
+		check := c.check
+		var out bytes.Buffer
+		if !render(&out, palette{}, "gproxy update", &check) || out.String() != c.want {
+			t.Fatalf("got %q, want %q", out.String(), c.want)
+		}
 	}
 }

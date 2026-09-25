@@ -368,6 +368,7 @@ func (a *App) SelfUpdate(ctx context.Context, current, version string, checkOnly
 		if err := update.SelfUpdate(ctx, check); err != nil {
 			return Result{}, err
 		}
+		check.Updated = true
 		return Result{Changed: true, Data: check}, nil
 	})
 	if err != nil || !result.Changed {
