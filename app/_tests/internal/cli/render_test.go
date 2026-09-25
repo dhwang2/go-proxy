@@ -1159,7 +1159,7 @@ func TestStatusRowsHaveTheirOwnColours(t *testing.T) {
 	render(&out, palette{on: true}, "gproxy status", statusFields())
 	text := out.String()
 	for _, want := range []string{
-		ansiSystem + "Debian GNU/Linux 12 (bookworm)" + ansiReset,
+		ansiSystem + "Debian GNU/Linux 12" + ansiReset + " " + ansiNote + "(bookworm)" + ansiReset,
 		ansiNetwork + "2001:db8::1" + ansiReset,
 		ansiProtocol + "alice" + ansiReset,
 		ansiProtocol + "anytls" + ansiReset,
@@ -1369,7 +1369,7 @@ func TestProtocolRemovalSaysWhyNothingWent(t *testing.T) {
 		if strings.Contains(text, "\x1b[9m") {
 			t.Fatalf("an unremoved membership was struck: %q", text)
 		}
-		for _, part := range []string{ansiUser + "dhwang1", ansiOK + "anytls", ansiPort + "443", ansiHint + "("} {
+		for _, part := range []string{ansiUser + "dhwang1", ansiOK + "anytls", ansiPort + "443", ansiNote + "("} {
 			if !strings.Contains(text, part) {
 				t.Errorf("coloured line lacks %q: %q", part, text)
 			}
@@ -1396,7 +1396,7 @@ func TestProtocolAddShowsTheNewMembership(t *testing.T) {
 	var out bytes.Buffer
 	render(&out, palette{on: true}, "gproxy protocol add", snell)
 	text := out.String()
-	for _, part := range []string{ansiUser + "dhwang2", ansiOK + "snell-v6+shadow-tls-v3", ansiPort + "354", ansiBackend + "1443", ansiHint + "(added)"} {
+	for _, part := range []string{ansiUser + "dhwang2", ansiOK + "snell-v6+shadow-tls-v3", ansiPort + "354", ansiBackend + "1443", ansiNote + "(added)"} {
 		if !strings.Contains(text, part) {
 			t.Errorf("coloured install lacks %q: %q", part, text)
 		}
@@ -1418,7 +1418,7 @@ func TestUserRenameIsOneLine(t *testing.T) {
 	}
 	var coloured bytes.Buffer
 	render(&coloured, palette{on: true}, "gproxy user rename", map[string]any{"user": "dhwang8", "previous": "dhwang0", "renamed": true})
-	if want := ansiUser + "dhwang0" + ansiReset + " -> " + ansiUser + "dhwang8" + ansiReset + " " + ansiHint + "(changed)" + ansiReset + "\n"; coloured.String() != want {
+	if want := ansiUser + "dhwang0" + ansiReset + " -> " + ansiUser + "dhwang8" + ansiReset + " " + ansiNote + "(changed)" + ansiReset + "\n"; coloured.String() != want {
 		t.Fatalf("coloured rename = %q, want %q", coloured.String(), want)
 	}
 }
@@ -1440,7 +1440,7 @@ func TestRuleAddMarksWhatWasAlreadyAdded(t *testing.T) {
 	var coloured bytes.Buffer
 	render(&coloured, palette{on: true}, "gproxy route rule add", fields)
 	text := coloured.String()
-	if !strings.Contains(text, ansiRemoved+"OpenAI/ChatGPT"+ansiReset) || !strings.Contains(text, ansiHint+"(already added)"+ansiReset) {
+	if !strings.Contains(text, ansiRemoved+"OpenAI/ChatGPT"+ansiReset) || !strings.Contains(text, ansiNote+"(already added)"+ansiReset) {
 		t.Fatalf("the existing rule is not struck with its reason: %q", text)
 	}
 	if strings.Contains(text, ansiRemoved+"Netflix") {
@@ -1695,6 +1695,20 @@ func TestBracketedNotesAreLowercaseAndSpaced(t *testing.T) {
 			command string
 			data    any
 		}{command, data})
+	}
+	// On a terminal a note is one span in the note colour, brackets included.
+	for _, c := range cases {
+		var coloured bytes.Buffer
+		render(&coloured, palette{on: true}, c.command, c.data)
+		for _, line := range strings.Split(coloured.String(), "\n") {
+			plain := escapeSequence.ReplaceAllString(line, "")
+			if !strings.Contains(plain, " (") || c.command == "gproxy cert status" {
+				continue
+			}
+			if !strings.Contains(line, ansiNote+"(") {
+				t.Fatalf("%s: a note is not in the note colour: %q", c.command, line)
+			}
+		}
 	}
 	unspaced := regexp.MustCompile(`[^\s(\[]\(`)
 	bracketed := regexp.MustCompile(`\(([^()]*)\)`)

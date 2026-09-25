@@ -45,6 +45,7 @@ const (
 	ansiCount   = "\x1b[38;2;97;175;239m"  // counts
 	ansiLabel   = "\x1b[38;2;229;231;235m" // row labels
 	ansiHint    = "\x1b[38;2;107;114;128m" // secondary detail
+	ansiNote    = "\x1b[38;2;156;163;175m" // a bracketed note, brackets included
 	ansiCommand = "\x1b[38;2;86;182;194m"  // a command to type
 	// One colour per status row, so the rows are told apart at a glance.
 	// The domain row keeps ansiSys.
@@ -739,7 +740,14 @@ func renderStatus(w io.Writer, p palette, fields map[string]any) bool {
 	}
 
 	if system, ok := fields["system"].(map[string]any); ok {
-		add("system", p.system(clean(text(system["version"]))))
+		// "Debian GNU/Linux 12 (bookworm)": the codename is a note on the
+		// release, drawn like every other bracketed note.
+		version := clean(text(system["version"]))
+		if release, codename, found := strings.Cut(version, " ("); found && strings.HasSuffix(codename, ")") {
+			add("system", p.system(release)+" "+note(p, strings.TrimSuffix(codename, ")")))
+		} else {
+			add("system", p.system(version))
+		}
 	}
 	if observed, ok := fields["network"].(network.Observation); ok {
 		add("network", renderAddresses(p, observed))
@@ -795,7 +803,7 @@ func renderAddresses(p palette, observed network.Observation) string {
 			seen[value] = true
 			shown := p.network(value)
 			if value == clean(local) && internal {
-				shown += p.hint(" (internal)")
+				shown += " " + note(p, "internal")
 			}
 			parts = append(parts, shown)
 		}
@@ -874,7 +882,7 @@ func renderServices(p palette, states []service.Status) string {
 // note is a value's bracketed remark, in lowercase: every parenthesised note
 // in human output goes through it, written one space after its value.
 func note(p palette, text string) string {
-	return p.hint("(" + strings.ToLower(clean(text)) + ")")
+	return p.wrap(ansiNote, "("+strings.ToLower(clean(text))+")")
 }
 
 // remark is note for a text that already carries its brackets, as the user
@@ -892,14 +900,19 @@ func stateWord(p palette, state string) string {
 
 func renderCert(p palette, certificate cert.Status) string {
 	domain := p.sys(clean(certificate.Domain))
-	detail := func(colour func(string) string, text string) string {
-		return domain + p.hint(" (") + colour(text) + p.hint(")")
+	// A healthy certificate's note is an ordinary note. A warning keeps its
+	// red inside the note's brackets: a certificate about to lapse must not
+	// read like one that is fine.
+	healthy := func(_ func(string) string, text string) string { return domain + " " + note(p, text) }
+	warning := func(colour func(string) string, text string) string {
+		return domain + " " + p.wrap(ansiNote, "(") + colour(text) + p.wrap(ansiNote, ")")
 	}
+	detail := warning
 	if !certificate.Ready {
 		return detail(p.stopped, "not issued")
 	}
 	if certificate.ExpiresAt == nil {
-		return detail(p.running, "ready")
+		return healthy(p.running, "ready")
 	}
 	left := time.Until(*certificate.ExpiresAt)
 	if left < 0 {
@@ -918,7 +931,7 @@ func renderCert(p palette, certificate cert.Status) string {
 	if days <= 14 {
 		return detail(p.stopped, remaining)
 	}
-	return detail(p.running, remaining)
+	return healthy(p.running, remaining)
 }
 
 func issues(fields map[string]any) []string {
@@ -1082,7 +1095,12 @@ func renderCatalogue(w io.Writer, p palette, fields map[string]any) bool {
 		if display == "" {
 			display = entry["name"]
 		}
-		rows = append(rows, row{clean(display), ""})
+		// "vless (tls/reality)": the forms it comes in are a note on the name.
+		label := clean(display)
+		if name, variants, found := strings.Cut(display, " ("); found {
+			label = clean(name) + " " + note(p, strings.TrimSuffix(variants, ")"))
+		}
+		rows = append(rows, row{label, ""})
 	}
 	return writeRows(w, p, rows)
 }
