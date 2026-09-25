@@ -368,17 +368,30 @@ func TestJoiningAnExistingNodeInheritsItsDomain(t *testing.T) {
 // every reinstall on a host that had not rebooted.
 func TestUninstallPreviewClaimsTheLockDirectory(t *testing.T) {
 	a := protocolTestApp(t)
+	scope, err := a.uninstallScope()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(scope, a.LockDir) {
+		t.Fatalf("the removal scope does not claim %q: %#v", a.LockDir, scope)
+	}
+	if !slices.Contains(scope, config.WorkDir) {
+		t.Fatalf("the removal scope does not claim the runtime root: %#v", scope)
+	}
+	// The preview lists only what exists: the lock directory this fixture
+	// created, not the runtime root it does not have.
 	result, err := a.Uninstall(context.Background(), true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fields, _ := result.Data.(map[string]any)
-	paths, _ := fields["paths"].([]string)
+	paths, _ := result.Data.(map[string]any)["paths"].([]string)
 	if !slices.Contains(paths, a.LockDir) {
-		t.Fatalf("the removal scope does not claim %q: %#v", a.LockDir, paths)
+		t.Fatalf("the preview left out the existing lock directory: %#v", paths)
 	}
-	if !slices.Contains(paths, config.WorkDir) {
-		t.Fatalf("the removal scope does not claim the runtime root: %#v", paths)
+	for _, path := range paths {
+		if _, err := os.Lstat(path); err != nil {
+			t.Fatalf("the preview lists %q, which does not exist", path)
+		}
 	}
 	if result.Changed {
 		t.Fatal("a preview reported a change")

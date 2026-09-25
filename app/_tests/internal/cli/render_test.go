@@ -317,7 +317,6 @@ func numberedLayoutCases() map[string]any {
 			{Name: service.SingBox, Installed: true, Running: true, State: "active"},
 		},
 		"gproxy core update": map[string]any{"updated": []core.Component{core.CompSingBox}},
-		"gproxy uninstall":   map[string]any{"paths": []string{"/etc/go-proxy"}, "firewall_table": "inet proxy_firewall"},
 		"gproxy init":        map[string]any{"initialized": true, "runtime": "/etc/go-proxy"},
 	}
 }
@@ -1605,5 +1604,36 @@ func TestCertificateIsOneLine(t *testing.T) {
 				t.Fatalf("%s: got %q, want %q", command, out.String(), c.want)
 			}
 		}
+	}
+}
+
+// uninstall --preview lists each path once, grouped by folder with one colour
+// per folder; the firewall table and bashrc block say what they are.
+func TestUninstallPreviewGroupsByFolder(t *testing.T) {
+	fields := map[string]any{
+		"paths": []string{
+			"/etc/systemd/system/sing-box.service", "/etc/go-proxy", "/etc/systemd/system/caddy-sub.service", "/usr/bin/gproxy",
+		},
+		"bashrc_block":   "/etc/bash.bashrc",
+		"firewall_table": "inet proxy_firewall",
+	}
+	var plain bytes.Buffer
+	render(&plain, palette{}, "gproxy uninstall", fields)
+	want := "/etc/systemd/system/sing-box.service\n/etc/systemd/system/caddy-sub.service\n/etc/go-proxy\n/usr/bin/gproxy\n" +
+		"/etc/bash.bashrc  (go-proxy completion block)\ninet proxy_firewall  (nftables table)\n"
+	if plain.String() != want {
+		t.Fatalf("got\n%s\nwant\n%s", plain.String(), want)
+	}
+	var coloured bytes.Buffer
+	render(&coloured, palette{on: true}, "gproxy uninstall", fields)
+	lines := strings.Split(coloured.String(), "\n")
+	colour := func(line string) string { return line[:strings.Index(line, "m")+1] }
+	if colour(lines[0]) != colour(lines[1]) || colour(lines[1]) == colour(lines[2]) || colour(lines[2]) == colour(lines[3]) {
+		t.Fatalf("folders are not told apart by colour: %q", coloured.String())
+	}
+	var empty bytes.Buffer
+	render(&empty, palette{}, "gproxy uninstall", map[string]any{"paths": []string{}})
+	if empty.String() != "nothing to remove\n" {
+		t.Fatalf("empty = %q", empty.String())
 	}
 }

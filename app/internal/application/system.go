@@ -452,23 +452,50 @@ func (a *App) Log(ctx context.Context, selector string, lines, maxBytes int, fol
 	}
 	return Result{Data: map[string]any{"service": selector, "source": source, "content": content}}, nil
 }
+
+// uninstallScope is every path uninstall owns, whether or not it exists on
+// this host: the units, the runtime, the lock directory, the files placed
+// elsewhere and the executable.
+func (a *App) uninstallScope() ([]string, error) {
+	paths, err := service.OwnedUnitPaths()
+	if err != nil {
+		return nil, err
+	}
+	paths = append(paths, config.WorkDir, a.LockDir, network.BBRSysctlPath, network.Fail2BanJailPath, config.LockSetupFile,
+		config.BashCompletionPath, config.ZshCompletionPath)
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	executable, err = filepath.EvalSymlinks(executable)
+	if err != nil {
+		return nil, err
+	}
+	return append(paths, executable), nil
+}
+
 func (a *App) Uninstall(ctx context.Context, preview bool) (Result, error) {
 	inventory := func() (map[string]any, error) {
-		paths, err := service.OwnedUnitPaths()
+		paths, err := a.uninstallScope()
 		if err != nil {
 			return nil, err
 		}
-		paths = append(paths, config.WorkDir, a.LockDir, network.BBRSysctlPath, network.Fail2BanJailPath, config.LockSetupFile,
-			config.BashCompletionPath, config.ZshCompletionPath)
-		executable, err := os.Executable()
-		if err != nil {
-			return nil, err
+		// Only what is there: a preview listing paths that do not exist says
+		// uninstall would remove things it will not find.
+		existing := []string{}
+		for _, path := range paths {
+			if _, err := os.Lstat(path); err == nil {
+				existing = append(existing, path)
+			}
 		}
-		executable, err = filepath.EvalSymlinks(executable)
-		if err != nil {
-			return nil, err
+		data := map[string]any{"paths": existing}
+		if managed, err := network.FirewallManaged(ctx); err == nil && managed {
+			data["firewall_table"] = "inet proxy_firewall"
 		}
-		return map[string]any{"paths": append(paths, executable), "firewall_table": "inet proxy_firewall"}, nil
+		if hasMarkedBlock(config.SystemBashrc, config.BashrcCompletionBeginMark) {
+			data["bashrc_block"] = config.SystemBashrc
+		}
+		return data, nil
 	}
 	if preview {
 		data, err := inventory()
@@ -539,6 +566,21 @@ func (a *App) Uninstall(ctx context.Context, preview bool) (Result, error) {
 // removeMarkedBlock deletes the lines from begin to end, both included, from a
 // file this program does not own, leaving every other line as it was. A file
 // without the block, or no file at all, is not an error.
+// hasMarkedBlock reports whether path carries the line that opens a block
+// uninstall removes.
+func hasMarkedBlock(path, begin string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimRight(line, "\r") == begin {
+			return true
+		}
+	}
+	return false
+}
+
 func removeMarkedBlock(path, begin, end string) error {
 	info, err := os.Stat(path)
 	if os.IsNotExist(err) {

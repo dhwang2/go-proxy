@@ -219,3 +219,14 @@ func TestCertEnsureWithoutADomainPrintsTheCommand(t *testing.T) {
 		t.Fatalf("exit %d executed=%v stdout=%q stderr=%q", code, r.executed, out.String(), stderr.String())
 	}
 }
+
+// uninstall with neither flag answers with its two forms, before any work.
+func TestUninstallWithoutAFlagPrintsBothForms(t *testing.T) {
+	var out, stderr bytes.Buffer
+	r := New("test", "test", strings.NewReader(""), &out, &stderr)
+	r.App.LockDir = filepath.Join(t.TempDir(), "uninitialized")
+	code := r.Run(context.Background(), []string{"uninstall"})
+	if code != 2 || r.executed || out.Len() != 0 || stderr.String() != "gproxy uninstall --preview\ngproxy uninstall --confirm\n" {
+		t.Fatalf("exit %d executed=%v stdout=%q stderr=%q", code, r.executed, out.String(), stderr.String())
+	}
+}

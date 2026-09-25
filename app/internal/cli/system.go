@@ -163,7 +163,14 @@ func registerSystem(r *Runner, root *cobra.Command) {
 		if preview {
 			return nil
 		}
-		return r.confirm()
+		// Neither flag: the two ways to run it, rather than an error naming
+		// only the one that destroys.
+		if !r.Yes {
+			return guidance("gproxy uninstall requires --preview or --confirm",
+				[]string{"gproxy uninstall --preview", "gproxy uninstall --confirm"},
+				map[string]any{"missing": []string{"--preview", "--confirm"}})
+		}
+		return nil
 	}
 	uninstall := r.leaf("uninstall", "Preview or remove owned go-proxy resources", uninstallArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
 		return r.App.Uninstall(ctx, preview)

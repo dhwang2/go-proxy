@@ -70,16 +70,9 @@ func TestBootRulesRestoreStateLockWithoutTruncation(t *testing.T) {
 // with it.
 func TestUninstallPreviewOwnsTheCompletionScripts(t *testing.T) {
 	a := protocolTestApp(t)
-	result, err := a.Uninstall(context.Background(), true)
+	paths, err := a.uninstallScope()
 	if err != nil {
 		t.Fatal(err)
-	}
-	if result.Changed {
-		t.Fatal("preview reported a change")
-	}
-	paths, ok := result.Data.(map[string]any)["paths"].([]string)
-	if !ok {
-		t.Fatalf("preview carried no path list: %#v", result.Data)
 	}
 	owned := map[string]bool{}
 	for _, path := range paths {

@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -630,21 +631,46 @@ func versionLabel(version string) string {
 	return version
 }
 
-// renderUninstall lists the removal scope, which is what --preview is for and
-// what the confirmed run reports having removed.
+// renderUninstall lists what uninstall removes, one path per line, grouped by
+// the folder it sits in with each folder in its own colour, so the units,
+// the runtime and the files placed elsewhere read as separate sets. The
+// firewall table and the bashrc block are not files of their own and say
+// what they are beside them.
 func renderUninstall(w io.Writer, p palette, fields map[string]any) bool {
 	paths, ok := fields["paths"].([]string)
 	if !ok {
 		return false
 	}
-	rows := make([]row, 0, len(paths)+1)
+	folders := []string{}
+	byFolder := map[string][]string{}
 	for _, path := range paths {
-		rows = append(rows, row{clean(path), ""})
+		folder := filepath.Dir(path)
+		if _, seen := byFolder[folder]; !seen {
+			folders = append(folders, folder)
+		}
+		byFolder[folder] = append(byFolder[folder], path)
+	}
+	colours := []string{ansiBackend, ansiPort, ansiProtocol, ansiSystem, ansiOK, ansiSys}
+	lines := 0
+	for index, folder := range folders {
+		colour := colours[index%len(colours)]
+		for _, path := range byFolder[folder] {
+			fmt.Fprintln(w, p.wrap(colour, clean(path)))
+			lines++
+		}
+	}
+	if block := text(fields["bashrc_block"]); block != "" {
+		fmt.Fprintln(w, clean(block)+"  "+p.hint("(go-proxy completion block)"))
+		lines++
 	}
 	if table := text(fields["firewall_table"]); table != "" {
-		rows = append(rows, row{clean(table), p.hint("firewall table")})
+		fmt.Fprintln(w, clean(table)+"  "+p.hint("(nftables table)"))
+		lines++
 	}
-	return writeRows(w, p, rows)
+	if lines == 0 {
+		fmt.Fprintln(w, p.hint("nothing to remove"))
+	}
+	return true
 }
 
 func renderInit(w io.Writer, p palette, fields map[string]any) bool {
