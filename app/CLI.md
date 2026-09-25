@@ -128,11 +128,14 @@ gproxy server start sing-box --json
 gproxy server restart --all --json
 gproxy server stop sing-box --json
 gproxy cert status --json
+gproxy cert ensure --json
 gproxy cert ensure --domain proxy.example.com --email admin@example.com --json
 gproxy log sing-box --lines 100 --json
 gproxy log proxy-watchdog --follow
 gproxy log sing-box --lines 500 --max-bytes 65536
 ```
+
+`cert status` and `cert ensure` answer in one line, `domain: proxy.example.com (expires in 88 days)` (or `(not issued)`, `(expired)`). `cert ensure` without `--domain` works on the configured domain: an existing certificate is reported as it stands, since Caddy renews it; a missing one is issued, which spends one of Let's Encrypt's five issuances per domain per week. With `--domain`, it issues for that domain. With neither a flag nor a configured domain it prints `gproxy cert ensure --domain <domain> [--email <address>]` and exits 2.
 
 `gproxy log` takes a service; without one it answers with the signature and one command that can be run as written, rather than guessing which service was meant. The selectors are in shell completion and in the `--json` envelope. The rendering is the log itself — the service and its source, then the lines verbatim, unnumbered and unindented, so a line survives being copied or piped to `grep`. Lines naming `ERROR`, `FATAL`, `FAILED` or `PANIC` are red and `WARN` lines amber; routine lines are left plain so the others stand out. A log that colours its own output has those escape sequences removed, under `--follow` as well.
 

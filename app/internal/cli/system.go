@@ -54,10 +54,23 @@ func registerSystem(r *Runner, root *cobra.Command) {
 		return r.App.CertificateStatus(ctx)
 	}))
 	var domain, email string
-	ensure := r.leaf("ensure", "Ensure a valid domain certificate", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
+	// Without --domain, ensure works on the configured domain; with none
+	// configured either, the answer is the command that names one.
+	ensureArgs := func(cmd *cobra.Command, args []string) error {
+		if err := cobra.NoArgs(cmd, args); err != nil {
+			return err
+		}
+		if domain == "" && r.App.CertificateDomain() == "" {
+			return guidance("gproxy cert ensure requires --domain: no certificate domain is configured",
+				[]string{"gproxy cert ensure --domain <domain> [--email <address>]"},
+				map[string]any{"missing": []string{"--domain"}})
+		}
+		return nil
+	}
+	ensure := r.leaf("ensure", "Issue a certificate for --domain, or check the configured one", ensureArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
 		return r.App.CertificateEnsure(ctx, domain, email)
 	})
-	ensure.Flags().StringVar(&domain, "domain", "", "Certificate domain")
+	ensure.Flags().StringVar(&domain, "domain", "", "Certificate domain (default: the configured domain)")
 	ensure.Flags().StringVar(&email, "email", "", "ACME contact email")
 	certificates.AddCommand(ensure)
 	root.AddCommand(certificates)

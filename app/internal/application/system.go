@@ -220,7 +220,18 @@ func (a *App) CertificateStatus(ctx context.Context) (Result, error) {
 	}
 	return Result{Data: cert.Inspect()}, nil
 }
+
+// CertificateDomain is the domain the host's certificate is for, empty when
+// none is configured.
+func (a *App) CertificateDomain() string { return cert.ReadDomain() }
+
+// CertificateEnsure makes sure a certificate exists for domain, or for the
+// configured domain when none is named. An existing certificate is reported
+// as it stands, with its expiry; renewal is Caddy's.
 func (a *App) CertificateEnsure(ctx context.Context, domain, email string) (Result, error) {
+	if domain == "" {
+		domain = cert.ReadDomain()
+	}
 	if !cert.IsValidDomain(domain) {
 		return Result{}, Invalid("invalid certificate domain")
 	}
@@ -232,7 +243,11 @@ func (a *App) CertificateEnsure(ctx context.Context, domain, email string) (Resu
 			return Result{}, err
 		}
 		if cert.CertExists(domain) {
-			return Result{Data: map[string]any{"domain": domain, "ready": true}}, nil
+			status := cert.Inspect()
+			if status.Domain != domain {
+				status = cert.Status{Domain: domain, Ready: true}
+			}
+			return Result{Data: status}, nil
 		}
 		if err := cert.EnsureCertificateState(ctx, domain, email, a.Progress, func(fn func() error) error { return a.State(ctx, fn) }); err != nil {
 			return Result{}, &Error{Code: "certificate_failed", Stage: "certificate", Message: err.Error(), Changed: true}

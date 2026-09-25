@@ -73,7 +73,7 @@ gproxy network firewall status|apply|release|add|remove [<port>/<tcp|udp|both>]
 gproxy network fail2ban status|enable|disable
 
 gproxy log <service> [--lines <n>] [--max-bytes <n>] [--follow]
-gproxy cert status|ensure
+gproxy cert status|ensure [--domain <domain>] [--email <address>]
 gproxy update [--check] [--version <v>]
 gproxy uninstall [--preview] [--confirm]
 gproxy completion bash|zsh|fish|powershell

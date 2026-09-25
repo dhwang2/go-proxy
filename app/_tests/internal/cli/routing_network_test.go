@@ -204,3 +204,18 @@ func TestChainRemoveListsTheRulesInTheWay(t *testing.T) {
 		t.Fatalf("the refused chain is gone:\n%s", list)
 	}
 }
+
+// cert ensure without --domain works on the configured domain; with none
+// configured, it answers with the command that names one, before any work.
+func TestCertEnsureWithoutADomainPrintsTheCommand(t *testing.T) {
+	saved := config.DomainFile
+	config.DomainFile = filepath.Join(t.TempDir(), "absent")
+	t.Cleanup(func() { config.DomainFile = saved })
+	var out, stderr bytes.Buffer
+	r := New("test", "test", strings.NewReader(""), &out, &stderr)
+	r.App.LockDir = filepath.Join(t.TempDir(), "uninitialized")
+	code := r.Run(context.Background(), []string{"cert", "ensure"})
+	if code != 2 || r.executed || out.Len() != 0 || stderr.String() != "gproxy cert ensure --domain <domain> [--email <address>]\n" {
+		t.Fatalf("exit %d executed=%v stdout=%q stderr=%q", code, r.executed, out.String(), stderr.String())
+	}
+}

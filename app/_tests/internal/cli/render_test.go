@@ -316,8 +316,6 @@ func numberedLayoutCases() map[string]any {
 		"gproxy server restart": []service.Status{
 			{Name: service.SingBox, Installed: true, Running: true, State: "active"},
 		},
-		"gproxy cert status": cert.Status{Domain: "a.example", Ready: true},
-		"gproxy cert ensure": map[string]any{"domain": "a.example", "ready": true},
 		"gproxy core update": map[string]any{"updated": []core.Component{core.CompSingBox}},
 		"gproxy uninstall":   map[string]any{"paths": []string{"/etc/go-proxy"}, "firewall_table": "inet proxy_firewall"},
 		"gproxy init":        map[string]any{"initialized": true, "runtime": "/etc/go-proxy"},
@@ -1586,6 +1584,26 @@ func TestSelfUpdateIsOneLine(t *testing.T) {
 		var out bytes.Buffer
 		if !render(&out, palette{}, "gproxy update", &check) || out.String() != c.want {
 			t.Fatalf("got %q, want %q", out.String(), c.want)
+		}
+	}
+}
+
+// cert status and ensure answer in one line: the domain and its state.
+func TestCertificateIsOneLine(t *testing.T) {
+	expires := time.Now().Add(88*24*time.Hour + time.Hour)
+	for _, c := range []struct {
+		data any
+		want string
+	}{
+		{cert.Status{Domain: "proxy.example.com", Ready: true, ExpiresAt: &expires}, "domain: proxy.example.com (expires in 88 days)\n"},
+		{cert.Status{Domain: "proxy.example.com"}, "domain: proxy.example.com (not issued)\n"},
+		{cert.Status{}, "domain: none configured\n"},
+	} {
+		for _, command := range []string{"gproxy cert status", "gproxy cert ensure"} {
+			var out bytes.Buffer
+			if !render(&out, palette{}, command, c.data) || out.String() != c.want {
+				t.Fatalf("%s: got %q, want %q", command, out.String(), c.want)
+			}
 		}
 	}
 }

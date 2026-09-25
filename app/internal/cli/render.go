@@ -570,10 +570,11 @@ func renderCertificate(w io.Writer, p palette, data any) bool {
 		status = cert.Status{Domain: domain, Ready: ready}
 	}
 	if status.Domain == "" {
-		fmt.Fprintln(w, p.hint("no certificate domain"))
+		fmt.Fprintln(w, "domain: "+p.hint("none configured"))
 		return true
 	}
-	return writeRows(w, p, []row{{"domain", renderCert(p, status)}})
+	fmt.Fprintln(w, "domain: "+renderCert(p, status))
+	return true
 }
 
 func renderCoreUpdate(w io.Writer, p palette, fields map[string]any) bool {
