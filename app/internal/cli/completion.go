@@ -95,8 +95,25 @@ func registerCompletions(root *cobra.Command) {
 		// Nothing gproxy takes is a file, so where there is no candidate to
 		// offer, Tab offers nothing: without this the shell falls back to
 		// listing the files in the current directory, as after `gproxy status`.
-		if cmd.ValidArgsFunction == nil && len(cmd.ValidArgs) == 0 {
+		// A value list is offered for the first argument only; later
+		// positions offer nothing. And whatever a command offers, file names
+		// are never added: every answer carries NoFileComp.
+		if values := cmd.ValidArgs; len(values) > 0 {
+			cmd.ValidArgs = nil
+			cmd.ValidArgsFunction = func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+				if len(args) > 0 {
+					return nil, cobra.ShellCompDirectiveNoFileComp
+				}
+				return values, cobra.ShellCompDirectiveNoFileComp
+			}
+		}
+		if cmd.ValidArgsFunction == nil {
 			cmd.ValidArgsFunction = noFiles
+		}
+		offer := cmd.ValidArgsFunction
+		cmd.ValidArgsFunction = func(c *cobra.Command, args []string, typed string) ([]string, cobra.ShellCompDirective) {
+			candidates, directive := offer(c, args, typed)
+			return candidates, directive | cobra.ShellCompDirectiveNoFileComp
 		}
 		for _, set := range []*pflag.FlagSet{cmd.Flags(), cmd.PersistentFlags()} {
 			set.VisitAll(func(flag *pflag.Flag) {

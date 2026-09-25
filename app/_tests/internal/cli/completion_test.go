@@ -3,10 +3,15 @@ package cli
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"go-proxy/internal/application"
 	"go-proxy/internal/routing"
@@ -185,4 +190,37 @@ func TestTabNeverOffersFiles(t *testing.T) {
 			t.Fatalf("%v: offered %v with directive %q, want nothing and %q", args, got, directive, noFileComp)
 		}
 	}
+}
+
+// No position anywhere in the command tree falls back to file names: for
+// every command, at the first argument and after one, and for every flag
+// that takes a value, the answer carries NoFileComp.
+func TestNoCompletionFallsBackToFiles(t *testing.T) {
+	type position struct{ args []string }
+	var positions []position
+	var walk func(cmd *cobra.Command, path []string)
+	walk = func(cmd *cobra.Command, path []string) {
+		for _, tail := range [][]string{{""}, {"."}, {"x", ""}, {"x", "."}, {"x", "y", "."}} {
+			positions = append(positions, position{append(append([]string(nil), path...), tail...)})
+		}
+		cmd.Flags().VisitAll(func(flag *pflag.Flag) {
+			if flag.Value.Type() != "bool" {
+				positions = append(positions, position{append(append([]string(nil), path...), "--"+flag.Name, ".")})
+			}
+		})
+		for _, child := range cmd.Commands() {
+			if child.IsAvailableCommand() {
+				walk(child, append(append([]string(nil), path...), child.Name()))
+			}
+		}
+	}
+	walk(New("test", "test", strings.NewReader(""), io.Discard, io.Discard).Root(), nil)
+	for _, at := range positions {
+		_, directive, _ := complete(t, at.args...)
+		value, err := strconv.Atoi(strings.TrimPrefix(directive, ":"))
+		if err != nil || value&4 == 0 {
+			t.Fatalf("gproxy %s<Tab> may offer file names (directive %q)", strings.Join(at.args, " "), directive)
+		}
+	}
+	t.Logf("checked %d completion positions", len(positions))
 }
