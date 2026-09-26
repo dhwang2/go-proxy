@@ -1451,18 +1451,26 @@ func TestRuleAddMarksWhatWasAlreadyAdded(t *testing.T) {
 // bbr status is one line: enabled already means the congestion control is
 // bbr, so the algorithm is named only when it is something else.
 func TestBBRIsOneLine(t *testing.T) {
+	sources := []string{"/etc/sysctl.d/99-bbr-proxy.conf"}
 	for _, c := range []struct {
-		fields map[string]any
-		want   string
+		command string
+		fields  map[string]any
+		want    string
 	}{
-		{map[string]any{"current": "bbr", "enabled": true}, "bbr enabled\n"},
-		{map[string]any{"current": "cubic", "enabled": false}, "bbr not enabled (using cubic)\n"},
+		{"status", map[string]any{"current": "bbr", "enabled": true, "boot_sources": sources}, "bbr enabled (/etc/sysctl.d/99-bbr-proxy.conf)\n"},
+		{"status", map[string]any{"current": "bbr", "enabled": true, "managed": true, "boot_sources": []string{}}, "bbr enabled (gproxy)\n"},
+		{"status", map[string]any{"current": "bbr", "enabled": true}, "bbr enabled (not kept at boot)\n"},
+		{"status", map[string]any{"current": "cubic", "enabled": false}, "bbr not enabled (using cubic)\n"},
+		{"status", map[string]any{"current": "cubic", "enabled": false, "boot_sources": sources}, "bbr not enabled (using cubic; /etc/sysctl.d/99-bbr-proxy.conf enables it at boot)\n"},
+		{"enable", map[string]any{"current": "bbr", "enabled": true, "managed": true, "boot_sources": sources, "change": "enabled"}, "bbr enabled (gproxy, /etc/sysctl.d/99-bbr-proxy.conf)\n"},
+		{"enable", map[string]any{"current": "bbr", "enabled": true, "managed": true, "change": "already enabled"}, "bbr already enabled (gproxy)\n"},
+		{"disable", map[string]any{"current": "cubic", "change": "disabled", "boot_sources": sources}, "bbr disabled (using cubic; /etc/sysctl.d/99-bbr-proxy.conf enables it at boot)\n"},
+		{"disable", map[string]any{"current": "cubic", "change": "disabled"}, "bbr disabled (using cubic)\n"},
+		{"disable", map[string]any{"current": "cubic", "change": "already disabled"}, "bbr already disabled (using cubic)\n"},
 	} {
-		for _, command := range []string{"gproxy network bbr status", "gproxy network bbr enable"} {
-			var out bytes.Buffer
-			if !render(&out, palette{}, command, c.fields) || out.String() != c.want {
-				t.Fatalf("%s: got %q, want %q", command, out.String(), c.want)
-			}
+		var out bytes.Buffer
+		if !render(&out, palette{}, "gproxy network bbr "+c.command, c.fields) || out.String() != c.want {
+			t.Fatalf("%s %v: got %q, want %q", c.command, c.fields, out.String(), c.want)
 		}
 	}
 }

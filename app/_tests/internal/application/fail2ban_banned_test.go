@@ -115,3 +115,63 @@ esac`,
 		t.Fatalf("enable: changed=%v %#v", started.Changed, info)
 	}
 }
+
+// enable persists BBR in gproxy's file; disable switches the kernel back to
+// cubic, removes that file and names another file that re-enables BBR at
+// boot; a second disable is a no-op.
+func TestBBRDisableRevertsTheKernelAndNamesBootSources(t *testing.T) {
+	a := routingApplicationFixture(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	proc := filepath.Join(dir, "tcp_congestion_control")
+	etc := filepath.Join(dir, "sysctl.d")
+	if err := os.MkdirAll(etc, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	saved := []any{network.CongestionControlPath, network.BBRSysctlPath, network.SysctlDirs, network.SysctlConf}
+	network.CongestionControlPath, network.BBRSysctlPath = proc, filepath.Join(etc, "90-go-proxy-bbr.conf")
+	network.SysctlDirs, network.SysctlConf = []string{etc}, filepath.Join(dir, "sysctl.conf")
+	t.Cleanup(func() {
+		network.CongestionControlPath, network.BBRSysctlPath = saved[0].(string), saved[1].(string)
+		network.SysctlDirs, network.SysctlConf = saved[2].([]string), saved[3].(string)
+	})
+	// Builtins only: PATH holds nothing but these stubs.
+	stub := "#!/bin/sh\ncase \"$2\" in net.ipv4.tcp_congestion_control=*) echo \"${2#*=}\" > '" + proc + "' ;; esac\nexit 0\n"
+	for name, body := range map[string]string{"sysctl": stub, "modprobe": "#!/bin/sh\nexit 0\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir)
+	if err := os.WriteFile(proc, []byte("cubic\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := a.NetworkBBR(ctx, "enable")
+	if data := result.Data.(map[string]any); err != nil || !result.Changed || data["enabled"] != true || data["managed"] != true || data["change"] != "enabled" {
+		t.Fatalf("enable: %#v %v", result, err)
+	}
+	// Another file keeps BBR at boot, as a shell-proxy leftover would.
+	if err := os.WriteFile(filepath.Join(etc, "99-bbr-proxy.conf"), []byte("net.ipv4.tcp_congestion_control = bbr\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err = a.NetworkBBR(ctx, "disable")
+	data := result.Data.(map[string]any)
+	if err != nil || !result.Changed || data["enabled"] != false || data["current"] != "cubic" || data["managed"] != false || data["change"] != "disabled" {
+		t.Fatalf("disable: %#v %v", result, err)
+	}
+	if sources, _ := data["boot_sources"].([]string); len(sources) != 1 || filepath.Base(sources[0]) != "99-bbr-proxy.conf" {
+		t.Fatalf("boot sources = %v", data["boot_sources"])
+	}
+	if _, err := os.Stat(network.BBRSysctlPath); !os.IsNotExist(err) {
+		t.Fatal("gproxy's bbr file outlived disable")
+	}
+	again, err := a.NetworkBBR(ctx, "disable")
+	if err != nil || again.Changed || again.Data.(map[string]any)["change"] != "already disabled" {
+		t.Fatalf("second disable: %#v %v", again, err)
+	}
+	status, err := a.NetworkBBR(ctx, "status")
+	if err != nil || status.Data.(map[string]any)["enabled"] != false {
+		t.Fatalf("status: %#v %v", status, err)
+	}
+}

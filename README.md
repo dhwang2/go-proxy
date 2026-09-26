@@ -68,7 +68,7 @@ gproxy config validate
 
 gproxy core version|check|update [<component>|--all] [--version <v>]
 
-gproxy network bbr status|enable
+gproxy network bbr status|enable|disable
 gproxy network firewall status|apply|release|add|remove [<port>/<tcp|udp|both>]
 gproxy network fail2ban status|enable|disable
 

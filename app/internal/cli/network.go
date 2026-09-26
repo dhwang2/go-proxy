@@ -17,10 +17,15 @@ func registerNetwork(r *Runner, root *cobra.Command) {
 	// row, which looks up a NATed family's public address itself, and its ports are
 	// `network firewall status`. It repeated all three and led with kernel
 	// routing tables nobody could read.
-	bbr := &cobra.Command{Use: "bbr", Short: "Inspect or enable BBR", Args: cobra.NoArgs}
-	for _, action := range []string{"status", "enable"} {
-		bbr.AddCommand(r.leaf(action, "Inspect or enable BBR", cobra.NoArgs, func(ctx context.Context, _ *cobra.Command, _ []string) (application.Result, error) {
-			return r.App.NetworkBBR(ctx, action == "enable")
+	bbr := &cobra.Command{Use: "bbr", Short: "Inspect, enable or disable BBR", Args: cobra.NoArgs}
+	bbrShorts := map[string]string{
+		"status":  "Show the congestion control and what keeps it at boot",
+		"enable":  "Switch TCP to BBR and keep it at boot",
+		"disable": "Switch TCP back to cubic and drop gproxy's boot setting",
+	}
+	for _, action := range []string{"status", "enable", "disable"} {
+		bbr.AddCommand(r.leaf(action, bbrShorts[action], cobra.NoArgs, func(ctx context.Context, _ *cobra.Command, _ []string) (application.Result, error) {
+			return r.App.NetworkBBR(ctx, action)
 		}))
 	}
 	group.AddCommand(bbr)

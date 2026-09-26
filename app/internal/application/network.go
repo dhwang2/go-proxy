@@ -13,33 +13,70 @@ import (
 	"go-proxy/pkg/fileutil"
 )
 
-func (a *App) NetworkBBR(ctx context.Context, enable bool) (Result, error) {
-	if !enable {
+// NetworkBBR reads, enables or disables BBR. Every answer says what keeps it
+// at boot: gproxy's own file (managed) and any other sysctl file that sets it
+// (boot_sources), so a disable that another file will undo says so.
+func (a *App) NetworkBBR(ctx context.Context, action string) (Result, error) {
+	report := func(change string) (map[string]any, error) {
 		enabled, current, err := network.BBRStatus()
-		return Result{Data: map[string]any{"enabled": enabled, "current": current}}, err
+		data := map[string]any{"enabled": enabled, "current": current, "managed": network.BBRManaged(), "boot_sources": network.BBRBootSources()}
+		if change != "" {
+			data["change"] = change
+		}
+		return data, err
+	}
+	if action == "status" {
+		data, err := report("")
+		return Result{Data: data}, err
+	}
+	if action != "enable" && action != "disable" {
+		return Result{}, Invalid("unknown bbr action")
 	}
 	return a.Operation(ctx, func() (Result, error) {
-		a.Progress("enabling bbr")
 		before, _, err := network.BBRStatus()
 		if err != nil {
 			return Result{}, err
+		}
+		if action == "disable" {
+			// Nothing of gproxy's and nothing running: no work, no progress line.
+			if !before && !network.BBRManaged() {
+				data, err := report("already disabled")
+				return Result{Data: data}, err
+			}
+			a.Progress("disabling bbr")
+			if err := network.DisableBBR(ctx); err != nil {
+				return Result{}, &Error{Code: "activation_failed", Message: err.Error(), Stage: "sysctl", Changed: true}
+			}
+			data, err := report("disabled")
+			if err != nil {
+				return Result{}, &Error{Code: "activation_failed", Message: err.Error(), Stage: "verify", Changed: true}
+			}
+			if data["enabled"] == true {
+				return Result{}, &Error{Code: "activation_failed", Message: "bbr is still active", Stage: "verify", Changed: true}
+			}
+			return Result{Changed: true, Data: data}, nil
 		}
 		persisted, readErr := os.ReadFile(network.BBRSysctlPath)
 		if readErr != nil && !os.IsNotExist(readErr) {
 			return Result{}, readErr
 		}
 		changed := !before || string(persisted) != "net.core.default_qdisc = fq\nnet.ipv4.tcp_congestion_control = bbr\n"
+		a.Progress("enabling bbr")
 		if err := network.EnableBBR(ctx); err != nil {
 			return Result{}, &Error{Code: "activation_failed", Message: err.Error(), Stage: "sysctl", Changed: true}
 		}
-		enabled, current, err := network.BBRStatus()
+		change := "enabled"
+		if !changed {
+			change = "already enabled"
+		}
+		data, err := report(change)
 		if err != nil {
 			return Result{}, &Error{Code: "activation_failed", Message: err.Error(), Stage: "verify", Changed: true}
 		}
-		if !enabled {
+		if data["enabled"] != true {
 			return Result{}, &Error{Code: "activation_failed", Message: "bbr is not active", Stage: "verify", Changed: true}
 		}
-		return Result{Changed: changed, Data: map[string]any{"enabled": enabled, "current": current}}, nil
+		return Result{Changed: changed, Data: data}, nil
 	})
 }
 

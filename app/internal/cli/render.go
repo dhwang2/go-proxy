@@ -331,7 +331,7 @@ func render(w io.Writer, p palette, command string, data any) bool {
 		return renderFinal(w, p, fields)
 	case "gproxy network firewall status", "gproxy network firewall apply":
 		return renderFirewall(w, p, data)
-	case "gproxy network bbr status", "gproxy network bbr enable":
+	case "gproxy network bbr status", "gproxy network bbr enable", "gproxy network bbr disable":
 		return renderBBR(w, p, fields)
 	case "gproxy network fail2ban status", "gproxy network fail2ban enable", "gproxy network fail2ban disable":
 		return renderFail2ban(w, p, data)
@@ -1373,20 +1373,49 @@ func renderDirect(w io.Writer, p palette, fields map[string]any) bool {
 	return true
 }
 
-// renderBBR is one line: enabled is the congestion control being bbr, so a
-// second row naming the algorithm said the same thing again. When it is not
-// bbr, the algorithm in use is the one thing worth adding.
+// renderBBR is one line: whether TCP uses BBR, and in the note what keeps
+// it at boot -- gproxy's own file, other sysctl files, or nothing, in which
+// case a reboot turns it off. A disable that another file will undo at boot
+// says so, since the running kernel alone does not tell the whole story.
 func renderBBR(w io.Writer, p palette, fields map[string]any) bool {
 	current, ok := fields["current"].(string)
 	if !ok {
 		return false
 	}
-	line := "bbr " + p.running("enabled")
-	if enabled, _ := fields["enabled"].(bool); !enabled {
-		line = "bbr " + p.stopped("not enabled")
-		if current != "" {
-			line += " " + note(p, "using "+current)
-		}
+	enabled, _ := fields["enabled"].(bool)
+	managed, _ := fields["managed"].(bool)
+	sources, _ := fields["boot_sources"].([]string)
+	change, _ := fields["change"].(string)
+	holders := append([]string{}, sources...)
+	if managed {
+		holders = append([]string{"gproxy"}, holders...)
+	}
+	keptBy := strings.Join(holders, ", ")
+	if keptBy == "" {
+		keptBy = "not kept at boot"
+	}
+	using := "using " + current
+	if len(sources) > 0 {
+		using += "; " + strings.Join(sources, ", ") + " enables it at boot"
+	}
+	var line, remarkText string
+	switch {
+	case change == "disabled":
+		line, remarkText = "bbr "+p.stopped("disabled"), using
+	case change == "already disabled":
+		line, remarkText = "bbr "+p.hint("already disabled"), using
+	case change == "already enabled":
+		line, remarkText = "bbr "+p.running("already enabled"), keptBy
+	case enabled:
+		line, remarkText = "bbr "+p.running("enabled"), keptBy
+	default:
+		line, remarkText = "bbr "+p.stopped("not enabled"), using
+	}
+	if current == "" && !enabled {
+		remarkText = ""
+	}
+	if remarkText != "" {
+		line += " " + note(p, remarkText)
 	}
 	fmt.Fprintln(w, line)
 	return true
