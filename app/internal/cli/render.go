@@ -196,6 +196,24 @@ func writeRows(w io.Writer, p palette, rows []row) bool {
 	return writeSections(w, p, []section{{rows: rows}})
 }
 
+// writeAligned is writeRows without the row numbers: labels in the label
+// colour, padded so the detail column lines up. For listings whose rows are
+// named rather than picked by number, such as the proxy cores.
+func writeAligned(w io.Writer, p palette, rows []row) bool {
+	width := 0
+	for _, r := range rows {
+		width = max(width, displayWidth(r.label))
+	}
+	for _, r := range rows {
+		line := p.label(r.label)
+		if r.value != "" {
+			line = p.label(pad(r.label, width)) + "  " + r.value
+		}
+		fmt.Fprintln(w, line)
+	}
+	return true
+}
+
 // writeSections is that same layout with headings. The label column is sized
 // across every section so the detail column stays in one place down the whole
 // output rather than stepping in and out per group.
@@ -1134,12 +1152,12 @@ func renderCores(w io.Writer, p palette, data any) bool {
 			}
 			rows = append(rows, row{clean(string(item.Component)), detail})
 		}
-		return writeRows(w, p, rows)
+		return writeAligned(w, p, rows)
 	case []*core.UpdateCheck:
 		rows := make([]row, 0, len(items))
 		for _, item := range items {
-			// The version first, then what it means, attached in brackets:
-			// "1.14.1 -> v1.14.2(update available)", "0.2.25(up to date)".
+			// The version first, then what it means in a note:
+			// "1.14.1 -> v1.14.2 (update available)", "0.2.25 (up to date)".
 			var detail string
 			switch {
 			case !item.Installed:
@@ -1157,7 +1175,7 @@ func renderCores(w io.Writer, p palette, data any) bool {
 			}
 			rows = append(rows, row{clean(string(item.Component)), detail})
 		}
-		return writeRows(w, p, rows)
+		return writeAligned(w, p, rows)
 	}
 	return false
 }

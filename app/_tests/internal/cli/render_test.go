@@ -1622,8 +1622,8 @@ func TestUninstallPreviewGroupsByFolder(t *testing.T) {
 	}
 }
 
-// core check puts the version first and what it means attached in brackets,
-// one numbered row per core with the names aligned.
+// core check puts the version first and what it means in a note, one row per
+// core with the names aligned and no row numbers.
 func TestCoreCheckAttachesTheNote(t *testing.T) {
 	var out bytes.Buffer
 	render(&out, palette{}, "gproxy core check", []*core.UpdateCheck{
@@ -1632,10 +1632,10 @@ func TestCoreCheckAttachesTheNote(t *testing.T) {
 		{Component: core.CompShadowTLS, Installed: true, CurrentVersion: "", LatestVersion: "0.2.25"},
 		{Component: core.CompCaddy, LatestVersion: "v2.11.4"},
 	})
-	want := "1.sing-box    1.14.1 -> v1.14.2 (update available)\n" +
-		"2.snell       6.0.0rc2 (up to date)\n" +
-		"3.shadow-tls  version unknown (latest 0.2.25)\n" +
-		"4.caddy       not installed (latest v2.11.4)\n"
+	want := "sing-box    1.14.1 -> v1.14.2 (update available)\n" +
+		"snell       6.0.0rc2 (up to date)\n" +
+		"shadow-tls  version unknown (latest 0.2.25)\n" +
+		"caddy       not installed (latest v2.11.4)\n"
 	if out.String() != want {
 		t.Fatalf("got\n%s\nwant\n%s", out.String(), want)
 	}
@@ -1725,5 +1725,17 @@ func TestBracketedNotesAreLowercaseAndSpaced(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// core version is one row per core, named rather than numbered.
+func TestCoreVersionIsUnnumbered(t *testing.T) {
+	var out bytes.Buffer
+	render(&out, palette{}, "gproxy core version", []core.VersionInfo{
+		{Component: core.CompSingBox, Installed: true, Version: "1.14.2"},
+		{Component: core.CompCaddy},
+	})
+	if want := "sing-box  1.14.2\ncaddy     not installed\n"; out.String() != want {
+		t.Fatalf("got %q, want %q", out.String(), want)
 	}
 }
