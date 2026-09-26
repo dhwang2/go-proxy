@@ -1360,7 +1360,7 @@ func renderFinal(w io.Writer, p palette, fields map[string]any) bool {
 	address, _ := fields["address"].(string)
 	line := "final " + ruleTarget(p, final, address)
 	if dns, _ := fields["dns_final"].(string); dns != "" {
-		line += p.hint("    dns " + clean(dns))
+		line += " " + note(p, "dns "+dns)
 	}
 	fmt.Fprintln(w, line)
 	return true
@@ -1371,7 +1371,7 @@ func renderDirect(w io.Writer, p palette, fields map[string]any) bool {
 	if !ok {
 		return false
 	}
-	fmt.Fprintln(w, "direct strategy: "+p.sys(clean(strategy)))
+	fmt.Fprintln(w, "direct -> "+p.sys(clean(strategy)))
 	return true
 }
 

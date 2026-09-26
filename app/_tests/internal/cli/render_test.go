@@ -438,7 +438,7 @@ func TestChainListingIsTagArrowAddress(t *testing.T) {
 func TestDirectStrategyIsOneLine(t *testing.T) {
 	for _, command := range []string{"gproxy route direct list", "gproxy route direct set", "gproxy route sync-dns"} {
 		var out bytes.Buffer
-		if !render(&out, palette{}, command, map[string]any{"strategy": "prefer_ipv6"}) || out.String() != "direct strategy: prefer_ipv6\n" {
+		if !render(&out, palette{}, command, map[string]any{"strategy": "prefer_ipv6"}) || out.String() != "direct -> prefer_ipv6\n" {
 			t.Fatalf("%s rendered %q", command, out.String())
 		}
 	}
@@ -1770,5 +1770,25 @@ func TestConfigValidateIsOneLinePerComponent(t *testing.T) {
 	lines := strings.Split(coloured.String(), "\n")
 	if !strings.HasPrefix(lines[0], ansiBackend) || !strings.HasPrefix(lines[1], ansiPort) || !strings.HasPrefix(lines[2], ansiProtocol) {
 		t.Fatalf("components are not told apart by colour: %q", coloured.String())
+	}
+}
+
+// route final is one line: where unmatched traffic leaves, and its resolver as
+// a note.
+func TestRouteFinalIsOneLine(t *testing.T) {
+	for _, c := range []struct {
+		fields map[string]any
+		want   string
+	}{
+		{map[string]any{"final": "direct", "dns_final": "public4"}, "final -> direct (dns public4)\n"},
+		{map[string]any{"final": "res1", "address": "198.51.100.7:1080", "dns_final": "res1-dns"}, "final -> res1: 198.51.100.7:1080 (dns res1-dns)\n"},
+		{map[string]any{"final": "direct"}, "final -> direct\n"},
+	} {
+		for _, command := range []string{"gproxy route final list", "gproxy route final set"} {
+			var out bytes.Buffer
+			if !render(&out, palette{}, command, c.fields) || out.String() != c.want {
+				t.Fatalf("%s: got %q, want %q", command, out.String(), c.want)
+			}
+		}
 	}
 }
