@@ -76,8 +76,8 @@ Each of those keys is a flag of `protocol add snell`, and an omitted one is snel
 
 - `--mode default|unshaped`: `default` encrypts and shapes traffic from the PSK, which is Snell v6's fingerprint defence; `unshaped` only encrypts, about 10% faster by Snell's own figure. `unsafe-raw` is refused: it sends traffic in plaintext, and ShadowTLS authenticates what it carries without encrypting it. The Surge line carries `mode=` with the server's value, since client and server must agree.
 - `--dns-ip-preference default|prefer-ipv4|prefer-ipv6|ipv4-only|ipv6-only`: which address family Snell dials a destination over.
-- `--dns <ip,...>`: resolvers Snell uses in place of the system's.
-- `--egress-interface <name>`: the interface Snell's outgoing sockets bind to; it must exist on the host.
+- `--dns <resolver-ip,...>`: the DNS servers Snell asks for a destination's address, in place of the server's system resolver (`/etc/resolv.conf`), for example `1.1.1.1,2606:4700:4700::1111`. Useful when the provider's resolver is slow, filtered or answers for the wrong region.
+- `--egress-interface <network-interface>`: the network interface Snell's outgoing connections and DNS queries leave through, for example `ens4` or a tunnel such as `wg0`; it must exist on the host. Only useful on a host with more than one way out; without it the routing table decides.
 
 The deprecated `ipv6` key is no longer written. A file that still has it is read the way snell-server reads it (`false` is `ipv4-only`, `true` is `default`) and rewritten in the documented keys the next time the node is installed. Joining the existing node with a setting that differs from its own fails rather than changing it.
 
