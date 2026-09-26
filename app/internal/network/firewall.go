@@ -263,9 +263,14 @@ func DesiredFirewallPortsWithBindings(ctx context.Context, s *store.Store, bindi
 		addPort(port, "tcp", "ssh")
 	}
 
-	if requiresACMEPorts() {
+	// Port 80 answers the certificate challenge; the site port is where
+	// caddy-sub serves its page.
+	if site, found := store.ReadCaddySite(); found {
 		addPort(80, "tcp", "caddy")
-		addPort(443, "tcp", "caddy")
+		addPort(site.Port, "tcp", "caddy")
+	} else if _, err := os.Stat(config.DomainFile); err == nil {
+		addPort(80, "tcp", "caddy")
+		addPort(store.DefaultCaddyPort, "tcp", "caddy")
 	}
 
 	if s.Firewall != nil {
@@ -370,16 +375,6 @@ func normalizeFirewallProto(proto string) string {
 		return "udp"
 	}
 	return "tcp"
-}
-
-func requiresACMEPorts() bool {
-	if _, err := os.Stat(config.CaddyFile); err == nil {
-		return true
-	}
-	if _, err := os.Stat(config.DomainFile); err == nil {
-		return true
-	}
-	return false
 }
 
 func nftApplyPorts(ctx context.Context, tcpPorts, udpPorts []int) error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -11,7 +12,7 @@ import (
 	"go-proxy/internal/store"
 )
 
-func TestDesiredFirewallPortsKeepsACMEPortsWhenDomainFileExists(t *testing.T) {
+func TestDesiredFirewallPortsOpenCaddysPorts(t *testing.T) {
 	dir := t.TempDir()
 	prevDomainFile := config.DomainFile
 	prevCaddyFile := config.CaddyFile
@@ -37,22 +38,36 @@ func TestDesiredFirewallPortsKeepsACMEPortsWhenDomainFileExists(t *testing.T) {
 		t.Fatalf("DesiredFirewallPorts error: %v", err)
 	}
 
-	var has80 bool
-	var has443 bool
-	for _, spec := range specs {
-		if spec.Proto != "tcp" {
-			continue
+	if !hasCaddyPorts(specs, 80, store.DefaultCaddyPort) {
+		t.Fatalf("expected tcp/80 and the default caddy port, got %#v", specs)
+	}
+
+	// Once caddy's site is moved, the firewall follows the Caddyfile.
+	if err := os.WriteFile(config.CaddyFile, []byte("{\n}\n\nexample.com:443 {\n    file_server\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	specs, err = DesiredFirewallPorts(context.Background(), s)
+	if err != nil {
+		t.Fatalf("DesiredFirewallPorts error: %v", err)
+	}
+	if !hasCaddyPorts(specs, 80, 443) || hasCaddyPorts(specs, store.DefaultCaddyPort) {
+		t.Fatalf("expected caddy on tcp/80 and tcp/443 only, got %#v", specs)
+	}
+}
+
+func hasCaddyPorts(specs []FirewallPortSpec, ports ...int) bool {
+	for _, port := range ports {
+		found := false
+		for _, spec := range specs {
+			if spec.Proto == "tcp" && spec.Port == port && slices.Contains(spec.Sources, "caddy") {
+				found = true
+			}
 		}
-		if spec.Port == 80 {
-			has80 = true
-		}
-		if spec.Port == 443 {
-			has443 = true
+		if !found {
+			return false
 		}
 	}
-	if !has80 || !has443 {
-		t.Fatalf("expected tcp/80 and tcp/443 in desired firewall ports, got %#v", specs)
-	}
+	return true
 }
 
 func TestDesiredFirewallPortsIncludesCustomPorts(t *testing.T) {

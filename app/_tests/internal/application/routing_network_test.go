@@ -19,6 +19,7 @@ import (
 
 	"go-proxy/internal/config"
 	"go-proxy/internal/network"
+	"go-proxy/internal/protocol"
 	"go-proxy/internal/routing"
 	"go-proxy/internal/store"
 )
@@ -869,5 +870,44 @@ func TestFirewallPortReportsEachTransport(t *testing.T) {
 		if ports, _ := result.Data.(map[string]any)["ports"].([]store.FirewallPort); ports == nil {
 			t.Fatalf("%s remove=%v: ports is nil", step.transport, step.remove)
 		}
+	}
+}
+
+// Caddy's site cannot move onto a node's port, onto the challenge port or
+// onto nothing parseable, and naming the port it already has changes
+// nothing.
+func TestCertificatePortRefusesPortsThatAreNotCaddys(t *testing.T) {
+	a := routingApplicationFixture(t)
+	ctx := context.Background()
+	if _, err := a.CertificatePort(ctx, ""); err == nil {
+		t.Fatal("reported a port with no Caddyfile")
+	}
+	if err := os.WriteFile(config.SingBoxConfig, []byte(`{"inbounds":[{"type":"anytls","tag":"anytls-443","listen_port":443}],"outbounds":[{"type":"direct","tag":"direct"}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.CaddyFile, []byte("{\n}\n\na.example.org:18443 {\n    file_server\n}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.DomainFile, []byte("a.example.org\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := a.CertificatePort(ctx, "")
+	if data, _ := result.Data.(map[string]any); err != nil || data["port"] != 18443 {
+		t.Fatalf("show: %#v %v", result, err)
+	}
+	for value, refusal := range map[string]string{"443": "belongs to anytls-443", "80": "certificate issuance", "0": "1 to 65535", "x": "1 to 65535"} {
+		_, err := a.CertificatePort(ctx, value)
+		var detail *Error
+		if !errors.As(err, &detail) || detail.Code != "invalid_argument" || !strings.Contains(detail.Message, refusal) {
+			t.Fatalf("port %s: %v", value, err)
+		}
+	}
+	if result, err := a.CertificatePort(ctx, "18443"); err != nil || result.Changed {
+		t.Fatalf("same port: %#v %v", result, err)
+	}
+	// Nor can a node take caddy's port, even while caddy is stopped.
+	_, err = a.ProtocolInstall(ctx, ProtocolOptions{Type: protocol.VLESS, User: "alice", Port: "18443", Domain: "a.example.org"})
+	if err == nil || !strings.Contains(err.Error(), "belongs to caddy") {
+		t.Fatalf("a node was offered caddy's port: %v", err)
 	}
 }

@@ -74,6 +74,7 @@ gproxy network fail2ban status|enable|disable
 
 gproxy log <service> [--lines <n>] [--max-bytes <n>] [--follow]
 gproxy cert status|ensure [--domain <domain>] [--email <address>]
+gproxy cert port [<port>]
 gproxy update [--check] [--version <v>]
 gproxy uninstall [--preview] [--confirm]
 gproxy completion bash|zsh|fish|powershell

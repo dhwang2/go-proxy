@@ -2,17 +2,22 @@ package application
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"go-proxy/internal/cert"
 	"go-proxy/internal/config"
 	"go-proxy/internal/core"
+	"go-proxy/internal/derived"
 	"go-proxy/internal/logs"
 	"go-proxy/internal/network"
 	"go-proxy/internal/service"
+	"go-proxy/internal/store"
 	"go-proxy/internal/update"
 	"go-proxy/pkg/fileutil"
 )
@@ -255,6 +260,61 @@ func (a *App) CertificateEnsure(ctx context.Context, domain, email string) (Resu
 		return Result{Changed: true, Data: cert.Inspect()}, nil
 	})
 }
+
+// CertificatePort reports the port caddy-sub serves its site on, or moves
+// it there. The port must not belong to a node or a shadow-tls listener,
+// and must be free; port 80 stays with the certificate challenge.
+func (a *App) CertificatePort(ctx context.Context, value string) (Result, error) {
+	site, found := store.ReadCaddySite()
+	if !found {
+		return Result{}, Invalid("no certificate site is configured")
+	}
+	domain := cert.ReadDomain()
+	if value == "" {
+		if _, err := a.Snapshot(ctx); err != nil {
+			return Result{}, err
+		}
+		return Result{Data: map[string]any{"domain": domain, "port": site.Port}}, nil
+	}
+	port, err := strconv.Atoi(value)
+	if err != nil || port < 1 || port > 65535 {
+		return Result{}, Invalid("port must be 1 to 65535")
+	}
+	if port == 80 {
+		return Result{}, Invalid("port 80 is kept for certificate issuance")
+	}
+	return a.Operation(ctx, func() (Result, error) {
+		snapshot, err := a.Snapshot(ctx)
+		if err != nil {
+			return Result{}, err
+		}
+		data := map[string]any{"domain": domain, "port": port, "previous": site.Port}
+		if port == site.Port {
+			return Result{Data: data}, nil
+		}
+		if owner, taken := derived.OccupiedPorts(snapshot.Store)[port]; taken {
+			return Result{}, Invalid(fmt.Sprintf("port %d belongs to %s", port, owner))
+		}
+		for _, b := range snapshot.Bindings {
+			if b.ListenPort == port {
+				return Result{}, Invalid(fmt.Sprintf("port %d belongs to %s", port, b.ServiceName))
+			}
+		}
+		if !cert.CertExists(domain) {
+			return Result{}, Invalid("no certificate is issued for " + domain)
+		}
+		ln, err := net.Listen("tcp", net.JoinHostPort("", strconv.Itoa(port)))
+		if err != nil {
+			return Result{}, Invalid(fmt.Sprintf("port %d is in use", port))
+		}
+		_ = ln.Close()
+		if err := cert.MoveSite(ctx, port, func(fn func() error) error { return a.State(ctx, fn) }); err != nil {
+			return Result{}, &Error{Code: "certificate_failed", Stage: "caddy", Message: err.Error()}
+		}
+		return Result{Changed: true, Data: data}, nil
+	})
+}
+
 func Components(selector string, all bool) ([]core.Component, error) {
 	if selector == "" {
 		if all {

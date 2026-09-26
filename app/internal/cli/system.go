@@ -73,6 +73,23 @@ func registerSystem(r *Runner, root *cobra.Command) {
 	ensure.Flags().StringVar(&domain, "domain", "", "Certificate domain; the configured domain when omitted")
 	ensure.Flags().StringVar(&email, "email", "", "ACME contact email")
 	certificates.AddCommand(ensure)
+	portArgs := func(cmd *cobra.Command, args []string) error {
+		if err := atMostOne("port")(cmd, args); err != nil {
+			return err
+		}
+		if r.App.CertificateDomain() == "" {
+			return guidance("gproxy cert port needs a certificate: no certificate domain is configured",
+				[]string{"gproxy cert ensure --domain <domain> [--email <address>]"}, nil)
+		}
+		return nil
+	}
+	certificates.AddCommand(r.leaf("port [port]", "Show or move the port caddy serves its site on", portArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
+		value := ""
+		if len(args) > 0 {
+			value = args[0]
+		}
+		return r.App.CertificatePort(ctx, value)
+	}))
 	root.AddCommand(certificates)
 	cores := &cobra.Command{Use: "core", Short: "Inspect and update proxy cores"}
 	cores.AddCommand(r.leaf("version", "Inspect installed core versions", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {

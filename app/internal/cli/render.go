@@ -358,6 +358,8 @@ func render(w io.Writer, p palette, command string, data any) bool {
 		return renderPorts(w, p, fields)
 	case "gproxy cert status", "gproxy cert ensure":
 		return renderCertificate(w, p, data)
+	case "gproxy cert port":
+		return renderCaddyPort(w, p, fields)
 	case "gproxy core update":
 		return renderCoreUpdate(w, p, fields)
 	case "gproxy update":
@@ -608,6 +610,25 @@ func renderCertificate(w io.Writer, p palette, data any) bool {
 		return true
 	}
 	fmt.Fprintln(w, "domain: "+renderCert(p, status))
+	return true
+}
+
+// renderCaddyPort is one line: the port caddy serves its site on, and after
+// a move the port it left.
+func renderCaddyPort(w io.Writer, p palette, fields map[string]any) bool {
+	port, ok := fields["port"].(int)
+	if !ok {
+		return false
+	}
+	line := "caddy -> " + p.port(strconv.Itoa(port))
+	if previous, moved := fields["previous"].(int); moved {
+		if previous == port {
+			line += " " + note(p, "already there")
+		} else {
+			line += " " + note(p, "moved from "+strconv.Itoa(previous))
+		}
+	}
+	fmt.Fprintln(w, line)
 	return true
 }
 

@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"io/fs"
 	"net"
@@ -16,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -65,8 +67,26 @@ func WriteDomain(domain string) error {
 	return os.WriteFile(config.DomainFile, []byte(domain+"\n"), 0644)
 }
 
-// GenerateCaddyfile creates a Caddyfile for TLS certificate issuance.
+// GenerateCaddyfile creates a Caddyfile for TLS certificate issuance on the
+// port the site is already served on, keeping the ACME contact when no new
+// one is given.
 func GenerateCaddyfile(domain, email string) error {
+	site, found := store.ReadCaddySite()
+	if !found {
+		site.Port = store.DefaultCaddyPort
+	}
+	if email == "" {
+		email = site.Email
+	}
+	return generateCaddyfile(domain, email, site.Port)
+}
+
+// generateCaddyfile writes the site for domain and every configured TLS
+// node's name on port. The site is a static page, so a visitor, or a
+// prober, sees an ordinary web server rather than a one-word answer. On
+// 443 Caddy also redirects plain HTTP, as any website does; elsewhere it
+// leaves port 80 to the certificate challenge alone.
+func generateCaddyfile(domain, email string, port int) error {
 	if !IsValidDomain(domain) {
 		return fmt.Errorf("invalid certificate domain")
 	}
@@ -75,7 +95,11 @@ func GenerateCaddyfile(domain, email string) error {
 		if !IsValidEmail(email) {
 			return fmt.Errorf("invalid certificate email")
 		}
-		emailLine = "email " + email
+		emailLine = "\n    email " + email
+	}
+	redirects := ""
+	if port != 443 {
+		redirects = "\n    auto_https disable_redirects"
 	}
 	f, err := os.Open(config.SingBoxConfig)
 	if err != nil {
@@ -100,22 +124,111 @@ func GenerateCaddyfile(domain, email string) error {
 	}
 	sites := make([]string, 0, len(domains))
 	for name := range domains {
-		sites = append(sites, name+":18443")
+		sites = append(sites, fmt.Sprintf("%s:%d", name, port))
 	}
 	sort.Strings(sites)
-	content := fmt.Sprintf(`{
-    %s
-    auto_https disable_redirects
+	if err := writeSitePage(domain); err != nil {
+		return err
+	}
+	// HTTP/3 is left out so Caddy holds no UDP port a TUIC node might want.
+	content := fmt.Sprintf(`{%s%s
+    servers {
+        protocols h1 h2
+    }
 }
 
 %s {
     tls {
         protocols tls1.2 tls1.3
     }
-    respond "ok" 200
+    root * %s
+    file_server
 }
-`, emailLine, strings.Join(sites, ", "))
+`, emailLine, redirects, strings.Join(sites, ", "), config.CaddySiteDir)
 	return fileutil.AtomicWrite(config.CaddyFile, []byte(content))
+}
+
+// writeSitePage writes the placeholder page once. An existing page is the
+// operator's, and is never replaced.
+func writeSitePage(domain string) error {
+	index := filepath.Join(config.CaddySiteDir, "index.html")
+	if _, err := os.Stat(index); err == nil {
+		return nil
+	}
+	if err := os.MkdirAll(config.CaddySiteDir, 0755); err != nil {
+		return err
+	}
+	page := fmt.Sprintf(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>%[1]s</title>
+</head>
+<body>
+<h1>%[1]s</h1>
+<p>This site is under construction.</p>
+</body>
+</html>
+`, html.EscapeString(domain))
+	return fileutil.AtomicWrite(index, []byte(page))
+}
+
+// MoveSite serves the site on port instead and restarts caddy-sub. The
+// firewall opens the new port before Caddy binds it, and the move counts
+// only once the certificate is served there; otherwise the previous
+// Caddyfile is put back and Caddy restarted on its old port.
+func MoveSite(ctx context.Context, port int, state func(func() error) error) error {
+	previous, err := os.ReadFile(config.CaddyFile)
+	if err != nil {
+		return fmt.Errorf("read caddy configuration: %w", err)
+	}
+	domain := ReadDomain()
+	site, _ := store.ReadCaddySite()
+	restore := func(cause error) error {
+		if err := state(func() error { return fileutil.AtomicWrite(config.CaddyFile, previous) }); err != nil {
+			return fmt.Errorf("%w; restoring the previous caddy configuration failed: %v", cause, err)
+		}
+		_ = RestartCaddySub(ctx)
+		_ = refreshManagedFirewall(ctx)
+		return cause
+	}
+	if err := state(func() error { return generateCaddyfile(domain, site.Email, port) }); err != nil {
+		return err
+	}
+	if err := refreshManagedFirewall(ctx); err != nil {
+		return restore(err)
+	}
+	if err := RestartCaddySub(ctx); err != nil {
+		return restore(fmt.Errorf("restart caddy-sub: %w", err))
+	}
+	if err := waitForSite(ctx, domain, port); err != nil {
+		return restore(err)
+	}
+	return nil
+}
+
+// waitForSite waits until Caddy serves the domain's certificate on port.
+// systemd calling the unit active says only that the process started; a
+// port Caddy could not bind shows up here.
+func waitForSite(ctx context.Context, domain string, port int) error {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	var last error
+	for {
+		dialer := tls.Dialer{Config: &tls.Config{ServerName: domain, MinVersion: tls.VersionTLS12}}
+		conn, err := dialer.DialContext(ctx, "tcp", address)
+		if err == nil {
+			return conn.Close()
+		}
+		last = err
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("caddy did not serve %s on port %d: %v", domain, port, last)
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
 }
 
 // CertExists checks if TLS certificate files exist for the given domain

@@ -130,12 +130,16 @@ gproxy server stop sing-box --json
 gproxy cert status --json
 gproxy cert ensure --json
 gproxy cert ensure --domain proxy.example.com --email admin@example.com --json
+gproxy cert port
+gproxy cert port 443 --json
 gproxy log sing-box --lines 100 --json
 gproxy log proxy-watchdog --follow
 gproxy log sing-box --lines 500 --max-bytes 65536
 ```
 
 `cert status` and `cert ensure` answer in one line, `domain: proxy.example.com (expires in 88 days)` (or `(not issued)`, `(expired)`). `cert ensure` without `--domain` works on the configured domain: an existing certificate is reported as it stands, since Caddy renews it; a missing one is issued, which spends one of Let's Encrypt's five issuances per domain per week. With `--domain`, it issues for that domain. With neither a flag nor a configured domain it prints `gproxy cert ensure --domain <domain> [--email <address>]` and exits 2.
+
+`caddy-sub` issues the certificate and serves a static page for the domain from `/etc/go-proxy/conf/site`: gproxy writes a placeholder `index.html` once and never replaces it, so a page of your own stays. `cert port` answers `caddy -> 18443`, the port that page is served on, and `cert port <port>` moves it: `caddy -> 443 (moved from 18443)`, or `(already there)`. The move opens the new port in a managed firewall before Caddy binds it and counts only once Caddy serves the certificate there; otherwise the previous configuration is restored. A port that belongs to a node or a shadow-tls listener, port 80 (kept for the certificate challenge) or a port in use is refused with exit 2, and `protocol add` refuses Caddy's port. On 443 Caddy also redirects plain HTTP to HTTPS, as a website does. A host whose AnyTLS or VLESS-TLS node holds 443 answers a browser there with a certificate and then an empty reply, since those servers have no fallback; to put a real page on 443, remove that node, run `gproxy cert port 443` and add the node again with `--port auto`.
 
 `config validate` checks the managed configuration without changing anything: sing-box's configuration with `sing-box check`, the Snell listener port and PSK length, and each ShadowTLS binding's ports, SNI, protocol version and Snell backend, including that no two listeners share a port. It prints one line per component, each name in its own colour, `passed` and what was checked as a note; the first problem found stops it with `validation_failed` (or `validation_unavailable` when a core binary is missing) and a message naming it. `--json` carries `valid` and `checks`.
 

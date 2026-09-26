@@ -58,6 +58,9 @@ var (
 	SingBoxConfig   = filepath.Join(ConfDir, "sing-box.json")
 	SnellConfigFile = filepath.Join(ConfDir, "snell-v6.conf")
 	CaddyFile       = filepath.Join(ConfDir, "Caddyfile")
+	// CaddySiteDir is the page caddy-sub serves. gproxy writes a placeholder
+	// once and never replaces it, so an operator's own page stays.
+	CaddySiteDir = filepath.Join(ConfDir, "site")
 )
 
 // State this program owns. Losing any of it loses user credentials or the

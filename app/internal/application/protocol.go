@@ -269,6 +269,14 @@ func (a *App) ProtocolInstall(ctx context.Context, p ProtocolOptions) (Result, e
 		for _, b := range snapshot.Bindings {
 			used[b.ListenPort] = true
 		}
+		// Caddy's port is taken even while caddy-sub is stopped, when a
+		// probe would find it free.
+		if site, found := store.ReadCaddySite(); found {
+			if existing == nil && port == site.Port {
+				return Result{}, Invalid(fmt.Sprintf("port %d belongs to caddy; gproxy cert port <port> moves it", port))
+			}
+			used[site.Port] = true
+		}
 		if existing == nil {
 			port, err = availableProtocolPort(p.Type, port, used)
 			if err != nil {

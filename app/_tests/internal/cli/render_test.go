@@ -444,6 +444,19 @@ func TestDirectStrategyIsOneLine(t *testing.T) {
 	}
 }
 
+func TestCaddyPortIsOneLine(t *testing.T) {
+	for want, fields := range map[string]map[string]any{
+		"caddy -> 18443\n":                  {"domain": "a.example.org", "port": 18443},
+		"caddy -> 443 (moved from 18443)\n": {"domain": "a.example.org", "port": 443, "previous": 18443},
+		"caddy -> 443 (already there)\n":    {"domain": "a.example.org", "port": 443, "previous": 443},
+	} {
+		var out bytes.Buffer
+		if !render(&out, palette{}, "gproxy cert port", fields) || out.String() != want {
+			t.Fatalf("rendered %q, want %q", out.String(), want)
+		}
+	}
+}
+
 // A log is another program's output. It keeps its own lines, unnumbered and
 // unindented, because numbering would break a copied or grepped line and no
 // command takes a log line number the way --rules takes a rule index. That is
