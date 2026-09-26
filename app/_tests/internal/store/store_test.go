@@ -141,8 +141,47 @@ func TestSnellRoundtrip(t *testing.T) {
 	if conf2.Listen != conf.Listen || conf2.PSK != conf.PSK {
 		t.Error("roundtrip mismatch")
 	}
-	if conf2.IPv6 {
+	if conf2.Mode != "default" || conf2.DNSIPPreference != "default" {
 		t.Fatalf("roundtrip snell defaults mismatch: %+v", conf2)
+	}
+}
+
+// The file gproxy writes is the one snell-server --wizard writes: the same
+// keys in the same order, mode and dns-ip-preference explicit, and the
+// optional keys only when set. The deprecated ipv6 key is never written.
+func TestSnellConfigMatchesTheWizardLayout(t *testing.T) {
+	conf := &SnellConfig{Listen: "0.0.0.0:1443,[::]:1443", PSK: "testpsk1234567"}
+	want := "[snell-server]\nlisten = 0.0.0.0:1443,[::]:1443\npsk = testpsk1234567\nmode = default\ndns-ip-preference = default\n"
+	if got := string(conf.MarshalSnellConfig()); got != want {
+		t.Fatalf("defaults:\n%s\nwant:\n%s", got, want)
+	}
+	conf = &SnellConfig{Listen: "0.0.0.0:1443", PSK: "testpsk1234567", Mode: "unshaped", DNSIPPreference: "prefer-ipv6", DNS: "1.1.1.1,2606:4700:4700::1111", EgressInterface: "eth0"}
+	want = "[snell-server]\nlisten = 0.0.0.0:1443\npsk = testpsk1234567\nmode = unshaped\ndns-ip-preference = prefer-ipv6\ndns = 1.1.1.1,2606:4700:4700::1111\negress-interface = eth0\n"
+	got := string(conf.MarshalSnellConfig())
+	if got != want {
+		t.Fatalf("every key:\n%s\nwant:\n%s", got, want)
+	}
+	if back, err := ParseSnellConfig(got); err != nil || *back != *conf {
+		t.Fatalf("roundtrip: %+v %v", back, err)
+	}
+}
+
+// A file written before v6 documented dns-ip-preference is read the way
+// snell-server reads it.
+func TestSnellConfigReadsTheDeprecatedIPv6Key(t *testing.T) {
+	for content, want := range map[string]string{
+		"listen = 0.0.0.0:1443\npsk = testpsk1234567\nipv6 = false\n":                                  "ipv4-only",
+		"listen = 0.0.0.0:1443\npsk = testpsk1234567\nipv6 = true\n":                                   "default",
+		"listen = 0.0.0.0:1443\npsk = testpsk1234567\nipv6 = false\ndns-ip-preference = prefer-ipv6\n": "prefer-ipv6",
+		"listen = 0.0.0.0:1443\npsk = testpsk1234567\nipv-preference = ipv6-only\n":                    "ipv6-only",
+	} {
+		conf, err := ParseSnellConfig(content)
+		if err != nil || conf.DNSIPPreference != want || conf.Mode != "default" {
+			t.Fatalf("%q read as %+v %v, want %s", content, conf, err, want)
+		}
+		if strings.Contains(string(conf.MarshalSnellConfig()), "ipv6 =") {
+			t.Fatalf("rewrote the deprecated key: %s", conf.MarshalSnellConfig())
+		}
 	}
 }
 

@@ -77,8 +77,11 @@ type InstallParams struct {
 	SNI string // Server Name Indication / decoy domain
 	// TUIC parameters.
 	CongestionControl string // e.g., "bbr", "cubic"
-	// Snell parameters.
-	SnellIPv6 bool
+	// Snell parameters, written as the snell-server keys of the same names.
+	SnellMode            string
+	SnellDNSIPPreference string
+	SnellDNS             string
+	SnellEgressInterface string
 }
 
 // InstallResult holds the output of a protocol installation.
@@ -331,10 +334,14 @@ func buildSnellConfig(p InstallParams) (*store.SnellConfig, string, error) {
 		return nil, "", err
 	}
 	conf := &store.SnellConfig{
-		Listen: fmt.Sprintf("0.0.0.0:%d", p.Port),
-		PSK:    psk,
-		IPv6:   p.SnellIPv6,
+		Listen:          fmt.Sprintf("0.0.0.0:%d", p.Port),
+		PSK:             psk,
+		Mode:            p.SnellMode,
+		DNSIPPreference: p.SnellDNSIPPreference,
+		DNS:             p.SnellDNS,
+		EgressInterface: p.SnellEgressInterface,
 	}
+	conf.Mode, conf.DNSIPPreference = conf.Settings()
 	if sysutil.IPv6Available() {
 		conf.Listen += fmt.Sprintf(",[::]:%d", p.Port)
 	}

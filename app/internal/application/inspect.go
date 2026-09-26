@@ -132,7 +132,7 @@ func (a *App) ConfigView(ctx context.Context, kind string, secrets bool) (Result
 		if conf == nil {
 			return Result{}, &Error{Code: "not_found", Message: "snell is not configured"}
 		}
-		view := snellView{Listen: conf.Listen, PSK: conf.PSK, IPv6: conf.IPv6}
+		view := snellView{Listen: conf.Listen, PSK: conf.PSK, Mode: conf.Mode, DNSIPPreference: conf.DNSIPPreference, DNS: conf.DNS, EgressInterface: conf.EgressInterface}
 		if !secrets {
 			view.PSK = redactedValue
 		}
@@ -156,9 +156,12 @@ const redactedValue = "<redacted>"
 // The snell and shadow-tls views are structs rather than maps so they print in
 // the order a reader follows them: where it listens, then what it needs.
 type snellView struct {
-	Listen string `json:"listen"`
-	PSK    string `json:"psk"`
-	IPv6   bool   `json:"ipv6"`
+	Listen          string `json:"listen"`
+	PSK             string `json:"psk"`
+	Mode            string `json:"mode"`
+	DNSIPPreference string `json:"dns_ip_preference"`
+	DNS             string `json:"dns,omitempty"`
+	EgressInterface string `json:"egress_interface,omitempty"`
 }
 
 type shadowTLSView struct {
@@ -258,6 +261,9 @@ func validateConfiguration(ctx context.Context, snapshot *Snapshot) (Result, err
 	if conf := snapshot.Store.SnellConf; conf != nil {
 		if conf.Port() < 1 || conf.Port() > 65535 || len(conf.PSK) < 12 || len(conf.PSK) > 255 {
 			return Result{}, &Error{Code: "validation_failed", Message: "invalid snell listener or credential length"}
+		}
+		if mode, preference := conf.Settings(); !slices.Contains(store.SnellModes, mode) || !slices.Contains(store.SnellDNSIPPreferences, preference) {
+			return Result{}, &Error{Code: "validation_failed", Message: "invalid snell mode or dns-ip-preference"}
 		}
 		if !service.BinaryInstalled(service.Snell) {
 			return Result{}, &Error{Code: "validation_unavailable", Message: "snell core is not installed"}

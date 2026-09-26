@@ -57,7 +57,7 @@ func registerProtocol(r *Runner, root *cobra.Command) {
 		if args[0] == "vless" && reality {
 			p.Type = protocol.VLESSReality
 		}
-		for flag, allowed := range map[string]bool{"reality": args[0] == "vless", "sni": p.Type == protocol.VLESSReality, "congestion": args[0] == "tuic", "ipv6": args[0] == "snell", "domain": p.Type == protocol.VLESS || p.Type == protocol.TUIC || p.Type == protocol.AnyTLS, "email": p.Type == protocol.VLESS || p.Type == protocol.TUIC || p.Type == protocol.AnyTLS, "shadow-tls": args[0] == "snell", "shadow-tls-port": p.ShadowTLS, "shadow-tls-sni": p.ShadowTLS} {
+		for flag, allowed := range map[string]bool{"reality": args[0] == "vless", "sni": p.Type == protocol.VLESSReality, "congestion": args[0] == "tuic", "mode": args[0] == "snell", "dns-ip-preference": args[0] == "snell", "dns": args[0] == "snell", "egress-interface": args[0] == "snell", "domain": p.Type == protocol.VLESS || p.Type == protocol.TUIC || p.Type == protocol.AnyTLS, "email": p.Type == protocol.VLESS || p.Type == protocol.TUIC || p.Type == protocol.AnyTLS, "shadow-tls": args[0] == "snell", "shadow-tls-port": p.ShadowTLS, "shadow-tls-sni": p.ShadowTLS} {
 			if cmd.Flags().Changed(flag) && !allowed {
 				return application.Result{}, application.Invalid("--" + flag + " does not apply to this protocol")
 			}
@@ -72,7 +72,10 @@ func registerProtocol(r *Runner, root *cobra.Command) {
 	f.BoolVar(&reality, "reality", false, "Use Reality instead of certificate TLS")
 	f.StringVar(&p.SNI, "sni", "", "Reality handshake domain (default: random verified candidate)")
 	f.StringVar(&p.Congestion, "congestion", "bbr", "TUIC congestion: bbr or cubic")
-	f.BoolVar(&p.IPv6, "ipv6", false, "Enable Snell IPv6 egress")
+	f.StringVar(&p.Mode, "mode", "", "Snell mode: default or unshaped; default when omitted")
+	f.StringVar(&p.DNSIPPreference, "dns-ip-preference", "", "Snell address family preference: default, prefer-ipv4, prefer-ipv6, ipv4-only or ipv6-only; default when omitted")
+	f.StringVar(&p.DNS, "dns", "", "Snell resolvers, ip addresses separated by commas; the system resolver when omitted")
+	f.StringVar(&p.EgressInterface, "egress-interface", "", "Snell outgoing network interface; the routing table decides when omitted")
 	f.BoolVar(&p.ShadowTLS, "shadow-tls", false, "Wrap Snell with ShadowTLS v3")
 	f.StringVar(&p.ShadowTLSPort, "shadow-tls-port", "", "ShadowTLS listen port or auto")
 	f.StringVar(&p.ShadowTLSSNI, "shadow-tls-sni", "", "ShadowTLS domain (default: random verified candidate)")

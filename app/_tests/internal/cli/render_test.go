@@ -1773,7 +1773,7 @@ func TestConfigValidateIsOneLinePerComponent(t *testing.T) {
 	var out bytes.Buffer
 	render(&out, palette{}, "gproxy config validate", fields)
 	want := "sing-box    passed (full configuration checked by sing-box itself)\n" +
-		"snell       passed (listener port and psk length)\n" +
+		"snell       passed (listener port, psk length, mode and dns-ip-preference)\n" +
 		"shadow-tls  passed (listener ports, sni, version and snell backend)\n"
 	if out.String() != want {
 		t.Fatalf("got\n%s\nwant\n%s", out.String(), want)

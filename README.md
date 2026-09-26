@@ -21,6 +21,7 @@ gproxy user add alice
 gproxy protocol add                                   # lists every protocol with its options
 gproxy protocol add vless --reality --user alice --port auto
 gproxy protocol add tuic --user alice --port auto --domain proxy.example.com
+gproxy protocol add snell --user alice --port auto --mode default --dns-ip-preference default --shadow-tls
 gproxy sub alice                                      # client links and configuration
 gproxy status                                         # the dashboard
 ```

@@ -58,8 +58,8 @@ func renderSnellSurge(entry derived.MembershipEntry, conf *store.SnellConfig, ta
 	if conf == nil || conf.PSK == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s = snell, %s, %d, psk=%s, version=6, reuse=true, tfo=true",
-		tag, targetHost, conf.Port(), conf.PSK)
+	return fmt.Sprintf("%s = snell, %s, %d, psk=%s, version=6, mode=%s, reuse=true, tfo=true",
+		tag, targetHost, conf.Port(), conf.PSK, snellMode(conf))
 }
 
 func renderShadowTLSSnellSurge(entry derived.MembershipEntry, conf *store.SnellConfig, binding service.ShadowTLSBinding, targetHost, tag string) string {
@@ -70,8 +70,15 @@ func renderShadowTLSSnellSurge(entry derived.MembershipEntry, conf *store.SnellC
 	if version == 0 {
 		version = 3
 	}
-	return fmt.Sprintf("%s = snell, %s, %d, psk=%s, version=6, reuse=true, tfo=true, shadow-tls-password=%s, shadow-tls-sni=%s, shadow-tls-version=%s",
-		tag, targetHost, binding.ListenPort, conf.PSK, binding.Password, binding.SNI, strconv.Itoa(version))
+	return fmt.Sprintf("%s = snell, %s, %d, psk=%s, version=6, mode=%s, reuse=true, tfo=true, shadow-tls-password=%s, shadow-tls-sni=%s, shadow-tls-version=%s",
+		tag, targetHost, binding.ListenPort, conf.PSK, snellMode(conf), binding.Password, binding.SNI, strconv.Itoa(version))
+}
+
+// snellMode is the server's mode, which the client must match: Surge
+// assumes default, so a server set otherwise is unreachable without it.
+func snellMode(conf *store.SnellConfig) string {
+	mode, _ := conf.Settings()
+	return mode
 }
 
 var (

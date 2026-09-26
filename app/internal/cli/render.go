@@ -1866,7 +1866,7 @@ func renderValidation(w io.Writer, p palette, fields map[string]any) bool {
 	colours := map[string]string{"sing-box": ansiBackend, "snell": ansiPort, "shadow-tls": ansiProtocol}
 	checked := map[string]string{
 		"core":                 "full configuration checked by sing-box itself",
-		"configuration schema": "listener port and psk length",
+		"configuration schema": "listener port, psk length, mode and dns-ip-preference",
 		"binding schema":       "listener ports, sni, version and snell backend",
 	}
 	width := 0

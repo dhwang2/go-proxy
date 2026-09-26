@@ -911,3 +911,32 @@ func TestCertificatePortRefusesPortsThatAreNotCaddys(t *testing.T) {
 		t.Fatalf("a node was offered caddy's port: %v", err)
 	}
 }
+
+// Snell's settings take the values snell-server v6 documents, except
+// unsafe-raw, which would send traffic in plaintext; they apply to snell only.
+func TestSnellSettingsAreValidated(t *testing.T) {
+	base := ProtocolOptions{Type: protocol.Snell, User: "alice", Port: "auto"}
+	for _, bad := range []struct {
+		change  func(*ProtocolOptions)
+		refusal string
+	}{
+		{func(p *ProtocolOptions) { p.Mode = "unsafe-raw" }, "plaintext"},
+		{func(p *ProtocolOptions) { p.Mode = "fast" }, "--mode"},
+		{func(p *ProtocolOptions) { p.DNSIPPreference = "ipv6" }, "--dns-ip-preference"},
+		{func(p *ProtocolOptions) { p.DNS = "1.1.1.1,dns.google" }, "--dns"},
+		{func(p *ProtocolOptions) { p.EgressInterface = "no-such-if0" }, "--egress-interface"},
+		{func(p *ProtocolOptions) { p.Type = protocol.TUIC; p.Congestion = "bbr"; p.Mode = "unshaped" }, "only to snell"},
+	} {
+		p := base
+		bad.change(&p)
+		err := ValidateProtocolOptions(p)
+		if err == nil || !strings.Contains(err.Error(), bad.refusal) {
+			t.Fatalf("%+v: %v", p, err)
+		}
+	}
+	good := base
+	good.Mode, good.DNSIPPreference, good.DNS = "unshaped", "prefer-ipv4", "1.1.1.1, 2606:4700:4700::1111"
+	if err := ValidateProtocolOptions(good); err != nil {
+		t.Fatal(err)
+	}
+}

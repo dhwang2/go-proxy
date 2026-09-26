@@ -25,30 +25,36 @@ import (
 )
 
 type ProtocolOptions struct {
-	Type          protocol.Type
-	User          string
-	Port          string
-	Domain        string
-	Email         string
-	SNI           string
-	Congestion    string
-	IPv6          bool
-	ShadowTLS     bool
-	ShadowTLSPort string
-	ShadowTLSSNI  string
+	Type       protocol.Type
+	User       string
+	Port       string
+	Domain     string
+	Email      string
+	SNI        string
+	Congestion string
+	// Snell server settings; empty means snell-server's default, or, when
+	// joining the existing node, whatever it already has.
+	Mode            string
+	DNSIPPreference string
+	DNS             string
+	EgressInterface string
+	ShadowTLS       bool
+	ShadowTLSPort   string
+	ShadowTLSSNI    string
 }
 
 type ProtocolNode struct {
-	Tag        string           `json:"tag"`
-	Type       string           `json:"type"`
-	Port       int              `json:"port"`
-	Transport  string           `json:"transport"`
-	Security   string           `json:"security"`
-	Users      []string         `json:"users"`
-	SNI        string           `json:"sni,omitempty"`
-	Congestion string           `json:"congestion,omitempty"`
-	IPv6       bool             `json:"ipv6,omitempty"`
-	ShadowTLS  *ProtocolWrapper `json:"shadow_tls,omitempty"`
+	Tag             string           `json:"tag"`
+	Type            string           `json:"type"`
+	Port            int              `json:"port"`
+	Transport       string           `json:"transport"`
+	Security        string           `json:"security"`
+	Users           []string         `json:"users"`
+	SNI             string           `json:"sni,omitempty"`
+	Congestion      string           `json:"congestion,omitempty"`
+	Mode            string           `json:"mode,omitempty"`
+	DNSIPPreference string           `json:"dns_ip_preference,omitempty"`
+	ShadowTLS       *ProtocolWrapper `json:"shadow_tls,omitempty"`
 	// Added names the user a `protocol add` enrolled, and AlreadyMember says
 	// that user was enrolled before the command ran. Only an install sets
 	// them.
@@ -85,7 +91,8 @@ func protocolNodes(snapshot *Snapshot) []ProtocolNode {
 	}
 	if s.SnellConf != nil {
 		name := s.UserMeta.Name[store.UserKey("snell", store.SnellTag, s.SnellConf.PSK)]
-		nodes = append(nodes, ProtocolNode{Tag: store.SnellTag, Type: "snell", Port: s.SnellConf.Port(), Transport: "tcp", Security: "none", Users: []string{name}, IPv6: s.SnellConf.IPv6})
+		mode, preference := s.SnellConf.Settings()
+		nodes = append(nodes, ProtocolNode{Tag: store.SnellTag, Type: "snell", Port: s.SnellConf.Port(), Transport: "tcp", Security: "none", Users: []string{name}, Mode: mode, DNSIPPreference: preference})
 	}
 	for i := range nodes {
 		n := &nodes[i]
@@ -139,6 +146,12 @@ func ValidateProtocolOptions(p ProtocolOptions) error {
 	if p.Type == protocol.TUIC && p.Congestion != "bbr" && p.Congestion != "cubic" {
 		return Invalid("--congestion must be bbr or cubic")
 	}
+	if p.Type != protocol.Snell && (p.Mode != "" || p.DNSIPPreference != "" || p.DNS != "" || p.EgressInterface != "") {
+		return Invalid("snell settings apply only to snell")
+	}
+	if err := validateSnellSettings(p); err != nil {
+		return err
+	}
 	if p.ShadowTLS {
 		if p.Type != protocol.Snell {
 			return Invalid("shadow-tls requires snell")
@@ -153,6 +166,59 @@ func ValidateProtocolOptions(p ProtocolOptions) error {
 		}
 	}
 	return nil
+}
+
+// validateSnellSettings checks the snell-server keys against the values
+// snell-server v6 documents. unsafe-raw is refused: it sends traffic in
+// plaintext, which only an encrypting tunnel makes safe, and ShadowTLS
+// authenticates what it carries without encrypting it.
+func validateSnellSettings(p ProtocolOptions) error {
+	if p.Mode == "unsafe-raw" {
+		return Invalid("--mode unsafe-raw sends traffic in plaintext; use default or unshaped")
+	}
+	if p.Mode != "" && !slices.Contains(store.SnellModes, p.Mode) {
+		return Invalid("--mode must be default or unshaped")
+	}
+	if p.DNSIPPreference != "" && !slices.Contains(store.SnellDNSIPPreferences, p.DNSIPPreference) {
+		return Invalid("--dns-ip-preference must be one of " + strings.Join(store.SnellDNSIPPreferences, ", "))
+	}
+	if p.DNS != "" {
+		for _, server := range strings.Split(p.DNS, ",") {
+			if net.ParseIP(strings.TrimSpace(server)) == nil {
+				return Invalid("--dns must be ip addresses separated by commas")
+			}
+		}
+	}
+	if p.EgressInterface != "" {
+		if _, err := net.InterfaceByName(p.EgressInterface); err != nil {
+			return Invalid("--egress-interface names no interface on this host")
+		}
+	}
+	return nil
+}
+
+// snellConflicts reports whether a setting named in p differs from the
+// existing node's. An unnamed setting keeps what the node has.
+func snellConflicts(conf *store.SnellConfig, p ProtocolOptions) bool {
+	if conf == nil {
+		return false
+	}
+	differs := func(requested, current string) bool { return requested != "" && requested != current }
+	mode, preference := conf.Settings()
+	return differs(p.Mode, mode) || differs(p.DNSIPPreference, preference) ||
+		differs(normalizeDNS(p.DNS), conf.DNS) || differs(p.EgressInterface, conf.EgressInterface)
+}
+
+// normalizeDNS writes a resolver list the way the config file keeps it.
+func normalizeDNS(value string) string {
+	if value == "" {
+		return ""
+	}
+	servers := strings.Split(value, ",")
+	for i := range servers {
+		servers[i] = strings.TrimSpace(servers[i])
+	}
+	return strings.Join(servers, ",")
 }
 
 func parseProtocolPort(value string) (int, error) {
@@ -247,7 +313,7 @@ func (a *App) ProtocolInstall(ctx context.Context, p ProtocolOptions) (Result, e
 		}
 		if existing != nil {
 			port = existing.Port
-			if p.Type == protocol.TUIC && existing.Congestion != p.Congestion || p.Type == protocol.Snell && existing.IPv6 != p.IPv6 {
+			if p.Type == protocol.TUIC && existing.Congestion != p.Congestion || p.Type == protocol.Snell && snellConflicts(s.SnellConf, p) {
 				return Result{}, Invalid("existing node settings conflict with requested options")
 			}
 			if p.Domain != "" && existing.SNI != p.Domain || p.SNI != "" && existing.SNI != p.SNI {
@@ -379,7 +445,8 @@ func (a *App) ProtocolInstall(ctx context.Context, p ProtocolOptions) (Result, e
 			if _, err = user.Add(s, p.User, false); err != nil {
 				return Result{}, err
 			}
-			installed, installErr := protocol.Install(s, protocol.InstallParams{ProtoType: p.Type, Port: port, UserName: p.User, Domain: p.Domain, SNI: p.SNI, CongestionControl: p.Congestion, SnellIPv6: p.IPv6})
+			installed, installErr := protocol.Install(s, protocol.InstallParams{ProtoType: p.Type, Port: port, UserName: p.User, Domain: p.Domain, SNI: p.SNI, CongestionControl: p.Congestion,
+				SnellMode: p.Mode, SnellDNSIPPreference: p.DNSIPPreference, SnellDNS: normalizeDNS(p.DNS), SnellEgressInterface: p.EgressInterface})
 			if installErr != nil {
 				return Result{}, installErr
 			}

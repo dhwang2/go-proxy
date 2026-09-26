@@ -51,10 +51,10 @@ var protocolCatalogue = []protocolEntry{
 	},
 	{
 		Name:     "snell",
-		Usage:    "--user <name> --port <port|auto> [--ipv6] [--shadow-tls [--shadow-tls-port <port|auto>] [--shadow-tls-sni <domain>]]",
+		Usage:    "--user <name> --port <port|auto> [--mode <default|unshaped>] [--dns-ip-preference <preference>] [--dns <ip,...>] [--egress-interface <name>] [--shadow-tls [--shadow-tls-port <port|auto>] [--shadow-tls-sni <domain>]]",
 		Variants: []string{"v6", "tls"},
 		Summary:  "Snell v6, one node per host, optionally wrapped in ShadowTLS",
-		Options:  []string{"--port <port|auto>", "--ipv6", "--shadow-tls", "--shadow-tls-port <port|auto>", "--shadow-tls-sni <domain>"},
+		Options:  []string{"--port <port|auto>", "--mode <default|unshaped>", "--dns-ip-preference <preference>", "--dns <ip,...>", "--egress-interface <name>", "--shadow-tls", "--shadow-tls-port <port|auto>", "--shadow-tls-sni <domain>"},
 	},
 }
 

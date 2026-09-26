@@ -56,10 +56,30 @@ Ordinary TLS protocols need a domain you control and a usable certificate; rando
 gproxy protocol add vless --user alice --port 24443 --domain proxy.example.com --json
 gproxy protocol add tuic --user alice --port 24444 --domain proxy.example.com --congestion cubic --json
 gproxy protocol add anytls --user alice --port 24445 --domain proxy.example.com --json
-gproxy protocol add snell --user alice --port auto --ipv6 --json
+gproxy protocol add snell --user alice --port auto --json
+gproxy protocol add snell --user alice --port auto --mode unshaped --dns-ip-preference prefer-ipv4 --dns 1.1.1.1,8.8.8.8 --json
 ```
 
-TUIC defaults to `bbr`. Snell supports one owner and its IPv6 flag controls IPv6 egress. Supported listeners use dual stack when available.
+TUIC defaults to `bbr`. Supported listeners use dual stack when available.
+
+Snell supports one owner. Its server file, `/etc/go-proxy/conf/snell-v6.conf`, is the one `snell-server --wizard` writes: `listen`, `psk`, `mode` and `dns-ip-preference` always, then `dns` and `egress-interface` when set.
+
+```ini
+[snell-server]
+listen = 0.0.0.0:1443,[::]:1443
+psk = <32 random characters>
+mode = default
+dns-ip-preference = default
+```
+
+Each of those keys is a flag of `protocol add snell`, and an omitted one is snell-server's default:
+
+- `--mode default|unshaped`: `default` encrypts and shapes traffic from the PSK, which is Snell v6's fingerprint defence; `unshaped` only encrypts, about 10% faster by Snell's own figure. `unsafe-raw` is refused: it sends traffic in plaintext, and ShadowTLS authenticates what it carries without encrypting it. The Surge line carries `mode=` with the server's value, since client and server must agree.
+- `--dns-ip-preference default|prefer-ipv4|prefer-ipv6|ipv4-only|ipv6-only`: which address family Snell dials a destination over.
+- `--dns <ip,...>`: resolvers Snell uses in place of the system's.
+- `--egress-interface <name>`: the interface Snell's outgoing sockets bind to; it must exist on the host.
+
+The deprecated `ipv6` key is no longer written. A file that still has it is read the way snell-server reads it (`false` is `ipv4-only`, `true` is `default`) and rewritten in the documented keys the next time the node is installed. Joining the existing node with a setting that differs from its own fails rather than changing it.
 
 Wrap Snell during installation:
 

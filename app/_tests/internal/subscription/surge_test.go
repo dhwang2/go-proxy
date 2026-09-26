@@ -75,6 +75,7 @@ func TestRenderSnellSurgeIncludesRequiredParams(t *testing.T) {
 	for _, want := range []string{
 		"psk=secret",
 		"version=6",
+		"mode=default",
 		"reuse=true",
 		"tfo=true",
 	} {
@@ -125,6 +126,7 @@ func TestRenderShadowTLSSnellSurgeIncludesShadowTLSParams(t *testing.T) {
 		"8443",
 		"psk=secret",
 		"version=6",
+		"mode=default",
 		"shadow-tls-password=shadow-pass",
 		"shadow-tls-sni=www.microsoft.com",
 		"shadow-tls-version=3",
@@ -316,5 +318,21 @@ func TestMihomoMappingCompactsOnlyWhereItIsSafe(t *testing.T) {
 	}
 	if strings.Contains(got, ":\"") {
 		t.Fatalf("a colon sits against a quoted value: %q", got)
+	}
+}
+
+// Surge assumes mode=default, so a server set otherwise is reachable only
+// when the line carries the server's mode.
+func TestRenderSnellSurgeCarriesTheServersMode(t *testing.T) {
+	entry := derived.MembershipEntry{Proto: store.SnellTag, Tag: store.SnellTag, Port: 1443, UserID: "secret", UserName: "alice"}
+	conf := &store.SnellConfig{Listen: "0.0.0.0:1443", PSK: "secret", Mode: "unshaped"}
+	binding := service.ShadowTLSBinding{ListenPort: 8443, BackendPort: 1443, BackendProto: "snell", SNI: "www.example.org", Password: "p", Version: 3}
+	for name, line := range map[string]string{
+		"snell":            renderSnellSurge(entry, conf, "1.2.3.4", "snell-alice"),
+		"shadow-tls-snell": renderShadowTLSSnellSurge(entry, conf, binding, "1.2.3.4", "snell-alice"),
+	} {
+		if !strings.Contains(line, ", mode=unshaped,") {
+			t.Fatalf("%s line lacks the server's mode: %s", name, line)
+		}
 	}
 }
