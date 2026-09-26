@@ -325,6 +325,8 @@ func render(w io.Writer, p palette, command string, data any) bool {
 		return renderDirect(w, p, fields)
 	case "gproxy log":
 		return renderLog(w, p, fields)
+	case "gproxy config validate":
+		return renderValidation(w, p, fields)
 	case "gproxy config view":
 		return renderConfig(w, p, fields)
 	case "gproxy route final list", "gproxy route final set":
@@ -1828,6 +1830,43 @@ func renderSubscription(w io.Writer, p palette, fields map[string]any) bool {
 		if _, err := fmt.Fprintln(w, content); err != nil {
 			return true
 		}
+	}
+	return true
+}
+
+// renderValidation is one line per checked component, each name in its own
+// colour: the state, and in the note what was checked. A check that fails
+// stops the command with an error, so the lines here are the checks passed.
+func renderValidation(w io.Writer, p palette, fields map[string]any) bool {
+	checks, ok := fields["checks"].([]map[string]string)
+	if !ok {
+		return false
+	}
+	colours := map[string]string{"sing-box": ansiBackend, "snell": ansiPort, "shadow-tls": ansiProtocol}
+	checked := map[string]string{
+		"core":                 "full configuration checked by sing-box itself",
+		"configuration schema": "listener port and psk length",
+		"binding schema":       "listener ports, sni, version and snell backend",
+	}
+	width := 0
+	for _, check := range checks {
+		width = max(width, displayWidth(clean(check["component"])))
+	}
+	for _, check := range checks {
+		component := clean(check["component"])
+		colour, known := colours[component]
+		if !known {
+			colour = ansiLabel
+		}
+		state := p.running(clean(check["state"]))
+		if check["state"] != "passed" {
+			state = p.stopped(clean(check["state"]))
+		}
+		what := checked[check["validation"]]
+		if what == "" {
+			what = check["validation"]
+		}
+		fmt.Fprintln(w, p.wrap(colour, pad(component, width))+"  "+state+" "+note(p, what))
 	}
 	return true
 }

@@ -1697,6 +1697,7 @@ func TestBracketedNotesAreLowercaseAndSpaced(t *testing.T) {
 		{"gproxy network bbr status", map[string]any{"current": "cubic", "enabled": false}},
 		{"gproxy uninstall", map[string]any{"paths": []string{"/usr/bin/gproxy"}, "bashrc_block": "/etc/bash.bashrc", "firewall_table": "inet proxy_firewall"}},
 		{"gproxy protocol list", map[string]any{"protocols": catalogueData()}},
+		{"gproxy config validate", map[string]any{"checks": []map[string]string{{"component": "sing-box", "validation": "core", "state": "passed"}}}},
 	}
 	for command, data := range numberedLayoutCases() {
 		cases = append(cases, struct {
@@ -1745,5 +1746,29 @@ func TestCoreVersionIsUnnumbered(t *testing.T) {
 	})
 	if want := "sing-box  1.14.2\ncaddy     not installed\n"; out.String() != want {
 		t.Fatalf("got %q, want %q", out.String(), want)
+	}
+}
+
+// config validate is one line per component: its name in its own colour, the
+// state, and what was checked as a note.
+func TestConfigValidateIsOneLinePerComponent(t *testing.T) {
+	fields := map[string]any{"valid": true, "checks": []map[string]string{
+		{"component": "sing-box", "validation": "core", "state": "passed"},
+		{"component": "snell", "validation": "configuration schema", "state": "passed"},
+		{"component": "shadow-tls", "validation": "binding schema", "state": "passed"},
+	}}
+	var out bytes.Buffer
+	render(&out, palette{}, "gproxy config validate", fields)
+	want := "sing-box    passed (full configuration checked by sing-box itself)\n" +
+		"snell       passed (listener port and psk length)\n" +
+		"shadow-tls  passed (listener ports, sni, version and snell backend)\n"
+	if out.String() != want {
+		t.Fatalf("got\n%s\nwant\n%s", out.String(), want)
+	}
+	var coloured bytes.Buffer
+	render(&coloured, palette{on: true}, "gproxy config validate", fields)
+	lines := strings.Split(coloured.String(), "\n")
+	if !strings.HasPrefix(lines[0], ansiBackend) || !strings.HasPrefix(lines[1], ansiPort) || !strings.HasPrefix(lines[2], ansiProtocol) {
+		t.Fatalf("components are not told apart by colour: %q", coloured.String())
 	}
 }
