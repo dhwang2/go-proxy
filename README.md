@@ -69,9 +69,9 @@ gproxy config validate
 
 gproxy core version|check|update [<component>|--all] [--version <v>]
 
-gproxy network bbr status|enable|disable
-gproxy network firewall status|apply|release|add|remove [<port>/<tcp|udp|both>]
-gproxy network fail2ban status|enable|disable
+gproxy network bbr status|enable|disable            # on by default from a fresh install
+gproxy network firewall status|apply|release|add|remove [<port>/<tcp|udp|both>]    # off until applied
+gproxy network fail2ban status|enable|disable      # off until enabled
 
 gproxy log <service> [--lines <n>] [--max-bytes <n>] [--follow]
 gproxy cert status|ensure [--domain <domain>] [--email <address>]

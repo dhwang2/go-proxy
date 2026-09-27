@@ -27,7 +27,8 @@ func (a *App) Init(ctx context.Context) (Result, error) {
 	return a.Operation(ctx, func() (Result, error) {
 		_, before := os.Stat(config.SingBoxConfig)
 		a.Progress("initializing runtime")
-		changed := os.IsNotExist(before)
+		fresh := os.IsNotExist(before)
+		changed := fresh
 		if err := a.State(ctx, func() error {
 			if err := config.Bootstrap(); err != nil {
 				return err
@@ -76,8 +77,38 @@ func (a *App) Init(ctx context.Context) (Result, error) {
 				}
 			}
 		}
-		return Result{Changed: changed, Data: map[string]any{"initialized": true, "runtime": config.WorkDir}}, nil
+		data := map[string]any{"initialized": true, "runtime": config.WorkDir}
+		// BBR is on by default, the firewall and fail2ban only on request.
+		// Only a fresh runtime turns BBR on: init runs again on every
+		// install and update, and an operator's `bbr disable` must stay.
+		if fresh {
+			data["bbr"] = a.defaultBBR(ctx)
+			changed = true
+		}
+		return Result{Changed: changed, Data: data}, nil
 	})
+}
+
+// defaultBBR turns BBR on and reads the kernel back, so the answer is what
+// the kernel runs rather than what was asked. BBR already on, from any file,
+// is left as it is. A kernel that refuses it does not fail the install: the
+// answer says why, and `network bbr status` says the same afterwards.
+func (a *App) defaultBBR(ctx context.Context) string {
+	if enabled, _, err := network.BBRStatus(); err == nil && enabled {
+		return "already enabled"
+	}
+	a.Progress("enabling bbr")
+	if err := network.EnableBBR(ctx); err != nil {
+		return "unavailable: " + err.Error()
+	}
+	enabled, current, err := network.BBRStatus()
+	if err != nil {
+		return "unavailable: " + err.Error()
+	}
+	if !enabled {
+		return "unavailable: the kernel still uses " + current
+	}
+	return "enabled"
 }
 
 // ManagedServiceNames lists the selectors a service action accepts, for the

@@ -9,6 +9,7 @@ import (
 
 	"go-proxy/internal/config"
 	"go-proxy/internal/core"
+	"go-proxy/internal/network"
 )
 
 func TestSystemSelectorsRequireUnambiguousManagedScope(t *testing.T) {
@@ -173,5 +174,41 @@ func TestRemoveMarkedBlockTakesOnlyTheBlock(t *testing.T) {
 	}
 	if err := removeMarkedBlock(filepath.Join(dir, "absent"), begin, end); err != nil {
 		t.Fatalf("an absent file is an error: %v", err)
+	}
+}
+
+// A fresh runtime turns BBR on and reports what the kernel runs afterwards:
+// BBR already on is left alone, a kernel that switches says enabled, and one
+// that refuses is reported without failing the install.
+func TestDefaultBBRReportsWhatTheKernelRuns(t *testing.T) {
+	dir := t.TempDir()
+	savedCC, savedFile := network.CongestionControlPath, network.BBRSysctlPath
+	network.CongestionControlPath = filepath.Join(dir, "tcp_congestion_control")
+	network.BBRSysctlPath = filepath.Join(dir, "90-go-proxy-bbr.conf")
+	t.Cleanup(func() { network.CongestionControlPath, network.BBRSysctlPath = savedCC, savedFile })
+	t.Setenv("PATH", dir)
+	t.Setenv("CC_FILE", network.CongestionControlPath)
+	stub := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"+body), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stub("modprobe", "exit 0\n")
+	a := New(func(string) {})
+	for _, c := range []struct {
+		kernel, sysctl, want string
+	}{
+		{"bbr", "exit 1\n", "already enabled"},
+		{"cubic", "case \"$2\" in net.ipv4.tcp_congestion_control=*) echo \"${2#*=}\" > \"$CC_FILE\";; esac\n", "enabled"},
+		{"cubic", "echo 'sysctl: setting key: No such file or directory' >&2; exit 1\n", "unavailable"},
+		{"cubic", "exit 0\n", "unavailable: the kernel still uses cubic"},
+	} {
+		if err := os.WriteFile(network.CongestionControlPath, []byte(c.kernel+"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		stub("sysctl", c.sysctl)
+		if got := a.defaultBBR(context.Background()); !strings.HasPrefix(got, c.want) {
+			t.Fatalf("kernel %s: got %q, want %q", c.kernel, got, c.want)
+		}
 	}
 }

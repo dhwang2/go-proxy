@@ -444,6 +444,21 @@ func TestDirectStrategyIsOneLine(t *testing.T) {
 	}
 }
 
+// A fresh init says whether BBR is on, in the kernel's words; an update's
+// init, which leaves BBR alone, says nothing about it.
+func TestInitReportsDefaultBBR(t *testing.T) {
+	for want, fields := range map[string]map[string]any{
+		"1.runtime  /etc/go-proxy\n2.bbr      enabled\n":                        {"runtime": "/etc/go-proxy", "bbr": "enabled"},
+		"1.runtime  /etc/go-proxy\n2.bbr      unavailable: no tcp_bbr module\n": {"runtime": "/etc/go-proxy", "bbr": "unavailable: no tcp_bbr module"},
+		"1.runtime  /etc/go-proxy\n":                                            {"runtime": "/etc/go-proxy"},
+	} {
+		var out bytes.Buffer
+		if !render(&out, palette{}, "gproxy init", fields) || out.String() != want {
+			t.Fatalf("rendered %q, want %q", out.String(), want)
+		}
+	}
+}
+
 func TestCaddyPortIsOneLine(t *testing.T) {
 	for want, fields := range map[string]map[string]any{
 		"caddy -> 18443\n":                  {"domain": "a.example.org", "port": 18443},

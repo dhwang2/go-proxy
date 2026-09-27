@@ -741,7 +741,15 @@ func renderInit(w io.Writer, p palette, fields map[string]any) bool {
 	if !ok {
 		return false
 	}
-	return writeRows(w, p, []row{{"runtime", p.sys(clean(runtime))}})
+	rows := []row{{"runtime", p.sys(clean(runtime))}}
+	if bbr, ok := fields["bbr"].(string); ok {
+		state := p.ok(clean(bbr))
+		if strings.HasPrefix(bbr, "unavailable") {
+			state = p.bad(clean(bbr))
+		}
+		rows = append(rows, row{"bbr", state})
+	}
+	return writeRows(w, p, rows)
 }
 
 // renderServiceTable takes either the status map or the bare slice a service
