@@ -26,7 +26,7 @@ func TestCaddyfileRetainsConfiguredTLSNames(t *testing.T) {
 	if err := os.WriteFile(config.SingBoxConfig, []byte(input), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := GenerateCaddyfile("new.example.org", ""); err != nil {
+	if err := GenerateCaddyfile("new.example.org", "", 0); err != nil {
 		t.Fatal(err)
 	}
 	content, err := os.ReadFile(config.CaddyFile)
@@ -46,7 +46,7 @@ func TestCaddyfileRetainsConfiguredTLSNames(t *testing.T) {
 	if err := os.WriteFile(config.SingBoxConfig, []byte("{"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := GenerateCaddyfile("another.example.org", ""); err == nil {
+	if err := GenerateCaddyfile("another.example.org", "", 0); err == nil {
 		t.Fatal("accepted unreadable configured domains")
 	}
 	after, err := os.ReadFile(config.CaddyFile)
@@ -71,7 +71,7 @@ func TestCaddyfileKeepsPortContactAndPage(t *testing.T) {
 	if err := os.WriteFile(config.SingBoxConfig, []byte(`{"inbounds":[]}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := GenerateCaddyfile("a.example.org", "ops@example.org"); err != nil {
+	if err := GenerateCaddyfile("a.example.org", "ops@example.org", 0); err != nil {
 		t.Fatal(err)
 	}
 	first, _ := os.ReadFile(config.CaddyFile)
@@ -90,7 +90,8 @@ func TestCaddyfileKeepsPortContactAndPage(t *testing.T) {
 	if err := os.WriteFile(config.CaddyFile, []byte(strings.ReplaceAll(string(first), ":18443", ":443")), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := GenerateCaddyfile("a.example.org", ""); err != nil {
+	// The site already on 443 stays there: the port is only for a new one.
+	if err := GenerateCaddyfile("a.example.org", "", 18443); err != nil {
 		t.Fatal(err)
 	}
 	again, _ := os.ReadFile(config.CaddyFile)
@@ -102,5 +103,25 @@ func TestCaddyfileKeepsPortContactAndPage(t *testing.T) {
 	}
 	if page, _ := os.ReadFile(index); string(page) != "mine" {
 		t.Fatalf("the operator's page was replaced: %q", page)
+	}
+}
+
+// A new site goes where it is told; 0 is the out-of-the-way default.
+func TestNewCaddySiteTakesTheGivenPort(t *testing.T) {
+	dir := t.TempDir()
+	oldConfig, oldCaddy, oldSite := config.SingBoxConfig, config.CaddyFile, config.CaddySiteDir
+	config.SingBoxConfig = filepath.Join(dir, "sing-box.json")
+	config.CaddyFile = filepath.Join(dir, "Caddyfile")
+	config.CaddySiteDir = filepath.Join(dir, "site")
+	t.Cleanup(func() { config.SingBoxConfig = oldConfig; config.CaddyFile = oldCaddy; config.CaddySiteDir = oldSite })
+	if err := os.WriteFile(config.SingBoxConfig, []byte(`{"inbounds":[]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateCaddyfile("a.example.org", "", 443); err != nil {
+		t.Fatal(err)
+	}
+	content, _ := os.ReadFile(config.CaddyFile)
+	if !strings.Contains(string(content), "a.example.org:443 {") || strings.Contains(string(content), "disable_redirects") {
+		t.Fatalf("new site on 443:\n%s", content)
 	}
 }

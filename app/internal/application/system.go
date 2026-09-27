@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -244,7 +243,8 @@ func (a *App) CertificateEnsure(ctx context.Context, domain, email string) (Resu
 		return Result{}, Invalid("invalid certificate email")
 	}
 	return a.Operation(ctx, func() (Result, error) {
-		if _, err := a.Snapshot(ctx); err != nil {
+		snapshot, err := a.Snapshot(ctx)
+		if err != nil {
 			return Result{}, err
 		}
 		if cert.CertExists(domain) {
@@ -254,7 +254,15 @@ func (a *App) CertificateEnsure(ctx context.Context, domain, email string) (Resu
 			}
 			return Result{Data: status}, nil
 		}
-		if err := cert.EnsureCertificateState(ctx, domain, email, a.Progress, func(fn func() error) error { return a.State(ctx, fn) }); err != nil {
+		occupied := derived.OccupiedPorts(snapshot.Store)
+		sitePort := caddyPortFor(func(candidate int) bool {
+			_, node := occupied[candidate]
+			for _, b := range snapshot.Bindings {
+				node = node || b.ListenPort == candidate
+			}
+			return node || !tcpPortFree(candidate)
+		})
+		if err := cert.EnsureCertificateState(ctx, domain, email, sitePort, a.Progress, func(fn func() error) error { return a.State(ctx, fn) }); err != nil {
 			return Result{}, &Error{Code: "certificate_failed", Stage: "certificate", Message: err.Error(), Changed: true}
 		}
 		return Result{Changed: true, Data: cert.Inspect()}, nil
@@ -303,11 +311,9 @@ func (a *App) CertificatePort(ctx context.Context, value string) (Result, error)
 		if !cert.CertExists(domain) {
 			return Result{}, Invalid("no certificate is issued for " + domain)
 		}
-		ln, err := net.Listen("tcp", net.JoinHostPort("", strconv.Itoa(port)))
-		if err != nil {
+		if !tcpPortFree(port) {
 			return Result{}, Invalid(fmt.Sprintf("port %d is in use", port))
 		}
-		_ = ln.Close()
 		if err := cert.MoveSite(ctx, port, func(fn func() error) error { return a.State(ctx, fn) }); err != nil {
 			return Result{}, &Error{Code: "certificate_failed", Stage: "caddy", Message: err.Error()}
 		}

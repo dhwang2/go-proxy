@@ -337,11 +337,22 @@ func (a *App) ProtocolInstall(ctx context.Context, p ProtocolOptions) (Result, e
 		}
 		// Caddy's port is taken even while caddy-sub is stopped, when a
 		// probe would find it free.
+		sitePort := 0
 		if site, found := store.ReadCaddySite(); found {
 			if existing == nil && port == site.Port {
 				return Result{}, Invalid(fmt.Sprintf("port %d belongs to caddy; gproxy cert port <port> moves it", port))
 			}
 			used[site.Port] = true
+		} else if existing == nil && needsCertificate(p.Type) {
+			// This install creates Caddy. It takes 443 unless the node is
+			// given 443 or something else holds it, so an automatic port
+			// leaves 443 to the website rather than to the node.
+			sitePort = caddyPortFor(func(candidate int) bool {
+				return used[candidate] || candidate == port || !tcpPortFree(candidate)
+			})
+			if sitePort != port {
+				used[sitePort] = true
+			}
 		}
 		if existing == nil {
 			port, err = availableProtocolPort(p.Type, port, used)
@@ -431,7 +442,7 @@ func (a *App) ProtocolInstall(ctx context.Context, p ProtocolOptions) (Result, e
 		}
 		if existing == nil && protocol.Specs()[p.Type].NeedsTLS && p.Type != protocol.VLESSReality {
 			changed = true
-			if err = cert.EnsureCertificateState(ctx, p.Domain, p.Email, a.Progress, func(fn func() error) error { return a.State(ctx, fn) }); err != nil {
+			if err = cert.EnsureCertificateState(ctx, p.Domain, p.Email, sitePort, a.Progress, func(fn func() error) error { return a.State(ctx, fn) }); err != nil {
 				return Result{}, err
 			}
 		}
@@ -506,6 +517,26 @@ func (a *App) ProtocolInstall(ctx context.Context, p ProtocolOptions) (Result, e
 		}
 		return Result{Changed: changed, Data: data}, nil
 	})
+}
+
+// caddyPortFor is the port a new Caddy site takes: 443, where a website
+// answers, unless taken says something holds it; then the out-of-the-way
+// DefaultCaddyPort.
+func caddyPortFor(taken func(int) bool) int {
+	if !taken(443) {
+		return 443
+	}
+	return store.DefaultCaddyPort
+}
+
+// tcpPortFree reports whether a TCP listener could bind port on every address.
+func tcpPortFree(port int) bool {
+	ln, err := net.Listen("tcp", net.JoinHostPort("", strconv.Itoa(port)))
+	if err != nil {
+		return false
+	}
+	_ = ln.Close()
+	return true
 }
 
 func availableProtocolPort(pt protocol.Type, port int, used map[int]bool) (int, error) {

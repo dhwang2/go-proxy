@@ -9,8 +9,9 @@ import (
 	"go-proxy/internal/config"
 )
 
-// DefaultCaddyPort is where caddy-sub serves its site until `cert port`
-// moves it: out of the way, since its first job is issuing the certificate.
+// DefaultCaddyPort is where caddy-sub serves its site when 443 was taken as
+// Caddy was set up: out of the way, since its first job is issuing the
+// certificate. `cert port` moves it.
 const DefaultCaddyPort = 18443
 
 // CaddySite is what gproxy reads back from the Caddyfile it wrote: the port

@@ -509,3 +509,15 @@ func TestUserRemovalReportsWhatItCascadedInto(t *testing.T) {
 		t.Fatalf("a user with nothing cascaded into %#v", fields)
 	}
 }
+
+// A new Caddy takes 443 when nothing holds it and falls back out of the way
+// when something does, whether a node, the node being added or another
+// program.
+func TestNewCaddyPrefers443(t *testing.T) {
+	if got := caddyPortFor(func(int) bool { return false }); got != 443 {
+		t.Fatalf("free 443 gave %d", got)
+	}
+	if got := caddyPortFor(func(port int) bool { return port == 443 }); got != store.DefaultCaddyPort {
+		t.Fatalf("taken 443 gave %d", got)
+	}
+}

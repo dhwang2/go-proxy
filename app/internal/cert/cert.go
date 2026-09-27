@@ -67,13 +67,16 @@ func WriteDomain(domain string) error {
 	return os.WriteFile(config.DomainFile, []byte(domain+"\n"), 0644)
 }
 
-// GenerateCaddyfile creates a Caddyfile for TLS certificate issuance on the
-// port the site is already served on, keeping the ACME contact when no new
-// one is given.
-func GenerateCaddyfile(domain, email string) error {
+// GenerateCaddyfile creates a Caddyfile for TLS certificate issuance. An
+// existing site keeps its port and, when no new one is given, its ACME
+// contact; a new site is served on port, or on DefaultCaddyPort for 0.
+func GenerateCaddyfile(domain, email string, port int) error {
 	site, found := store.ReadCaddySite()
 	if !found {
-		site.Port = store.DefaultCaddyPort
+		site.Port = port
+		if site.Port == 0 {
+			site.Port = store.DefaultCaddyPort
+		}
 	}
 	if email == "" {
 		email = site.Email
@@ -421,7 +424,10 @@ func Inspect() Status {
 	return result
 }
 
-func EnsureCertificateState(ctx context.Context, domain, email string, progress func(string), state func(func() error) error) error {
+// EnsureCertificateState issues a certificate for domain through caddy-sub.
+// sitePort is where a Caddy created by this call serves its site; an
+// existing Caddy stays where it is.
+func EnsureCertificateState(ctx context.Context, domain, email string, sitePort int, progress func(string), state func(func() error) error) error {
 	if !IsValidDomain(domain) {
 		return fmt.Errorf("invalid certificate domain")
 	}
@@ -447,7 +453,7 @@ func EnsureCertificateState(ctx context.Context, domain, email string, progress 
 		if err := WriteDomain(domain); err != nil {
 			return err
 		}
-		return GenerateCaddyfile(domain, email)
+		return GenerateCaddyfile(domain, email, sitePort)
 	}); err != nil {
 		return err
 	}
