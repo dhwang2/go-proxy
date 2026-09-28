@@ -21,7 +21,7 @@ func TestDetectTargetPrefersEnv(t *testing.T) {
 
 	t.Setenv("PROXY_HOST", "1.2.3.4")
 
-	if got, _, err := ResolveTargets(context.Background(), "", false); err != nil || got != "1.2.3.4" {
+	if got, err := ResolveTargets(context.Background(), "", Need{}); err != nil || got.Host != "1.2.3.4" {
 		t.Fatalf("DetectTarget() = %q, want %q", got, "1.2.3.4")
 	}
 }
@@ -38,7 +38,7 @@ func TestDetectTargetUsesStoredDomain(t *testing.T) {
 
 	t.Setenv("PROXY_HOST", "")
 
-	if got, _, err := ResolveTargets(context.Background(), "", false); err != nil || got != "sub.example.com" {
+	if got, err := ResolveTargets(context.Background(), "", Need{}); err != nil || got.Host != "sub.example.com" {
 		t.Fatalf("DetectTarget() = %q, want %q", got, "sub.example.com")
 	}
 }

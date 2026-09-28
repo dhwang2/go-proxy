@@ -23,9 +23,11 @@ type Link struct {
 	Tag      string `json:"tag"`
 	Port     int    `json:"port"`
 	UserName string `json:"user"`
-	// Family is the address family this link's target belongs to, empty when
-	// only one target was resolved.
-	Family  string `json:"family,omitempty"`
+	// Family is the address families this link's target serves: "dual",
+	// "v4" or "v6", or empty when the export did not look them up.
+	Family string `json:"family,omitempty"`
+	// Name is the name the client shows, which a mihomo group lists.
+	Name    string `json:"-"`
 	Content string `json:"content"`
 }
 
@@ -35,8 +37,7 @@ type Renderer struct {
 	ambiguous map[string]bool
 	store     *store.Store
 	nodes     map[string]*renderNode
-	host      string
-	targets   []SurgeTarget
+	targets   Targets
 }
 
 type renderNode struct {
@@ -47,8 +48,8 @@ type renderNode struct {
 	tls     *clientTLS
 }
 
-func NewRenderer(s *store.Store, bindings []service.ShadowTLSBinding, host string, targets []SurgeTarget) *Renderer {
-	r := &Renderer{store: s, host: host, targets: targets, nodes: make(map[string]*renderNode, len(s.SingBox.Inbounds)+1)}
+func NewRenderer(s *store.Store, bindings []service.ShadowTLSBinding, targets Targets) *Renderer {
+	r := &Renderer{store: s, targets: targets, nodes: make(map[string]*renderNode, len(s.SingBox.Inbounds)+1)}
 	byBackend := make(map[string]*service.ShadowTLSBinding, len(bindings))
 	for i := range bindings {
 		byBackend[shadowTLSBackendKey(bindings[i].BackendProto, bindings[i].BackendPort)] = &bindings[i]
@@ -104,7 +105,7 @@ func (r *Renderer) linkName(entry derived.MembershipEntry, family string) string
 	return proxyName(label, entry.UserName, family, r.ambiguous[entry.UserName+"\x00"+label], entry.Port)
 }
 
-func (r *Renderer) SetTargets(host string, targets []SurgeTarget) { r.host, r.targets = host, targets }
+func (r *Renderer) SetTargets(targets Targets) { r.targets = targets }
 
 func (r *Renderer) Formats(entry derived.MembershipEntry) []Format {
 	if node := r.nodes[entry.Tag]; node != nil {
@@ -152,13 +153,18 @@ func (r *Renderer) Render(ctx context.Context, entry derived.MembershipEntry, fo
 		}
 		port = binding.ListenPort
 	}
-	links := make([]Link, 0, len(r.targets))
-	for _, target := range r.targets {
+	targets := r.targets.Links
+	if format == FormatMihomo {
+		targets = r.targets.Mihomo
+	}
+	links := make([]Link, 0, len(targets))
+	for _, target := range targets {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		// A family in the name only where a node has a link per family.
 		family := ""
-		if len(r.targets) > 1 {
+		if len(targets) > 1 {
 			family = target.Family
 		}
 		name := r.linkName(entry, family)
@@ -172,19 +178,43 @@ func (r *Renderer) Render(ctx context.Context, entry derived.MembershipEntry, fo
 					content = renderSnellSurge(entry, r.store.SnellConf, target.Host, name)
 				}
 			} else {
-				content = renderSurge(ib, entry, target.Host, r.host, name, u)
+				content = renderSurge(ib, entry, target.Host, r.targets.Host, name, u)
 			}
+			content = withSurgeIPVersion(content, target)
 		case FormatURI:
 			content = renderURI(ib, entry, target.Host, name, u, node.tls)
 		case FormatMihomo:
-			content = renderMihomo(ib, entry, target.Host, name, u, node.tls)
+			content = renderMihomo(ib, entry, target, name, u, node.tls)
 		}
 		if content == "" {
 			return nil, fmt.Errorf("node %q has invalid or incomplete export credentials", entry.Tag)
 		}
-		links = append(links, Link{Proto: entry.Proto, Tag: entry.Tag, Port: port, UserName: entry.UserName, Family: target.Family, Content: content})
+		links = append(links, Link{Proto: entry.Proto, Tag: entry.Tag, Port: port, UserName: entry.UserName, Family: target.Family, Name: name, Content: content})
 	}
 	return links, nil
+}
+
+// MihomoGroup joins a node's per-family mihomo entries into one fallback
+// group under the node's own name, IPv4 first, so a client picks the node once
+// and moves to IPv6 when IPv4 fails its health check. A mihomo proxy has one
+// server, so an address-based node on a dual-stack server needs an entry per
+// family. "" when the node has one entry.
+func (r *Renderer) MihomoGroup(entry derived.MembershipEntry, links []Link) string {
+	if len(links) < 2 {
+		return ""
+	}
+	members := make([]string, 0, len(links))
+	for _, link := range links {
+		members = append(members, link.Name)
+	}
+	return flow([]field{
+		{"name", r.linkName(entry, "")},
+		{"type", "fallback"},
+		{"proxies", members},
+		{"url", "http://www.gstatic.com/generate_204"},
+		{"interval", 300},
+		{"lazy", true},
+	})
 }
 
 func shadowTLSBackendKey(proto string, port int) string { return proto + "|" + strconv.Itoa(port) }

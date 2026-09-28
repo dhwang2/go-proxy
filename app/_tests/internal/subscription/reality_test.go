@@ -29,7 +29,7 @@ func TestRealitySubscriptionsIncludeClientKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	content := renderMihomo(ib, entry, "192.0.2.1", "name", u, tls)
+	content := renderMihomo(ib, entry, Target{Host: "192.0.2.1", Family: "v4"}, "name", u, tls)
 	for _, want := range []string{
 		`reality-opts: {public-key: "` + kp.PublicKey + `",short-id: "01234567"}`,
 		`servername: "www.microsoft.com"`,
@@ -79,7 +79,7 @@ func TestRealityRendersThroughRendererForBothFormats(t *testing.T) {
 	// FormatURI first: it is the only path that dereferences the cached TLS
 	// block, and it must build the cache itself rather than rely on a prior
 	// sing-box render having populated it.
-	renderer := NewRenderer(s, nil, "192.0.2.1", []SurgeTarget{{Host: "192.0.2.1", Family: "v4"}})
+	renderer := NewRenderer(s, nil, Targets{Host: "192.0.2.1", Links: []Target{{Host: "192.0.2.1", Family: "v4"}}, Mihomo: []Target{{Host: "192.0.2.1", Family: "v4"}}})
 	for _, format := range []Format{FormatURI, FormatMihomo} {
 		links, err := renderer.Render(context.Background(), entry, format)
 		if err != nil {
@@ -103,7 +103,7 @@ func TestRealityRendersThroughRendererForBothFormats(t *testing.T) {
 		Enabled: true, PrivateKey: "invalid", ShortID: []string{"01234567"},
 	}}
 	broken := &store.Store{SingBox: &store.SingBoxConfig{Inbounds: []store.Inbound{bad}}, UserMeta: store.NewUserManagement()}
-	brokenRenderer := NewRenderer(broken, nil, "192.0.2.1", []SurgeTarget{{Host: "192.0.2.1", Family: "v4"}})
+	brokenRenderer := NewRenderer(broken, nil, Targets{Host: "192.0.2.1", Links: []Target{{Host: "192.0.2.1", Family: "v4"}}, Mihomo: []Target{{Host: "192.0.2.1", Family: "v4"}}})
 	brokenEntry := derived.Membership(broken)["alice"][0]
 	for _, format := range []Format{FormatURI, FormatMihomo} {
 		links, err := brokenRenderer.Render(context.Background(), brokenEntry, format)

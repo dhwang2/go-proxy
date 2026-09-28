@@ -26,7 +26,7 @@ func TestSubscriptionMachineExportIsOneEncodedValue(t *testing.T) {
 	}
 	// Not null: a client reading the envelope has to be able to iterate
 	// targets without first testing it for a JSON literal.
-	if string(data) != `{"nodes":[],"targets":[]}` {
+	if string(data) != `{"nodes":[],"targets":{"links":[],"mihomo":[]}}` {
 		t.Fatalf("empty export: %s", data)
 	}
 	snapshot, err := a.Snapshot(ctx)
@@ -59,7 +59,7 @@ func TestSubscriptionMachineExportIsOneEncodedValue(t *testing.T) {
 			Formats  []subscription.Format            `json:"formats"`
 			Content  map[subscription.Format][]string `json:"content"`
 		} `json:"nodes"`
-		Targets []subscription.SurgeTarget `json:"targets"`
+		Targets subscription.Targets `json:"targets"`
 	}
 	if err := decoder.Decode(&export); err != nil {
 		t.Fatalf("invalid export: %v: %s", err, data)
@@ -68,10 +68,10 @@ func TestSubscriptionMachineExportIsOneEncodedValue(t *testing.T) {
 	if err := decoder.Decode(&extra); err != io.EOF {
 		t.Fatalf("export must be exactly one JSON value: %v", err)
 	}
-	if len(export.Nodes) != 2 || len(export.Targets) != 1 || export.Targets[0].Host != "192.0.2.1" {
+	if len(export.Nodes) != 2 || len(export.Targets.Links) != 1 || export.Targets.Links[0].Host != "192.0.2.1" {
 		t.Fatalf("export selection: %s", data)
 	}
-	renderer := subscription.NewRenderer(snapshot.Store, snapshot.Bindings, "", export.Targets)
+	renderer := subscription.NewRenderer(snapshot.Store, snapshot.Bindings, export.Targets)
 	for _, node := range export.Nodes {
 		if node.User != "alice" || node.Port == 0 || len(node.Formats) == 0 {
 			t.Fatalf("node fields: %#v", node)

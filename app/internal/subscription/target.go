@@ -7,75 +7,182 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 
 	"go-proxy/internal/config"
 )
 
-type SurgeTarget struct {
-	Family string `json:"family"`
+// Target is one address a link names, and the address families a client may
+// use to reach it: "dual", "v4" or "v6", or empty when nobody asked.
+type Target struct {
+	Family string `json:"family,omitempty"`
 	Host   string `json:"host"`
 }
 
-func ResolveTargets(ctx context.Context, explicit string, resolveFamilies bool) (string, []SurgeTarget, error) {
+// Targets are the addresses an export's links name. Surge and URI links name
+// the domain, one link per node, with the families the domain serves; mihomo
+// entries name the server's addresses, one per family. An explicit --target
+// is every format's address.
+type Targets struct {
+	// Host is what SNI falls back to: the domain, or the first address.
+	Host   string   `json:"-"`
+	Links  []Target `json:"links"`
+	Mihomo []Target `json:"mihomo"`
+	// Notes are DNS records that disagree with the server's addresses, for
+	// the reader: a link cannot use a family its domain does not publish.
+	Notes []string `json:"notes,omitempty"`
+}
+
+// Need is what an export's formats read from its targets. Surge's
+// ip-version reads the families a domain serves; mihomo reads the server's
+// addresses. URI links need neither, so a URI export looks nothing up.
+type Need struct {
+	Families  bool
+	Addresses bool
+}
+
+func ResolveTargets(ctx context.Context, explicit string, need Need) (Targets, error) {
 	host := explicit
 	if host == "" {
 		host = strings.TrimSpace(os.Getenv("PROXY_HOST"))
+	}
+	// A host the operator named is mihomo's address as well, and mihomo's
+	// ip-version then reads the families it serves.
+	pinned := host != ""
+	if pinned && need.Addresses {
+		need.Families = true
 	}
 	if host == "" {
 		host = readConfiguredDomain()
 	}
 	if host != "" {
 		if ip := net.ParseIP(host); ip != nil {
-			return host, []SurgeTarget{ipTarget(ip)}, nil
+			target := ipTarget(ip)
+			return Targets{Host: host, Links: []Target{target}, Mihomo: []Target{target}}, nil
 		}
 		if !isShareableDomain(host) {
-			return "", nil, fmt.Errorf("invalid target host")
+			return Targets{}, fmt.Errorf("invalid target host")
 		}
-		if !resolveFamilies {
-			return host, []SurgeTarget{{Host: host}}, nil
+		var addresses []Target
+		if need.Families || need.Addresses && !pinned {
+			addresses = detectAddresses(ctx)
 		}
-		addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-		if err != nil {
-			return "", nil, fmt.Errorf("resolve target: %w; specify --target with an ip address", err)
-		}
-		targets := make([]SurgeTarget, 0, 2)
-		seen := map[string]bool{}
-		for _, addr := range addrs {
-			target := ipTarget(addr.IP)
-			if !seen[target.Family] && isShareableIP(addr.IP, true) {
-				targets = append(targets, target)
-				seen[target.Family] = true
+		link := Target{Host: host}
+		targets := Targets{Host: host}
+		if need.Families {
+			records, err := domainFamilies(ctx, host)
+			if err != nil {
+				return Targets{}, err
+			}
+			link.Family, targets.Notes, err = domainFamily(records, targetFamilies(addresses))
+			if err != nil {
+				return Targets{}, err
 			}
 		}
-		if len(targets) == 0 {
-			return "", nil, fmt.Errorf("target has no public address; specify --target with an ip address")
+		targets.Links = []Target{link}
+		switch {
+		case pinned:
+			targets.Mihomo = targets.Links
+		case need.Addresses:
+			if len(addresses) == 0 {
+				return Targets{}, fmt.Errorf("public address unavailable; specify --target")
+			}
+			targets.Mihomo = addresses
 		}
-		return host, targets, nil
+		return targets, nil
 	}
+	// No domain: every format names the addresses, one link per family.
+	addresses := detectAddresses(ctx)
+	if len(addresses) == 0 {
+		return Targets{}, fmt.Errorf("public target unavailable; specify --target")
+	}
+	return Targets{Host: addresses[0].Host, Links: addresses, Mihomo: addresses}, nil
+}
+
+// detectAddresses is the server's public address in each family it has,
+// IPv4 first.
+func detectAddresses(ctx context.Context) []Target {
 	var v4, v6 string
 	done := make(chan struct{})
 	go func() { v4 = DetectIPv4(ctx); close(done) }()
 	v6 = DetectIPv6(ctx)
 	<-done
-	targets := make([]SurgeTarget, 0, 2)
+	targets := make([]Target, 0, 2)
 	for _, addr := range []string{v4, v6} {
 		if addr != "" {
 			targets = append(targets, ipTarget(net.ParseIP(addr)))
 		}
 	}
-	if len(targets) == 0 {
-		return "", nil, fmt.Errorf("public target unavailable; specify --target")
-	}
-	return targets[0].Host, targets, nil
+	return targets
 }
 
-func ipTarget(ip net.IP) SurgeTarget {
+func targetFamilies(targets []Target) []string {
+	families := make([]string, 0, len(targets))
+	for _, target := range targets {
+		families = append(families, target.Family)
+	}
+	return families
+}
+
+// domainFamilies are the families a domain publishes a public address in.
+func domainFamilies(ctx context.Context, host string) ([]string, error) {
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, fmt.Errorf("resolve target: %w; specify --target with an ip address", err)
+	}
+	seen := map[string]bool{}
+	var families []string
+	for _, addr := range addrs {
+		family := ipTarget(addr.IP).Family
+		if !seen[family] && isShareableIP(addr.IP, true) {
+			seen[family] = true
+			families = append(families, family)
+		}
+	}
+	if len(families) == 0 {
+		return nil, fmt.Errorf("target has no public address; specify --target with an ip address")
+	}
+	return families, nil
+}
+
+// domainFamily is the families a link to the domain can use: those the
+// domain publishes and the server has. Server addresses that could not be
+// detected leave the records to decide. A family on only one side is left
+// out, and said.
+func domainFamily(records, server []string) (string, []string, error) {
+	if len(server) == 0 {
+		server = records
+	}
+	record := map[string]string{"v4": "A", "v6": "AAAA"}
+	name := map[string]string{"v4": "ipv4", "v6": "ipv6"}
+	var usable, notes []string
+	for _, family := range []string{"v4", "v6"} {
+		published, present := slices.Contains(records, family), slices.Contains(server, family)
+		switch {
+		case published && present:
+			usable = append(usable, family)
+		case present:
+			notes = append(notes, fmt.Sprintf("the domain has no %s record, so links leave %s out", record[family], name[family]))
+		case published:
+			notes = append(notes, fmt.Sprintf("the domain has an %s record but this server has no %s address", record[family], name[family]))
+		}
+	}
+	switch len(usable) {
+	case 0:
+		return "", notes, fmt.Errorf("the domain publishes no address in a family this server has; fix its dns or specify --target")
+	case 1:
+		return usable[0], notes, nil
+	}
+	return "dual", notes, nil
+}
+
+func ipTarget(ip net.IP) Target {
 	family := "v6"
 	if ip.To4() != nil {
 		family = "v4"
 	}
-	return SurgeTarget{Family: family, Host: ip.String()}
+	return Target{Family: family, Host: ip.String()}
 }
 
 func DetectIPv4(ctx context.Context) string {

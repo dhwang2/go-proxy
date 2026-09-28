@@ -459,6 +459,25 @@ func TestInitReportsDefaultBBR(t *testing.T) {
 	}
 }
 
+// The default view's mihomo section is a loadable document: proxies, then a
+// proxy-groups key for the groups that join a node's per-family entries.
+func TestSubscriptionMihomoSectionListsGroupsAfterProxies(t *testing.T) {
+	links := []application.SubscriptionLink{
+		{Format: "mihomo", User: "alice", Tag: "t", Family: "v4", Content: `{name: "n-v4-alice"}`},
+		{Format: "mihomo", User: "alice", Tag: "t", Family: "v6", Content: `{name: "n-v6-alice"}`},
+		{Format: "mihomo", User: "alice", Tag: "t", Group: true, Content: `{name: "n-alice",type: "fallback"}`},
+		{Format: "surge", User: "alice", Tag: "t", Family: "dual", Content: "n-alice = anytls, example.com, 2053"},
+	}
+	var out bytes.Buffer
+	if !render(&out, palette{}, "gproxy sub", map[string]any{"links": links}) {
+		t.Fatal("no rendering")
+	}
+	want := "[mihomo]\nproxies:\n# alice\n  - {name: \"n-v4-alice\"}\n\n  - {name: \"n-v6-alice\"}\n\nproxy-groups:\n# alice\n  - {name: \"n-alice\",type: \"fallback\"}\n\n[surge]\nalice\nn-alice = anytls, example.com, 2053\n"
+	if out.String() != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", out.String(), want)
+	}
+}
+
 func TestCaddyPortIsOneLine(t *testing.T) {
 	for want, fields := range map[string]map[string]any{
 		"caddy -> 18443\n":                  {"domain": "a.example.org", "port": 18443},

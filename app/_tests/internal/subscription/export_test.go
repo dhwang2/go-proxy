@@ -21,16 +21,16 @@ func TestExplicitIPDoesNotResolveDNS(t *testing.T) {
 	t.Cleanup(func() { net.DefaultResolver = old })
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	host, targets, err := ResolveTargets(ctx, "2001:db8::1", true)
-	if err != nil || host != "2001:db8::1" || len(targets) != 1 || targets[0].Family != "v6" {
-		t.Fatalf("target: %s %#v %v", host, targets, err)
+	targets, err := ResolveTargets(ctx, "2001:db8::1", Need{Families: true, Addresses: true})
+	if err != nil || targets.Host != "2001:db8::1" || len(targets.Links) != 1 || targets.Links[0].Family != "v6" || len(targets.Mihomo) != 1 {
+		t.Fatalf("target: %#v %v", targets, err)
 	}
 }
 
 func TestExportPreservesTUICCongestionAndChecksCertificates(t *testing.T) {
 	ib := store.Inbound{Type: "tuic", Tag: "tuic_443", ListenPort: 443, CongestionControl: "cubic", Users: []store.User{{Name: "alice", UUID: "uuid", Password: "password"}}, TLS: &store.TLSConfig{Enabled: true, ServerName: "example.com"}}
 	s := &store.Store{SingBox: &store.SingBoxConfig{Inbounds: []store.Inbound{ib}}, UserMeta: store.NewUserManagement()}
-	renderer := NewRenderer(s, nil, "192.0.2.1", []SurgeTarget{{Host: "192.0.2.1", Family: "v4"}})
+	renderer := NewRenderer(s, nil, Targets{Host: "192.0.2.1", Links: []Target{{Host: "192.0.2.1", Family: "v4"}}, Mihomo: []Target{{Host: "192.0.2.1", Family: "v4"}}})
 	entry := derived.Membership(s)["alice"][0]
 	for _, format := range []Format{FormatURI, FormatSurge, FormatMihomo} {
 		links, err := renderer.Render(context.Background(), entry, format)
@@ -56,7 +56,7 @@ func TestExportPreservesTUICCongestionAndChecksCertificates(t *testing.T) {
 
 func TestExportNamesDistinguishUsersAndAddressFamilies(t *testing.T) {
 	s := &store.Store{SingBox: &store.SingBoxConfig{Inbounds: []store.Inbound{{Type: "anytls", Tag: "anytls_443", ListenPort: 443, Users: []store.User{{Name: "alice", Password: "pw"}, {Name: "bob", Password: "pw2"}}}}}, UserMeta: store.NewUserManagement()}
-	renderer := NewRenderer(s, nil, "192.0.2.1", []SurgeTarget{{Host: "192.0.2.1", Family: "v4"}, {Host: "2001:db8::1", Family: "v6"}})
+	renderer := NewRenderer(s, nil, Targets{Host: "192.0.2.1", Links: []Target{{Host: "192.0.2.1", Family: "v4"}, {Host: "2001:db8::1", Family: "v6"}}, Mihomo: []Target{{Host: "192.0.2.1", Family: "v4"}, {Host: "2001:db8::1", Family: "v6"}}})
 	seen := map[string]bool{}
 	for _, entries := range derived.Membership(s) {
 		for _, entry := range entries {
@@ -90,7 +90,7 @@ func TestShareLinksParseBackToTheirParts(t *testing.T) {
 	tuic := store.Inbound{Type: "tuic", Tag: "tuic_443", ListenPort: 443, Users: []store.User{{Name: "alice", UUID: "uuid-1", Password: "p@ss:w/rd"}}, TLS: &store.TLSConfig{Enabled: true, ServerName: "example.com"}}
 	anytls := store.Inbound{Type: "anytls", Tag: "anytls_8443", ListenPort: 8443, Users: []store.User{{Name: "alice", Password: "a@b:c"}}, TLS: &store.TLSConfig{Enabled: true, ServerName: "example.com"}}
 	s := &store.Store{SingBox: &store.SingBoxConfig{Inbounds: []store.Inbound{tuic, anytls}}, UserMeta: store.NewUserManagement()}
-	renderer := NewRenderer(s, nil, "2001:db8::1", []SurgeTarget{{Host: "2001:db8::1", Family: "v6"}})
+	renderer := NewRenderer(s, nil, Targets{Host: "2001:db8::1", Links: []Target{{Host: "2001:db8::1", Family: "v6"}}, Mihomo: []Target{{Host: "2001:db8::1", Family: "v6"}}})
 	for _, entry := range derived.Membership(s)["alice"] {
 		links, err := renderer.Render(context.Background(), entry, FormatURI)
 		if err != nil {

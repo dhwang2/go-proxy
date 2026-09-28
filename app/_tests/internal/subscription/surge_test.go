@@ -202,7 +202,7 @@ func TestRenderUsesShadowTLSFrontAndRejectsUnsupportedFormats(t *testing.T) {
 
 	// Neither of the other two can drive the wrapper, so neither may quietly
 	// hand out a link to the backend port.
-	renderer := NewRenderer(s, bindings, "1.2.3.4", []SurgeTarget{{Family: "v4", Host: "1.2.3.4"}})
+	renderer := NewRenderer(s, bindings, Targets{Host: "1.2.3.4", Links: []Target{{Family: "v4", Host: "1.2.3.4"}}, Mihomo: []Target{{Family: "v4", Host: "1.2.3.4"}}})
 	for _, format := range []Format{FormatURI, FormatMihomo} {
 		if _, err := renderer.Render(context.Background(), derived.Membership(s)["alice"][0], format); err == nil {
 			t.Fatalf("%s export must not discard the wrapper", format)
@@ -212,7 +212,7 @@ func TestRenderUsesShadowTLSFrontAndRejectsUnsupportedFormats(t *testing.T) {
 
 func renderForUser(t *testing.T, s *store.Store, bindings []service.ShadowTLSBinding, name string, format Format, host string) []Link {
 	t.Helper()
-	renderer := NewRenderer(s, bindings, host, []SurgeTarget{{Host: host}})
+	renderer := NewRenderer(s, bindings, Targets{Host: host, Links: []Target{{Host: host}}, Mihomo: []Target{{Host: host}}})
 	var links []Link
 	for _, entry := range derived.Membership(s)[name] {
 		generated, err := renderer.Render(context.Background(), entry, format)
@@ -239,9 +239,11 @@ func TestLinkNamesDoNotRepeatTheProtocol(t *testing.T) {
 		SnellConf:    &store.SnellConfig{Listen: "0.0.0.0:1443", PSK: "secret"},
 	}
 	s.UserMeta.Groups["~/.groups"] = []string{"alice"}
-	renderer := NewRenderer(s, nil, "1.2.3.4", []SurgeTarget{
+	renderer := NewRenderer(s, nil, Targets{Host: "1.2.3.4", Links: []Target{
 		{Host: "1.2.3.4", Family: "v4"}, {Host: "2001:db8::1", Family: "v6"},
-	})
+	}, Mihomo: []Target{
+		{Host: "1.2.3.4", Family: "v4"}, {Host: "2001:db8::1", Family: "v6"},
+	}})
 	seen := map[string]bool{}
 	for _, entry := range derived.Membership(s)["alice"] {
 		for _, format := range renderer.Formats(entry) {
@@ -305,7 +307,7 @@ func TestMihomoMappingCompactsOnlyWhereItIsSafe(t *testing.T) {
 	entry := derived.MembershipEntry{Tag: "anytls_443", Port: 443, UserID: "pw", UserName: "alice", Proto: "anytls"}
 	ib := &store.Inbound{Type: "anytls", Tag: "anytls_443", ListenPort: 443,
 		TLS: &store.TLSConfig{Enabled: true, ServerName: "example.com"}}
-	got := renderMihomo(ib, entry, "1.2.3.4", "anytls-alice", nil, nil)
+	got := renderMihomo(ib, entry, Target{Host: "1.2.3.4", Family: "v4"}, "anytls-alice", nil, nil)
 
 	if strings.Contains(got, ", ") {
 		t.Fatalf("a space survived after a comma: %q", got)

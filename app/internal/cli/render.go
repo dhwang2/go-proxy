@@ -1820,7 +1820,7 @@ func renderSubscription(w io.Writer, p palette, fields map[string]any) bool {
 		fmt.Fprintln(w, p.hint("no links"))
 		return true
 	}
-	format, user := "", ""
+	format, user, groups := "", "", false
 	for index, link := range links {
 		document := link.Format == string(subscription.FormatMihomo)
 		// One blank line between sections and between the entries inside
@@ -1832,7 +1832,7 @@ func renderSubscription(w io.Writer, p palette, fields map[string]any) bool {
 			}
 		}
 		if link.Format != format {
-			format, user = link.Format, ""
+			format, user, groups = link.Format, "", false
 			if _, err := fmt.Fprintln(w, p.sys("["+clean(format)+"]")); err != nil {
 				return true
 			}
@@ -1840,6 +1840,14 @@ func renderSubscription(w io.Writer, p palette, fields map[string]any) bool {
 				if _, err := fmt.Fprintln(w, "proxies:"); err != nil {
 					return true
 				}
+			}
+		}
+		// A dual-stack node's mihomo entries are joined by a fallback group,
+		// listed after every proxy under mihomo's own key.
+		if link.Group && !groups {
+			groups, user = true, ""
+			if _, err := fmt.Fprintln(w, "proxy-groups:"); err != nil {
+				return true
 			}
 		}
 		if link.User != user {

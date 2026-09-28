@@ -73,12 +73,15 @@ func scalar(value any) string {
 
 // renderMihomo builds one proxy entry. It returns "" for a node Mihomo cannot
 // represent, which the caller reports rather than emitting a broken entry.
-func renderMihomo(ib *store.Inbound, entry derived.MembershipEntry, host, name string, u *store.User, tls *clientTLS) string {
+func renderMihomo(ib *store.Inbound, entry derived.MembershipEntry, target Target, name string, u *store.User, tls *clientTLS) string {
 	common := []field{
 		{"name", name},
 		{"type", ib.Type},
-		{"server", host},
+		{"server", target.Host},
 		{"port", ib.ListenPort},
+		// Which families mihomo may reach the server over: pinned to the
+		// address's own, or IPv4 first for a domain that serves both.
+		{"ip-version", map[string]string{"dual": "ipv4-prefer", "v4": "ipv4", "v6": "ipv6"}[target.Family]},
 	}
 	sni := ib.ServerName()
 

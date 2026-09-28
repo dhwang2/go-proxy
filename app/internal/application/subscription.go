@@ -60,10 +60,13 @@ func (a *App) Subscription(ctx context.Context, p SubscriptionOptions) (Result, 
 	if p.Node != "" && len(entries) == 0 {
 		return Result{}, Invalid("selected node has no matching membership")
 	}
-	renderer := subscription.NewRenderer(snapshot.Store, snapshot.Bindings, "", nil)
-	// Surge and mihomo take a list of proxies, so both families are worth
-	// emitting: a client can hold an entry for each and pick between them.
-	resolveFamilies := p.Format == subscription.FormatSurge || p.Format == subscription.FormatMihomo || p.Format == ""
+	renderer := subscription.NewRenderer(snapshot.Store, snapshot.Bindings, subscription.Targets{})
+	// Surge lines carry the families the domain serves; mihomo entries name
+	// the server's addresses. A URI export needs neither lookup.
+	need := subscription.Need{
+		Families:  p.Format == subscription.FormatSurge || p.Format == "",
+		Addresses: p.Format == subscription.FormatMihomo || p.Format == "",
+	}
 	// A format the client cannot represent is a property of the node, not a
 	// failure of the request: a user whose nodes do not all share one format
 	// gets the ones that do, and is told on stderr which were left out.
@@ -102,19 +105,21 @@ func (a *App) Subscription(ctx context.Context, p SubscriptionOptions) (Result, 
 			a.Progress(fmt.Sprintf("skipped %d %s with no %s export: %s", len(skipped), noun, p.Format, strings.Join(skipped, ", ")))
 		}
 	}
-	var host string
-	// Non-nil so a user with no nodes exports an empty list rather than the
-	// JSON literal null, which no client can read as "no targets".
-	targets := []subscription.SurgeTarget{}
+	// Non-nil lists so a user with no nodes exports empty lists rather than
+	// the JSON literal null, which no client can read as "no targets".
+	targets := subscription.Targets{Links: []subscription.Target{}, Mihomo: []subscription.Target{}}
 	if len(entries) > 0 {
 		observeCtx, cancel := ObservationContext(ctx)
-		host, targets, err = subscription.ResolveTargets(observeCtx, p.Target, resolveFamilies)
+		targets, err = subscription.ResolveTargets(observeCtx, p.Target, need)
 		cancel()
 		if err != nil {
 			return Result{}, err
 		}
+		for _, note := range targets.Notes {
+			a.Progress(note)
+		}
 	}
-	renderer.SetTargets(host, targets)
+	renderer.SetTargets(targets)
 	// The machine export is encoded while it is rendered: keeping every node as a struct and
 	// then marshalling that graph again holds the whole export twice at capacity scale.
 	//
@@ -129,6 +134,9 @@ func (a *App) Subscription(ctx context.Context, p SubscriptionOptions) (Result, 
 		raw = append(raw, "proxies:"...)
 	}
 	mihomoCount := 0
+	// Groups follow every proxy: a group names entries by name, and mihomo
+	// reads proxy-groups as its own key.
+	var mihomoGroups []string
 	var collected []SubscriptionLink
 	var rendered []renderedFormat
 	for index, entry := range entries {
@@ -153,6 +161,7 @@ func (a *App) Subscription(ctx context.Context, p SubscriptionOptions) (Result, 
 		}
 		if p.JSON {
 			rendered = rendered[:0]
+			group := ""
 			port := entry.Port
 			for _, format := range selected {
 				links, renderErr := renderer.Render(ctx, entry, format)
@@ -167,6 +176,9 @@ func (a *App) Subscription(ctx context.Context, p SubscriptionOptions) (Result, 
 				}
 				if len(links) > 0 {
 					rendered = append(rendered, renderedFormat{format: format, links: links})
+				}
+				if format == subscription.FormatMihomo {
+					group = renderer.MihomoGroup(entry, links)
 				}
 			}
 			slices.SortFunc(rendered, func(a, b renderedFormat) int { return strings.Compare(string(a.format), string(b.format)) })
@@ -203,13 +215,29 @@ func (a *App) Subscription(ctx context.Context, p SubscriptionOptions) (Result, 
 				}
 				raw = append(raw, ']')
 			}
-			raw = append(raw, `}}`...)
+			raw = append(raw, '}')
+			if group != "" {
+				raw = append(raw, `,"mihomo_group":`...)
+				raw = appendJSONString(raw, group)
+			}
+			raw = append(raw, '}')
 			continue
 		}
 		for _, format := range selected {
 			links, renderErr := renderer.Render(ctx, entry, format)
 			if renderErr != nil {
 				return Result{}, renderErr
+			}
+			if format == subscription.FormatMihomo {
+				if group := renderer.MihomoGroup(entry, links); group != "" {
+					if p.Format == "" {
+						collected = append(collected, SubscriptionLink{
+							Format: string(format), User: entry.UserName, Tag: entry.Tag, Group: true, Content: group,
+						})
+					} else {
+						mihomoGroups = append(mihomoGroups, group)
+					}
+				}
 			}
 			for _, link := range links {
 				if err := ctx.Err(); err != nil {
@@ -253,7 +281,14 @@ func (a *App) Subscription(ctx context.Context, p SubscriptionOptions) (Result, 
 	if p.Format == "" {
 		// Grouped for the eye: a format at a time, a user at a time, and the
 		// families together within a user so one block can be taken at once.
+		// A format's groups come after its proxies, as mihomo reads them.
 		slices.SortStableFunc(collected, func(a, b SubscriptionLink) int {
+			if a.Format == b.Format && a.Group != b.Group {
+				if a.Group {
+					return 1
+				}
+				return -1
+			}
 			for _, pair := range [][2]string{{a.Format, b.Format}, {a.User, b.User}, {a.Family, b.Family}, {a.Tag, b.Tag}} {
 				if order := strings.Compare(pair[0], pair[1]); order != 0 {
 					return order
@@ -269,6 +304,13 @@ func (a *App) Subscription(ctx context.Context, p SubscriptionOptions) (Result, 
 		if mihomoCount == 0 {
 			raw = append(raw, " []"...)
 		}
+		if len(mihomoGroups) > 0 {
+			raw = append(raw, "\nproxy-groups:"...)
+			for _, group := range mihomoGroups {
+				raw = append(raw, "\n  - "...)
+				raw = append(raw, group...)
+			}
+		}
 		raw = append(raw, '\n')
 	}
 	return Result{Raw: raw}, nil
@@ -278,10 +320,12 @@ func (a *App) Subscription(ctx context.Context, p SubscriptionOptions) (Result, 
 // which format it is, whose it is, which node it reaches and over which
 // address family.
 type SubscriptionLink struct {
-	Format  string `json:"format"`
-	User    string `json:"user"`
-	Tag     string `json:"tag"`
-	Family  string `json:"family,omitempty"`
+	Format string `json:"format"`
+	User   string `json:"user"`
+	Tag    string `json:"tag"`
+	Family string `json:"family,omitempty"`
+	// Group marks a mihomo proxy group rather than a proxy.
+	Group   bool   `json:"group,omitempty"`
 	Content string `json:"content"`
 }
 

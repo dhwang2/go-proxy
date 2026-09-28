@@ -74,6 +74,17 @@ func renderShadowTLSSnellSurge(entry derived.MembershipEntry, conf *store.SnellC
 		tag, targetHost, binding.ListenPort, conf.PSK, snellMode(conf), binding.Password, binding.SNI, strconv.Itoa(version))
 }
 
+// withSurgeIPVersion adds ip-version to a Surge line whose server is a
+// domain: which families Surge may resolve it to, preferring IPv4 where both
+// work. Surge applies it only to a domain, so an address line goes without.
+func withSurgeIPVersion(line string, target Target) string {
+	version := map[string]string{"dual": "prefer-v4", "v4": "v4-only", "v6": "v6-only"}[target.Family]
+	if line == "" || version == "" || net.ParseIP(target.Host) != nil {
+		return line
+	}
+	return line + ", ip-version=" + version
+}
+
 // snellMode is the server's mode, which the client must match: Surge
 // assumes default, so a server set otherwise is unreachable without it.
 func snellMode(conf *store.SnellConfig) string {
