@@ -2,7 +2,6 @@ package subscription
 
 import (
 	"context"
-	"net/url"
 	"strings"
 	"testing"
 
@@ -40,17 +39,7 @@ func TestRealitySubscriptionsIncludeClientKey(t *testing.T) {
 			t.Fatalf("incomplete Reality client config, missing %s:\n%s", want, content)
 		}
 	}
-	uri := renderURI(ib, entry, "192.0.2.1", "name", u, tls)
-	parsed, err := url.Parse(uri)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for key, want := range map[string]string{"pbk": kp.PublicKey, "sid": "01234567", "sni": "www.microsoft.com", "security": "reality", "fp": "chrome", "flow": "xtls-rprx-vision"} {
-		if parsed.Query().Get(key) != want {
-			t.Errorf("URI %s missing or incorrect", key)
-		}
-	}
-	if strings.Contains(content, kp.PrivateKey) || strings.Contains(uri, kp.PrivateKey) {
+	if strings.Contains(content, kp.PrivateKey) {
 		t.Fatal("subscription leaked the Reality private key")
 	}
 	ib.TLS.Reality.PrivateKey = "invalid"
@@ -61,7 +50,7 @@ func TestRealitySubscriptionsIncludeClientKey(t *testing.T) {
 
 // Exercises Reality through Renderer.Render rather than the render helpers
 // directly, covering the lazily built per-node client TLS cache.
-func TestRealityRendersThroughRendererForBothFormats(t *testing.T) {
+func TestRealityRendersThroughRenderer(t *testing.T) {
 	kp, err := crypto.GenerateRealityKeypair()
 	if err != nil {
 		t.Fatal(err)
@@ -76,11 +65,10 @@ func TestRealityRendersThroughRendererForBothFormats(t *testing.T) {
 	s := &store.Store{SingBox: &store.SingBoxConfig{Inbounds: []store.Inbound{ib}}, UserMeta: store.NewUserManagement()}
 	entry := derived.Membership(s)["alice"][0]
 
-	// FormatURI first: it is the only path that dereferences the cached TLS
-	// block, and it must build the cache itself rather than rely on a prior
-	// sing-box render having populated it.
-	renderer := NewRenderer(s, nil, Targets{Host: "192.0.2.1", Links: []Target{{Host: "192.0.2.1", Family: "v4"}}, Mihomo: []Target{{Host: "192.0.2.1", Family: "v4"}}})
-	for _, format := range []Format{FormatURI, FormatMihomo} {
+	// The mihomo entry builds the cached TLS block itself rather than relying
+	// on another render having populated it.
+	renderer := NewRenderer(s, nil, Targets{Host: "192.0.2.1", Links: []Target{{Host: "192.0.2.1", Family: "v4"}}})
+	for _, format := range []Format{FormatMihomo} {
 		links, err := renderer.Render(context.Background(), entry, format)
 		if err != nil {
 			t.Fatalf("%s: %v", format, err)
@@ -103,9 +91,9 @@ func TestRealityRendersThroughRendererForBothFormats(t *testing.T) {
 		Enabled: true, PrivateKey: "invalid", ShortID: []string{"01234567"},
 	}}
 	broken := &store.Store{SingBox: &store.SingBoxConfig{Inbounds: []store.Inbound{bad}}, UserMeta: store.NewUserManagement()}
-	brokenRenderer := NewRenderer(broken, nil, Targets{Host: "192.0.2.1", Links: []Target{{Host: "192.0.2.1", Family: "v4"}}, Mihomo: []Target{{Host: "192.0.2.1", Family: "v4"}}})
+	brokenRenderer := NewRenderer(broken, nil, Targets{Host: "192.0.2.1", Links: []Target{{Host: "192.0.2.1", Family: "v4"}}})
 	brokenEntry := derived.Membership(broken)["alice"][0]
-	for _, format := range []Format{FormatURI, FormatMihomo} {
+	for _, format := range []Format{FormatMihomo} {
 		links, err := brokenRenderer.Render(context.Background(), brokenEntry, format)
 		if err == nil {
 			t.Fatalf("%s exported a node with an unusable Reality key: %v", format, links)

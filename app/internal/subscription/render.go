@@ -14,7 +14,6 @@ type Format string
 
 const (
 	FormatSurge  Format = "surge"
-	FormatURI    Format = "uri"
 	FormatMihomo Format = "mihomo"
 )
 
@@ -25,9 +24,7 @@ type Link struct {
 	UserName string `json:"user"`
 	// Family is the address families this link's target serves: "dual",
 	// "v4" or "v6", or empty when the export did not look them up.
-	Family string `json:"family,omitempty"`
-	// Name is the name the client shows, which a mihomo group lists.
-	Name    string `json:"-"`
+	Family  string `json:"family,omitempty"`
 	Content string `json:"content"`
 }
 
@@ -65,9 +62,9 @@ func NewRenderer(s *store.Store, bindings []service.ShadowTLSBinding, targets Ta
 		}
 		switch ib.Type {
 		case "vless":
-			n.formats = []Format{FormatURI, FormatMihomo}
+			n.formats = []Format{FormatMihomo}
 		case "tuic", "anytls":
-			n.formats = []Format{FormatURI, FormatSurge, FormatMihomo}
+			n.formats = []Format{FormatSurge, FormatMihomo}
 		}
 		r.nodes[ib.Tag] = n
 	}
@@ -138,8 +135,7 @@ func (r *Renderer) Render(ctx context.Context, entry derived.MembershipEntry, fo
 			return nil, fmt.Errorf("node %q has missing tuic credentials", entry.Tag)
 		}
 	}
-	if ib != nil && ib.TLS != nil && node.tls == nil && (format == FormatMihomo ||
-		format == FormatURI && ib.Type == "vless") {
+	if ib != nil && ib.TLS != nil && node.tls == nil && format == FormatMihomo {
 		var err error
 		node.tls, err = buildClientTLS(ib.TLS)
 		if err != nil {
@@ -154,9 +150,6 @@ func (r *Renderer) Render(ctx context.Context, entry derived.MembershipEntry, fo
 		port = binding.ListenPort
 	}
 	targets := r.targets.Links
-	if format == FormatMihomo {
-		targets = r.targets.Mihomo
-	}
 	links := make([]Link, 0, len(targets))
 	for _, target := range targets {
 		if err := ctx.Err(); err != nil {
@@ -181,40 +174,15 @@ func (r *Renderer) Render(ctx context.Context, entry derived.MembershipEntry, fo
 				content = renderSurge(ib, entry, target.Host, r.targets.Host, name, u)
 			}
 			content = withSurgeIPVersion(content, target)
-		case FormatURI:
-			content = renderURI(ib, entry, target.Host, name, u, node.tls)
 		case FormatMihomo:
 			content = renderMihomo(ib, entry, target, name, u, node.tls)
 		}
 		if content == "" {
 			return nil, fmt.Errorf("node %q has invalid or incomplete export credentials", entry.Tag)
 		}
-		links = append(links, Link{Proto: entry.Proto, Tag: entry.Tag, Port: port, UserName: entry.UserName, Family: target.Family, Name: name, Content: content})
+		links = append(links, Link{Proto: entry.Proto, Tag: entry.Tag, Port: port, UserName: entry.UserName, Family: target.Family, Content: content})
 	}
 	return links, nil
-}
-
-// MihomoGroup joins a node's per-family mihomo entries into one fallback
-// group under the node's own name, IPv4 first, so a client picks the node once
-// and moves to IPv6 when IPv4 fails its health check. A mihomo proxy has one
-// server, so an address-based node on a dual-stack server needs an entry per
-// family. "" when the node has one entry.
-func (r *Renderer) MihomoGroup(entry derived.MembershipEntry, links []Link) string {
-	if len(links) < 2 {
-		return ""
-	}
-	members := make([]string, 0, len(links))
-	for _, link := range links {
-		members = append(members, link.Name)
-	}
-	return flow([]field{
-		{"name", r.linkName(entry, "")},
-		{"type", "fallback"},
-		{"proxies", members},
-		{"url", "http://www.gstatic.com/generate_204"},
-		{"interval", 300},
-		{"lazy", true},
-	})
 }
 
 func shadowTLSBackendKey(proto string, port int) string { return proto + "|" + strconv.Itoa(port) }

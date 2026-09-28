@@ -96,7 +96,7 @@ func TestFreeFormFlagsDoNotCompleteFileNames(t *testing.T) {
 		{"protocol", "add", "--domain", ""},
 		{"protocol", "add", "--port", ""},
 		{"route", "test", "--user", ""},
-		{"sub", "--target", ""},
+		{"sub", "--user", ""},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			candidates, directive, _ := complete(t, args...)
@@ -223,4 +223,12 @@ func TestNoCompletionFallsBackToFiles(t *testing.T) {
 		}
 	}
 	t.Logf("checked %d completion positions", len(positions))
+}
+
+// sub's --target is a closed pair, offered as such.
+func TestSubTargetCompletesItsTwoModes(t *testing.T) {
+	candidates, directive, _ := complete(t, "sub", "--target", "")
+	if directive != noFileComp || strings.Join(candidates, ",") != "domain,ip" {
+		t.Fatalf("offered %v (%q), want domain and ip", candidates, directive)
+	}
 }

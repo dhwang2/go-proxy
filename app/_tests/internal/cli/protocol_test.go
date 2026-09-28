@@ -23,10 +23,12 @@ func TestProtocolAndSubscriptionUsageErrorsAreNonInteractive(t *testing.T) {
 		{"protocol", "remove", "some-node", "--confirm", "--user", ""},
 		{"user", "delete", "alice"},
 		{"sub"},
-		{"sub", "--target", "192.0.2.1"},
-		{"sub", "alice", "--mihomo"},
-		{"sub", "alice", "--surge"},
-		{"sub", "alice", "--uri"},
+		{"sub", "alice"},
+		{"sub", "--user", ""},
+		{"sub", "--user", "alice", "--node", "tuic_1"},
+		{"sub", "--user", "alice", "--mihomo"},
+		{"sub", "--user", "alice", "--surge"},
+		{"sub", "--user", "alice", "--uri"},
 		{"sub", "--singbox"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
@@ -72,10 +74,8 @@ func TestProtocolHelpRequiresNoRuntime(t *testing.T) {
 	}
 }
 
-// Bare, sub answers with every form it takes: the usage line, then each
-// option in a line that runs as written, filled from this host when a node
-// has a user and with placeholders when none does.
-func TestSubGuidanceShowsEveryOption(t *testing.T) {
+// Bare, sub answers with its one form and nothing else.
+func TestSubGuidanceIsItsForm(t *testing.T) {
 	var out, stderr bytes.Buffer
 	r := New("test", "test", strings.NewReader(""), &out, &stderr)
 	r.App.RequireRoot = false
@@ -83,14 +83,7 @@ func TestSubGuidanceShowsEveryOption(t *testing.T) {
 	if code := r.Run(context.Background(), []string{"sub", "--no-color"}); code != 2 {
 		t.Fatalf("exit=%d out=%s err=%s", code, out.String(), stderr.String())
 	}
-	for _, want := range []string{
-		"gproxy sub <user> [--node <tag>] [--target <ip|host>]",
-		"gproxy sub <user> --node <tag>",
-		"gproxy sub <user> --target <ip|host>",
-		"gproxy sub --node <tag>",
-	} {
-		if !strings.Contains(stderr.String(), want) {
-			t.Fatalf("guidance lacks %q:\n%s", want, stderr.String())
-		}
+	if got := strings.TrimSpace(stderr.String()); got != "gproxy sub [--user <user>] [--target <domain|ip>]" {
+		t.Fatalf("guidance:\n%s", got)
 	}
 }

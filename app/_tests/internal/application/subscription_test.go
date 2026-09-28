@@ -16,7 +16,7 @@ import (
 func TestSubscriptionMachineExportIsOneEncodedValue(t *testing.T) {
 	a := protocolTestApp(t)
 	ctx := context.Background()
-	result, err := a.Subscription(ctx, SubscriptionOptions{Target: "192.0.2.1", JSON: true})
+	result, err := a.Subscription(ctx, SubscriptionOptions{Target: "ip", JSON: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func TestSubscriptionMachineExportIsOneEncodedValue(t *testing.T) {
 	}
 	// Not null: a client reading the envelope has to be able to iterate
 	// targets without first testing it for a JSON literal.
-	if string(data) != `{"nodes":[],"targets":{"links":[],"mihomo":[]}}` {
+	if string(data) != `{"nodes":[],"targets":{"links":[]}}` {
 		t.Fatalf("empty export: %s", data)
 	}
 	snapshot, err := a.Snapshot(ctx)
@@ -41,7 +41,7 @@ func TestSubscriptionMachineExportIsOneEncodedValue(t *testing.T) {
 	if err := snapshot.Store.Save(); err != nil {
 		t.Fatal(err)
 	}
-	result, err = a.Subscription(ctx, SubscriptionOptions{Target: "192.0.2.1", JSON: true})
+	result, err = a.Subscription(ctx, SubscriptionOptions{Target: "ip", JSON: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestEmptySubscriptionExportsNothingRatherThanNull(t *testing.T) {
 	ctx := context.Background()
 	// The export carries no links at all rather than a nil result, which the
 	// entry point would have rendered as null.
-	plain, err := a.Subscription(ctx, SubscriptionOptions{Target: "192.0.2.1"})
+	plain, err := a.Subscription(ctx, SubscriptionOptions{Target: "ip"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,11 +169,11 @@ func exportLinks(t *testing.T, result Result) []SubscriptionLink {
 	return links
 }
 
-// linksIn is the content of the links of one format, groups left out.
+// linksIn is the content of the links of one format.
 func linksIn(links []SubscriptionLink, format string) []string {
 	var contents []string
 	for _, link := range links {
-		if link.Format == format && !link.Group {
+		if link.Format == format {
 			contents = append(contents, link.Content)
 		}
 	}
@@ -201,7 +201,7 @@ func TestEachNodeExportsTheFormatsItHas(t *testing.T) {
 	if err := snapshot.Store.Save(); err != nil {
 		t.Fatal(err)
 	}
-	result, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "192.0.2.1"})
+	result, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "ip"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,20 +210,10 @@ func TestEachNodeExportsTheFormatsItHas(t *testing.T) {
 	if !strings.Contains(surge, "= anytls,") || strings.Contains(surge, "vless") {
 		t.Fatalf("surge section: %q", surge)
 	}
-	// --node narrows the export to that node's links in every format it has.
-	result, err = a.Subscription(ctx, SubscriptionOptions{User: "alice", Node: "vless_reality_24443", Target: "192.0.2.1"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, link := range exportLinks(t, result) {
-		if link.Tag != "vless_reality_24443" || link.Format == "surge" {
-			t.Fatalf("--node exported another node or format: %#v", link)
-		}
-	}
 }
 
-// Asked for by name, the mihomo export is the document a client loads: a
-// proxies key with sequence items under it, well-formed even when empty.
+// Each mihomo entry is one flow mapping with what the client needs to connect,
+// and never the key that stays on the server.
 func TestMihomoLinksCarryWhatTheClientNeeds(t *testing.T) {
 	a := protocolTestApp(t)
 	ctx := context.Background()
@@ -242,7 +232,7 @@ func TestMihomoLinksCarryWhatTheClientNeeds(t *testing.T) {
 	if err := snapshot.Store.Save(); err != nil {
 		t.Fatal(err)
 	}
-	result, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "192.0.2.1"})
+	result, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "ip"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +282,7 @@ func TestMihomoEntriesAreUniquelyNamed(t *testing.T) {
 	if err := snapshot.Store.Save(); err != nil {
 		t.Fatal(err)
 	}
-	result, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "192.0.2.1"})
+	result, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "ip"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +320,7 @@ func TestDefaultExportIsOrderedForGrouping(t *testing.T) {
 	if err := snapshot.Store.Save(); err != nil {
 		t.Fatal(err)
 	}
-	result, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "192.0.2.1"})
+	result, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "ip"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,9 +344,9 @@ func TestDefaultExportIsOrderedForGrouping(t *testing.T) {
 	}
 }
 
-// A user's export is that user's links and no one else's, and --node alone is
-// every member of that node.
-func TestSubscriptionIsScopedToTheUserOrNode(t *testing.T) {
+// A user's export is that user's links and no one else's; without --user it
+// is every user's.
+func TestSubscriptionIsScopedToTheUser(t *testing.T) {
 	a := protocolTestApp(t)
 	ctx := context.Background()
 	snapshot, err := a.Snapshot(ctx)
@@ -392,13 +382,44 @@ func TestSubscriptionIsScopedToTheUserOrNode(t *testing.T) {
 		}
 		return who, tags
 	}
-	if who, tags := users(SubscriptionOptions{User: "alice", Target: "192.0.2.1"}); len(who) != 1 || !who["alice"] || tags["vless_reality_24443"] {
+	if who, tags := users(SubscriptionOptions{User: "alice", Target: "ip"}); len(who) != 1 || !who["alice"] || tags["vless_reality_24443"] {
 		t.Fatalf("alice's export: users %v nodes %v", who, tags)
 	}
-	if who, tags := users(SubscriptionOptions{Node: "anytls_24445", Target: "192.0.2.1"}); len(who) != 2 || len(tags) != 1 {
-		t.Fatalf("--node alone: users %v nodes %v", who, tags)
+	if who, _ := users(SubscriptionOptions{Target: "ip"}); len(who) != 2 {
+		t.Fatalf("every user's export: users %v", who)
 	}
-	if _, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Node: "vless_reality_24443", Target: "192.0.2.1"}); err == nil {
-		t.Fatal("a node the user is not a member of exported")
+}
+
+// --target is domain or ip. A domain export on a host with no domain names
+// the server's addresses rather than failing, and says so.
+func TestSubscriptionTargetModes(t *testing.T) {
+	a := protocolTestApp(t)
+	ctx := context.Background()
+	if _, err := a.Subscription(ctx, SubscriptionOptions{Target: "192.0.2.1"}); err == nil || !strings.Contains(err.Error(), "domain or ip") {
+		t.Fatalf("an address was accepted as a target mode: %v", err)
+	}
+	snapshot, err := a.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := protocol.Install(snapshot.Store, protocol.InstallParams{ProtoType: protocol.AnyTLS, Port: 24445, UserName: "alice", Domain: "example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := snapshot.Store.Save(); err != nil {
+		t.Fatal(err)
+	}
+	var notes []string
+	a.Progress = func(line string) { notes = append(notes, line) }
+	result, err := a.Subscription(ctx, SubscriptionOptions{User: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, content := range linksIn(exportLinks(t, result), "surge") {
+		if !strings.Contains(content, "192.0.2.1") {
+			t.Fatalf("domain export without a domain did not use the address: %s", content)
+		}
+	}
+	if len(notes) != 1 || !strings.Contains(notes[0], "no domain is configured") {
+		t.Fatalf("notes: %q", notes)
 	}
 }

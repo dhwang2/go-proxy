@@ -2,8 +2,6 @@ package subscription
 
 import (
 	"context"
-	"net"
-	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -12,27 +10,12 @@ import (
 	"go-proxy/internal/store"
 )
 
-func TestExplicitIPDoesNotResolveDNS(t *testing.T) {
-	old := net.DefaultResolver
-	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(context.Context, string, string) (net.Conn, error) {
-		t.Fatal("explicit ip triggered dns")
-		return nil, nil
-	}}
-	t.Cleanup(func() { net.DefaultResolver = old })
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	targets, err := ResolveTargets(ctx, "2001:db8::1", Need{Families: true, Addresses: true})
-	if err != nil || targets.Host != "2001:db8::1" || len(targets.Links) != 1 || targets.Links[0].Family != "v6" || len(targets.Mihomo) != 1 {
-		t.Fatalf("target: %#v %v", targets, err)
-	}
-}
-
 func TestExportPreservesTUICCongestionAndChecksCertificates(t *testing.T) {
 	ib := store.Inbound{Type: "tuic", Tag: "tuic_443", ListenPort: 443, CongestionControl: "cubic", Users: []store.User{{Name: "alice", UUID: "uuid", Password: "password"}}, TLS: &store.TLSConfig{Enabled: true, ServerName: "example.com"}}
 	s := &store.Store{SingBox: &store.SingBoxConfig{Inbounds: []store.Inbound{ib}}, UserMeta: store.NewUserManagement()}
-	renderer := NewRenderer(s, nil, Targets{Host: "192.0.2.1", Links: []Target{{Host: "192.0.2.1", Family: "v4"}}, Mihomo: []Target{{Host: "192.0.2.1", Family: "v4"}}})
+	renderer := NewRenderer(s, nil, Targets{Host: "192.0.2.1", Links: []Target{{Host: "192.0.2.1", Family: "v4"}}})
 	entry := derived.Membership(s)["alice"][0]
-	for _, format := range []Format{FormatURI, FormatSurge, FormatMihomo} {
+	for _, format := range []Format{FormatSurge, FormatMihomo} {
 		links, err := renderer.Render(context.Background(), entry, format)
 		if err != nil {
 			t.Fatal(err)
@@ -56,7 +39,7 @@ func TestExportPreservesTUICCongestionAndChecksCertificates(t *testing.T) {
 
 func TestExportNamesDistinguishUsersAndAddressFamilies(t *testing.T) {
 	s := &store.Store{SingBox: &store.SingBoxConfig{Inbounds: []store.Inbound{{Type: "anytls", Tag: "anytls_443", ListenPort: 443, Users: []store.User{{Name: "alice", Password: "pw"}, {Name: "bob", Password: "pw2"}}}}}, UserMeta: store.NewUserManagement()}
-	renderer := NewRenderer(s, nil, Targets{Host: "192.0.2.1", Links: []Target{{Host: "192.0.2.1", Family: "v4"}, {Host: "2001:db8::1", Family: "v6"}}, Mihomo: []Target{{Host: "192.0.2.1", Family: "v4"}, {Host: "2001:db8::1", Family: "v6"}}})
+	renderer := NewRenderer(s, nil, Targets{Host: "192.0.2.1", Links: []Target{{Host: "192.0.2.1", Family: "v4"}, {Host: "2001:db8::1", Family: "v6"}}})
 	seen := map[string]bool{}
 	for _, entries := range derived.Membership(s) {
 		for _, entry := range entries {
@@ -80,42 +63,5 @@ func TestExportNamesDistinguishUsersAndAddressFamilies(t *testing.T) {
 	}
 	if len(seen) != 4 {
 		t.Fatalf("got %d entries", len(seen))
-	}
-}
-
-// Share links follow the schemes Mihomo parses: percent-encoded credentials
-// and names, the empty path written as "/", and only the parameters the
-// scheme defines. A password holding '@' or ':' used to end the authority.
-func TestShareLinksParseBackToTheirParts(t *testing.T) {
-	tuic := store.Inbound{Type: "tuic", Tag: "tuic_443", ListenPort: 443, Users: []store.User{{Name: "alice", UUID: "uuid-1", Password: "p@ss:w/rd"}}, TLS: &store.TLSConfig{Enabled: true, ServerName: "example.com"}}
-	anytls := store.Inbound{Type: "anytls", Tag: "anytls_8443", ListenPort: 8443, Users: []store.User{{Name: "alice", Password: "a@b:c"}}, TLS: &store.TLSConfig{Enabled: true, ServerName: "example.com"}}
-	s := &store.Store{SingBox: &store.SingBoxConfig{Inbounds: []store.Inbound{tuic, anytls}}, UserMeta: store.NewUserManagement()}
-	renderer := NewRenderer(s, nil, Targets{Host: "2001:db8::1", Links: []Target{{Host: "2001:db8::1", Family: "v6"}}, Mihomo: []Target{{Host: "2001:db8::1", Family: "v6"}}})
-	for _, entry := range derived.Membership(s)["alice"] {
-		links, err := renderer.Render(context.Background(), entry, FormatURI)
-		if err != nil {
-			t.Fatal(err)
-		}
-		link, err := url.Parse(links[0].Content)
-		if err != nil {
-			t.Fatalf("%s: %v", links[0].Content, err)
-		}
-		if link.Hostname() != "2001:db8::1" || link.Path != "/" || link.Fragment == "" {
-			t.Fatalf("host %q path %q name %q in %s", link.Hostname(), link.Path, link.Fragment, links[0].Content)
-		}
-		password, _ := link.User.Password()
-		switch link.Scheme {
-		case "tuic":
-			if link.User.Username() != "uuid-1" || password != "p@ss:w/rd" {
-				t.Fatalf("tuic credentials did not survive: %s", links[0].Content)
-			}
-			if link.Query().Has("allow_insecure") {
-				t.Fatalf("tuic link carries a parameter Mihomo dropped: %s", links[0].Content)
-			}
-		case "anytls":
-			if link.User.Username() != "a@b:c" || link.Query().Get("sni") != "example.com" {
-				t.Fatalf("anytls link lost its parts: %s", links[0].Content)
-			}
-		}
 	}
 }

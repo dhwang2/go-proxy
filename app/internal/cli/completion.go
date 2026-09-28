@@ -8,6 +8,7 @@ import (
 	"go-proxy/internal/core"
 	"go-proxy/internal/routing"
 	"go-proxy/internal/store"
+	"go-proxy/internal/subscription"
 )
 
 // Shell completion is deliberately limited to values that are compile-time
@@ -74,6 +75,7 @@ func registerCompletions(root *cobra.Command) {
 
 	flags := map[string]map[string][]string{
 		"gproxy protocol add":      {"congestion": {"bbr", "cubic"}, "mode": {"default", "unshaped"}, "dns-ip-preference": store.SnellDNSIPPreferences},
+		"gproxy sub":               {"target": {subscription.TargetDomain, subscription.TargetIP}},
 		"gproxy route rule add":    {"rules": presetIndexes(), "out": {"direct"}},
 		"gproxy route rule modify": {"out": {"direct"}},
 	}

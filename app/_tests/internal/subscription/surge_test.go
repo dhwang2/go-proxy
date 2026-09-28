@@ -202,8 +202,8 @@ func TestRenderUsesShadowTLSFrontAndRejectsUnsupportedFormats(t *testing.T) {
 
 	// Neither of the other two can drive the wrapper, so neither may quietly
 	// hand out a link to the backend port.
-	renderer := NewRenderer(s, bindings, Targets{Host: "1.2.3.4", Links: []Target{{Family: "v4", Host: "1.2.3.4"}}, Mihomo: []Target{{Family: "v4", Host: "1.2.3.4"}}})
-	for _, format := range []Format{FormatURI, FormatMihomo} {
+	renderer := NewRenderer(s, bindings, Targets{Host: "1.2.3.4", Links: []Target{{Family: "v4", Host: "1.2.3.4"}}})
+	for _, format := range []Format{FormatMihomo} {
 		if _, err := renderer.Render(context.Background(), derived.Membership(s)["alice"][0], format); err == nil {
 			t.Fatalf("%s export must not discard the wrapper", format)
 		}
@@ -212,7 +212,7 @@ func TestRenderUsesShadowTLSFrontAndRejectsUnsupportedFormats(t *testing.T) {
 
 func renderForUser(t *testing.T, s *store.Store, bindings []service.ShadowTLSBinding, name string, format Format, host string) []Link {
 	t.Helper()
-	renderer := NewRenderer(s, bindings, Targets{Host: host, Links: []Target{{Host: host}}, Mihomo: []Target{{Host: host}}})
+	renderer := NewRenderer(s, bindings, Targets{Host: host, Links: []Target{{Host: host}}})
 	var links []Link
 	for _, entry := range derived.Membership(s)[name] {
 		generated, err := renderer.Render(context.Background(), entry, format)
@@ -240,8 +240,6 @@ func TestLinkNamesDoNotRepeatTheProtocol(t *testing.T) {
 	}
 	s.UserMeta.Groups["~/.groups"] = []string{"alice"}
 	renderer := NewRenderer(s, nil, Targets{Host: "1.2.3.4", Links: []Target{
-		{Host: "1.2.3.4", Family: "v4"}, {Host: "2001:db8::1", Family: "v6"},
-	}, Mihomo: []Target{
 		{Host: "1.2.3.4", Family: "v4"}, {Host: "2001:db8::1", Family: "v6"},
 	}})
 	seen := map[string]bool{}

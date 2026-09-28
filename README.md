@@ -22,7 +22,7 @@ gproxy protocol add                                   # lists every protocol wit
 gproxy protocol add vless --reality --user alice --port auto
 gproxy protocol add tuic --user alice --port auto --domain proxy.example.com
 gproxy protocol add snell --user alice --port auto --mode default --dns-ip-preference default --shadow-tls
-gproxy sub alice                                      # client links and configuration
+gproxy sub --user alice                               # client links and configuration
 gproxy status                                         # the dashboard
 ```
 
@@ -62,7 +62,7 @@ gproxy route final set <direct|chain tag>
 gproxy route sync-dns
 gproxy route test --user <name> --domain <domain|ip>
 
-gproxy sub [<user>] [--node <tag>] [--target <ip|host>]
+gproxy sub [--user <user>] [--target <domain|ip>]
 
 gproxy config view <sing-box|snell|shadow-tls> [--show-secrets]
 gproxy config validate

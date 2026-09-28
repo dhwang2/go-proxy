@@ -15,6 +15,7 @@ import (
 	"go-proxy/internal/protocol"
 	"go-proxy/internal/routing"
 	"go-proxy/internal/store"
+	"go-proxy/internal/subscription"
 	"go-proxy/internal/user"
 )
 
@@ -29,6 +30,13 @@ func protocolTestApp(t *testing.T) *App {
 	if err := os.WriteFile(config.SingBoxConfig, []byte(`{}`), 0600); err != nil {
 		t.Fatal(err)
 	}
+	// The host's own addresses stand in as one documentation address, so an
+	// export never reaches the network from a test.
+	detect := subscription.DetectAddresses
+	subscription.DetectAddresses = func(context.Context) []subscription.Target {
+		return []subscription.Target{{Host: "192.0.2.1", Family: "v4"}}
+	}
+	t.Cleanup(func() { subscription.DetectAddresses = detect })
 	a := New(nil)
 	a.LockDir = dir
 	a.RequireRoot = false
@@ -91,7 +99,7 @@ func TestSubscriptionSelectionCapabilitiesAndRedaction(t *testing.T) {
 	}
 	// alice has a reality node mihomo can load and a snell node it cannot:
 	// each exports in the formats it has.
-	result, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "192.0.2.1"})
+	result, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "ip"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,20 +110,13 @@ func TestSubscriptionSelectionCapabilitiesAndRedaction(t *testing.T) {
 	if strings.Join(formats["snell-v6"], ",") != "surge" || !slices.Contains(formats["vless_reality_24443"], "mihomo") {
 		t.Fatalf("formats per node: %v", formats)
 	}
-	result, err = a.Subscription(ctx, SubscriptionOptions{User: "alice", Node: "vless_reality_24443", Target: "192.0.2.1"})
-	if err != nil {
-		t.Fatal(err)
-	}
 	privateKey := s.SingBox.Inbounds[0].TLS.Reality.PrivateKey
 	for _, link := range result.Data.(map[string]any)["links"].([]SubscriptionLink) {
-		if link.Tag != "vless_reality_24443" {
-			t.Fatalf("--node exported another node: %#v", link)
-		}
 		if strings.Contains(link.Content, privateKey) {
 			t.Fatal("client export contains a server private key")
 		}
 	}
-	result, err = a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "192.0.2.1", JSON: true})
+	result, err = a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "ip", JSON: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +132,7 @@ func TestSubscriptionSelectionCapabilitiesAndRedaction(t *testing.T) {
 	if strings.Contains(string(encoded), s.SnellConf.PSK) || strings.Contains(string(encoded), s.SingBox.Inbounds[0].Users[0].UUID) {
 		t.Fatal("ordinary user query leaked credentials")
 	}
-	if _, err = a.Subscription(ctx, SubscriptionOptions{User: "missing", Target: "192.0.2.1"}); err == nil {
+	if _, err = a.Subscription(ctx, SubscriptionOptions{User: "missing", Target: "ip"}); err == nil {
 		t.Fatal("missing user silently exported another user")
 	}
 }

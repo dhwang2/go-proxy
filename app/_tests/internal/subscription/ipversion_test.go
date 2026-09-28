@@ -52,54 +52,49 @@ func TestSurgeIPVersionFollowsTheDomainsFamilies(t *testing.T) {
 	}
 }
 
-// A node gets one link per format that names a domain, and one mihomo entry
-// per server family joined by a fallback group under the node's own name.
-func TestOneDomainLinkAndAFallbackGroupPerNode(t *testing.T) {
+// A domain export is one link per node in every format, carrying the
+// families the domain serves; an address export is a link per family, each
+// pinned to its own.
+func TestDomainAndAddressExports(t *testing.T) {
 	s := &store.Store{SingBox: &store.SingBoxConfig{Inbounds: []store.Inbound{{
 		Type: "anytls", Tag: "anytls_2053", ListenPort: 2053,
 		Users: []store.User{{Name: "alice", Password: "pw"}},
 		TLS:   &store.TLSConfig{Enabled: true, ServerName: "example.com"},
 	}}}, UserMeta: store.NewUserManagement()}
 	entry := derived.Membership(s)["alice"][0]
-	dual := Targets{
-		Host:   "example.com",
-		Links:  []Target{{Host: "example.com", Family: "dual"}},
-		Mihomo: []Target{{Host: "192.0.2.1", Family: "v4"}, {Host: "2001:db8::1", Family: "v6"}},
-	}
-	renderer := NewRenderer(s, nil, dual)
 	node := proxyName("anytls", "alice", "", false, 0)
-	for _, format := range []Format{FormatSurge, FormatURI} {
-		links, err := renderer.Render(context.Background(), entry, format)
-		if err != nil || len(links) != 1 || links[0].Name != node || !strings.Contains(links[0].Content, "example.com") {
+
+	domain := NewRenderer(s, nil, Targets{Host: "example.com", Links: []Target{{Host: "example.com", Family: "dual"}}})
+	for format, want := range map[Format]string{FormatSurge: "ip-version=prefer-v4", FormatMihomo: `ip-version: "ipv4-prefer"`} {
+		links, err := domain.Render(context.Background(), entry, format)
+		if err != nil || len(links) != 1 {
 			t.Fatalf("%s: %#v %v", format, links, err)
 		}
-	}
-	links, err := renderer.Render(context.Background(), entry, FormatMihomo)
-	if err != nil || len(links) != 2 {
-		t.Fatalf("mihomo: %#v %v", links, err)
-	}
-	for i, want := range []string{`server: "192.0.2.1"`, `server: "2001:db8::1"`} {
-		if !strings.Contains(links[i].Content, want) || strings.Contains(links[i].Content, "example.com\",port") {
-			t.Fatalf("mihomo entry %d: %s", i, links[i].Content)
+		if !strings.Contains(links[0].Content, want) || !strings.Contains(links[0].Content, node) || !strings.Contains(links[0].Content, "example.com") {
+			t.Fatalf("%s domain link: %s", format, links[0].Content)
 		}
 	}
-	if !strings.Contains(links[0].Content, `ip-version: "ipv4"`) || !strings.Contains(links[1].Content, `ip-version: "ipv6"`) {
-		t.Fatalf("mihomo entries not pinned to their family: %s / %s", links[0].Content, links[1].Content)
-	}
-	group := renderer.MihomoGroup(entry, links)
-	want := `{name: "` + node + `",type: "fallback",proxies: ["` + links[0].Name + `", "` + links[1].Name + `"],url: "http://www.gstatic.com/generate_204",interval: 300,lazy: true}`
-	if group != want {
-		t.Fatalf("group:\n%s\nwant:\n%s", group, want)
-	}
 
-	// One family, or an explicit domain, is one mihomo entry and no group.
-	single := Targets{Host: "example.com", Links: dual.Links, Mihomo: []Target{{Host: "example.com", Family: "dual"}}}
-	renderer = NewRenderer(s, nil, single)
-	links, err = renderer.Render(context.Background(), entry, FormatMihomo)
-	if err != nil || len(links) != 1 || links[0].Name != node || !strings.Contains(links[0].Content, `ip-version: "ipv4-prefer"`) {
-		t.Fatalf("single mihomo: %#v %v", links, err)
-	}
-	if group := renderer.MihomoGroup(entry, links); group != "" {
-		t.Fatalf("a single entry got a group: %s", group)
+	addresses := NewRenderer(s, nil, Targets{Host: "192.0.2.1", Links: []Target{{Host: "192.0.2.1", Family: "v4"}, {Host: "2001:db8::1", Family: "v6"}}})
+	for format, wants := range map[Format][2]string{
+		FormatSurge:  {"", ""},
+		FormatMihomo: {`ip-version: "ipv4"`, `ip-version: "ipv6"`},
+	} {
+		links, err := addresses.Render(context.Background(), entry, format)
+		if err != nil || len(links) != 2 {
+			t.Fatalf("%s: %#v %v", format, links, err)
+		}
+		for i, host := range []string{"192.0.2.1", "2001:db8::1"} {
+			content := links[i].Content
+			if !strings.Contains(content, host) || !strings.Contains(content, wants[i]) {
+				t.Fatalf("%s address link %d: %s", format, i, content)
+			}
+			if format == FormatSurge && strings.Contains(content, "ip-version") {
+				t.Fatalf("surge address line carries ip-version: %s", content)
+			}
+			if !strings.Contains(content, proxyName("anytls", "alice", links[i].Family, false, 0)) {
+				t.Fatalf("%s address link %d is not named for its family: %s", format, i, content)
+			}
+		}
 	}
 }

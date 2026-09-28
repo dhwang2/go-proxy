@@ -20,88 +20,57 @@ type Target struct {
 	Host   string `json:"host"`
 }
 
-// Targets are the addresses an export's links name. Surge and URI links name
-// the domain, one link per node, with the families the domain serves; mihomo
-// entries name the server's addresses, one per family. An explicit --target
-// is every format's address.
+// The address modes an export takes: the configured domain, or the server's
+// own addresses.
+const (
+	TargetDomain = "domain"
+	TargetIP     = "ip"
+)
+
+// Targets are the addresses every link of an export names: the domain, one
+// link per node carrying the families it serves, or the server's addresses,
+// one link per family.
 type Targets struct {
 	// Host is what SNI falls back to: the domain, or the first address.
-	Host   string   `json:"-"`
-	Links  []Target `json:"links"`
-	Mihomo []Target `json:"mihomo"`
-	// Notes are DNS records that disagree with the server's addresses, for
-	// the reader: a link cannot use a family its domain does not publish.
+	Host  string   `json:"-"`
+	Links []Target `json:"links"`
+	// Notes are what the reader should know about the addresses chosen: a
+	// family the domain's DNS and the server disagree on, or a domain
+	// export on a host with no domain.
 	Notes []string `json:"notes,omitempty"`
 }
 
-// Need is what an export's formats read from its targets. Surge's
-// ip-version reads the families a domain serves; mihomo reads the server's
-// addresses. URI links need neither, so a URI export looks nothing up.
-type Need struct {
-	Families  bool
-	Addresses bool
-}
-
-func ResolveTargets(ctx context.Context, explicit string, need Need) (Targets, error) {
-	host := explicit
-	if host == "" {
-		host = strings.TrimSpace(os.Getenv("PROXY_HOST"))
-	}
-	// A host the operator named is mihomo's address as well, and mihomo's
-	// ip-version then reads the families it serves.
-	pinned := host != ""
-	if pinned && need.Addresses {
-		need.Families = true
-	}
-	if host == "" {
-		host = readConfiguredDomain()
-	}
-	if host != "" {
-		if ip := net.ParseIP(host); ip != nil {
-			target := ipTarget(ip)
-			return Targets{Host: host, Links: []Target{target}, Mihomo: []Target{target}}, nil
-		}
-		if !isShareableDomain(host) {
-			return Targets{}, fmt.Errorf("invalid target host")
-		}
-		var addresses []Target
-		if need.Families || need.Addresses && !pinned {
-			addresses = detectAddresses(ctx)
-		}
-		link := Target{Host: host}
-		targets := Targets{Host: host}
-		if need.Families {
+// ResolveTargets reads the addresses for mode. A domain export on a host
+// with no configured domain names the server's addresses instead, and says so.
+func ResolveTargets(ctx context.Context, mode string) (Targets, error) {
+	if mode == TargetDomain {
+		if host := readConfiguredDomain(); host != "" {
 			records, err := domainFamilies(ctx, host)
 			if err != nil {
 				return Targets{}, err
 			}
-			link.Family, targets.Notes, err = domainFamily(records, targetFamilies(addresses))
+			family, notes, err := domainFamily(records, targetFamilies(DetectAddresses(ctx)))
 			if err != nil {
 				return Targets{}, err
 			}
+			return Targets{Host: host, Links: []Target{{Host: host, Family: family}}, Notes: notes}, nil
 		}
-		targets.Links = []Target{link}
-		switch {
-		case pinned:
-			targets.Mihomo = targets.Links
-		case need.Addresses:
-			if len(addresses) == 0 {
-				return Targets{}, fmt.Errorf("public address unavailable; specify --target")
-			}
-			targets.Mihomo = addresses
-		}
-		return targets, nil
 	}
-	// No domain: every format names the addresses, one link per family.
-	addresses := detectAddresses(ctx)
+	addresses := DetectAddresses(ctx)
 	if len(addresses) == 0 {
-		return Targets{}, fmt.Errorf("public target unavailable; specify --target")
+		return Targets{}, fmt.Errorf("public address unavailable")
 	}
-	return Targets{Host: addresses[0].Host, Links: addresses, Mihomo: addresses}, nil
+	targets := Targets{Host: addresses[0].Host, Links: addresses}
+	if mode == TargetDomain {
+		targets.Notes = []string{"no domain is configured, so links name the server's addresses"}
+	}
+	return targets, nil
 }
 
-// detectAddresses is the server's public address in each family it has,
-// IPv4 first.
+// DetectAddresses is the server's public address in each family it has,
+// IPv4 first. A variable so tests can stand in for the host's network.
+var DetectAddresses = detectAddresses
+
 func detectAddresses(ctx context.Context) []Target {
 	var v4, v6 string
 	done := make(chan struct{})
