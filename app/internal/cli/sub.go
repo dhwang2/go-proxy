@@ -5,41 +5,60 @@ import (
 
 	"github.com/spf13/cobra"
 	"go-proxy/internal/application"
-	"go-proxy/internal/subscription"
 )
 
 func registerSub(r *Runner, root *cobra.Command) {
 	var p application.SubscriptionOptions
-	var surge, uri, mihomo bool
-	cmd := r.leaf("sub [user]", "Export credential-bearing client links or configuration", atMostOne("user"), func(ctx context.Context, cmd *cobra.Command, args []string) (application.Result, error) {
+	// An export names whose links it is: a user, a node, or both. Bare, it
+	// answers with every form it takes, filled in from this host so each line
+	// runs as written.
+	subArgs := func(cmd *cobra.Command, args []string) error {
+		if err := atMostOne("user")(cmd, args); err != nil {
+			return err
+		}
+		if len(args) == 1 || p.Node != "" {
+			return nil
+		}
+		return subGuidance(r.subExample(cmd.Context()))
+	}
+	cmd := r.leaf("sub [user]", "Export credential-bearing client links for a user or a node", subArgs, func(ctx context.Context, cmd *cobra.Command, args []string) (application.Result, error) {
 		if len(args) > 0 {
 			p.User = args[0]
 		}
 		p.JSON = r.JSON
-		count := 0
-		for _, value := range []bool{surge, uri, mihomo, p.JSON} {
-			if value {
-				count++
-			}
-		}
-		if count > 1 {
-			return application.Result{}, application.Invalid("--surge, --uri, --mihomo and --json are mutually exclusive")
-		}
-		if surge {
-			p.Format = subscription.FormatSurge
-		}
-		if uri {
-			p.Format = subscription.FormatURI
-		}
-		if mihomo {
-			p.Format = subscription.FormatMihomo
-		}
 		return r.App.Subscription(ctx, p)
 	})
-	cmd.Flags().BoolVar(&surge, "surge", false, "Export native Surge proxy lines")
-	cmd.Flags().BoolVar(&uri, "uri", false, "Export native node URIs")
-	cmd.Flags().BoolVar(&mihomo, "mihomo", false, "Export a mihomo proxies list")
-	cmd.Flags().StringVar(&p.Node, "node", "", "Select one node tag")
-	cmd.Flags().StringVar(&p.Target, "target", "", "Override the public hostname or IP address")
+	cmd.Flags().StringVar(&p.Node, "node", "", "Only this node's links")
+	cmd.Flags().StringVar(&p.Target, "target", "", "Address clients connect to, an ip or a hostname")
 	root.AddCommand(cmd)
+}
+
+// subExample is a user and one of their nodes on this host, for guidance
+// that runs as written; placeholders when no node has a user.
+func (r *Runner) subExample(ctx context.Context) (user, tag string) {
+	user, tag = "<user>", "<tag>"
+	result, err := r.App.ProtocolList(ctx)
+	if err != nil {
+		return user, tag
+	}
+	fields, _ := result.Data.(map[string]any)
+	nodes, _ := fields["nodes"].([]application.ProtocolNode)
+	for _, node := range nodes {
+		if len(node.Users) > 0 {
+			return node.Users[0], node.Tag
+		}
+	}
+	return user, tag
+}
+
+func subGuidance(user, tag string) error {
+	return guidance("gproxy sub requires a user or --node",
+		[]string{
+			"gproxy sub <user> [--node <tag>] [--target <ip|host>]",
+			"gproxy sub " + user,
+			"gproxy sub " + user + " --node " + tag,
+			"gproxy sub " + user + " --target <ip|host>",
+			"gproxy sub --node " + tag,
+		},
+		map[string]any{"missing": []string{"<user>", "--node"}})
 }

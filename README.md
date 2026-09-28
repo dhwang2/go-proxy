@@ -62,7 +62,7 @@ gproxy route final set <direct|chain tag>
 gproxy route sync-dns
 gproxy route test --user <name> --domain <domain|ip>
 
-gproxy sub [<user>] [--node <tag>] [--target <ip|host>] [--surge|--uri|--mihomo]
+gproxy sub [<user>] [--node <tag>] [--target <ip|host>]
 
 gproxy config view <sing-box|snell|shadow-tls> [--show-secrets]
 gproxy config validate

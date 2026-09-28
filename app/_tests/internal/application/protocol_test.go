@@ -15,7 +15,6 @@ import (
 	"go-proxy/internal/protocol"
 	"go-proxy/internal/routing"
 	"go-proxy/internal/store"
-	"go-proxy/internal/subscription"
 	"go-proxy/internal/user"
 )
 
@@ -90,33 +89,31 @@ func TestSubscriptionSelectionCapabilitiesAndRedaction(t *testing.T) {
 	if err := s.Save(); err != nil {
 		t.Fatal(err)
 	}
-	// alice has a reality node sing-box can export and a snell node it cannot.
-	// The export is the nodes that fit, not nothing: refusing the whole request
-	// sent a reader away empty-handed over one node they never asked about.
-	result, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "192.0.2.1", Format: subscription.FormatMihomo})
-	if err != nil {
-		t.Fatalf("mixed export failed instead of skipping: %v", err)
-	}
-	if strings.Count(string(result.Raw), "\n  - {") != 1 {
-		t.Fatalf("mixed export did not carry the supported node alone: %s", result.Raw)
-	}
-	if strings.Contains(string(result.Raw), "snell") {
-		t.Fatalf("a node with no sing-box export reached the output: %s", result.Raw)
-	}
-	// Naming one node and one format is an explicit pair; that still fails.
-	if _, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Node: "snell-v6", Target: "192.0.2.1", Format: subscription.FormatMihomo}); err == nil {
-		t.Fatal("an explicitly selected node with no export in the selected format must fail")
-	}
-	result, err = a.Subscription(ctx, SubscriptionOptions{User: "alice", Node: "vless_reality_24443", Target: "192.0.2.1", Format: subscription.FormatMihomo})
+	// alice has a reality node mihomo can load and a snell node it cannot:
+	// each exports in the formats it has.
+	result, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "192.0.2.1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(string(result.Raw), "\n  - {") != 1 {
-		t.Fatalf("single-node export: %s", result.Raw)
+	formats := map[string][]string{}
+	for _, link := range result.Data.(map[string]any)["links"].([]SubscriptionLink) {
+		formats[link.Tag] = append(formats[link.Tag], link.Format)
+	}
+	if strings.Join(formats["snell-v6"], ",") != "surge" || !slices.Contains(formats["vless_reality_24443"], "mihomo") {
+		t.Fatalf("formats per node: %v", formats)
+	}
+	result, err = a.Subscription(ctx, SubscriptionOptions{User: "alice", Node: "vless_reality_24443", Target: "192.0.2.1"})
+	if err != nil {
+		t.Fatal(err)
 	}
 	privateKey := s.SingBox.Inbounds[0].TLS.Reality.PrivateKey
-	if strings.Contains(string(result.Raw), privateKey) {
-		t.Fatal("client export contains a server private key")
+	for _, link := range result.Data.(map[string]any)["links"].([]SubscriptionLink) {
+		if link.Tag != "vless_reality_24443" {
+			t.Fatalf("--node exported another node: %#v", link)
+		}
+		if strings.Contains(link.Content, privateKey) {
+			t.Fatal("client export contains a server private key")
+		}
 	}
 	result, err = a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "192.0.2.1", JSON: true})
 	if err != nil {

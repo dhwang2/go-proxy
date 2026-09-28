@@ -22,7 +22,11 @@ func TestProtocolAndSubscriptionUsageErrorsAreNonInteractive(t *testing.T) {
 		{"protocol", "remove", "some-node"},
 		{"protocol", "remove", "some-node", "--confirm", "--user", ""},
 		{"user", "delete", "alice"},
-		{"sub", "--mihomo"},
+		{"sub"},
+		{"sub", "--target", "192.0.2.1"},
+		{"sub", "alice", "--mihomo"},
+		{"sub", "alice", "--surge"},
+		{"sub", "alice", "--uri"},
 		{"sub", "--singbox"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
@@ -65,5 +69,28 @@ func TestProtocolHelpRequiresNoRuntime(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("help stderr=%s", stderr.String())
+	}
+}
+
+// Bare, sub answers with every form it takes: the usage line, then each
+// option in a line that runs as written, filled from this host when a node
+// has a user and with placeholders when none does.
+func TestSubGuidanceShowsEveryOption(t *testing.T) {
+	var out, stderr bytes.Buffer
+	r := New("test", "test", strings.NewReader(""), &out, &stderr)
+	r.App.RequireRoot = false
+	r.App.LockDir = filepath.Join(t.TempDir(), "absent")
+	if code := r.Run(context.Background(), []string{"sub", "--no-color"}); code != 2 {
+		t.Fatalf("exit=%d out=%s err=%s", code, out.String(), stderr.String())
+	}
+	for _, want := range []string{
+		"gproxy sub <user> [--node <tag>] [--target <ip|host>]",
+		"gproxy sub <user> --node <tag>",
+		"gproxy sub <user> --target <ip|host>",
+		"gproxy sub --node <tag>",
+	} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("guidance lacks %q:\n%s", want, stderr.String())
+		}
 	}
 }

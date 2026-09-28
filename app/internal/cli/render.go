@@ -1806,8 +1806,7 @@ func routeDNS(p palette, decision routing.Decision) string {
 //
 // The mihomo block carries its own key and sequence indent, and names its users
 // in YAML comments, so the section under [mihomo] loads as written. Listing the
-// mappings bare read well and could not be used: mihomo needs the proxies key,
-// and a reader had to re-export with --mihomo to get one.
+// mappings bare read well and could not be used: mihomo needs the proxies key.
 //
 // The links themselves are left uncoloured. They are what gets copied, and the
 // headings are enough to find a block by eye.

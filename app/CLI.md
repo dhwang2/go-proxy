@@ -95,32 +95,38 @@ Certificate issuance waits on Caddy and reads Caddy's log while it waits. A refu
 
 ## Subscription output and secrets
 
+```text
+gproxy sub [<user>] [--node <tag>] [--target <ip|host>]
+```
+
 ```bash
-gproxy sub
 gproxy sub alice
-gproxy sub alice --node vless_reality_24443 --uri
-gproxy sub alice --node vless_reality_24443 --mihomo
-gproxy sub alice --node snell-v6 --surge
-gproxy sub alice --mihomo
+gproxy sub alice --node tuic_25020
+gproxy sub alice --target proxy.example.com
+gproxy sub --node tuic_25020
 gproxy sub alice --json
 ```
 
+An export names whose links it is: a user, a node, or both. `gproxy sub` alone prints the form above and one line per option that runs as written, filled in with a user and a node from this host (placeholders when no node has a user), and exits 2.
+
+- `<user>` exports that user's links and no one else's: every node the user is a member of, in every format each node supports.
+- `--node <tag>` narrows the export to one node, the tag `protocol list` and `user list` show (`tuic_25020`, `snell-v6`). With a user, it is that user's links on that node, and a user who is not a member of it is an error. Without a user, it is the links of every member of that node.
+- `--target <ip|host>` sets the address the links point clients at, in every format. Without it, Surge and URI links name the configured domain and mihomo entries name the server's addresses (below). A hostname is looked up for the address families it publishes, which set `ip-version`; an IP address is used as it is, with its own family, and needs no DNS or HTTP lookup. Use it when clients should connect through another name, such as a CDN-fronted or regional hostname, or when the server cannot find its own public address.
+
+What the links contain:
+
+- Output is every format a node supports, grouped for reading: a `[format]` heading, the user under it, and that user's links below, each heading printed once. The links carry no colour: they are what gets copied. `--json` returns `data.nodes`, each node's available `formats` and credential-bearing `content`, a node's mihomo fallback group as `mihomo_group`, and `data.targets` as the `links` and `mihomo` target lists.
 - Surge and URI links name the configured domain, one link per node. Surge lines add `ip-version` for the families the domain serves: `prefer-v4` when the domain publishes A and AAAA records and the server has both families, `v4-only` or `v6-only` when only one is shared. A family on one side only, such as a server with IPv6 whose domain has no AAAA record, is left out and said on stderr; no family in common is an error. URI links have no such parameter, so the domain alone decides. Without a configured domain, every format names the server's addresses, one link per family.
-- Mihomo entries name the server's addresses, in `--mihomo` and in the default view's `[mihomo]` section alike, each with `ip-version: ipv4` or `ipv6`. A mihomo proxy has one server, so on a dual-stack server a node has an entry per family, and a `fallback` group under the node's own name joins them, IPv4 first, checked against `http://www.gstatic.com/generate_204` every 300 seconds while in use. Selecting the group selects the node. A single-family server has one entry and no group.
-- `--target <domain|ip>` is every format's address, mihomo's too: a domain carries `ip-version` for the families it serves, an address its own family.
+- The `[mihomo]` section names the server's addresses, each entry with `ip-version: ipv4` or `ipv6`. A mihomo proxy has one server, so on a dual-stack server a node has an entry per family, and a `fallback` group under the node's own name joins them, IPv4 first, checked against `http://www.gstatic.com/generate_204` every 300 seconds while in use. Selecting the group selects the node. A single-family server has one entry and no group. The section is a loadable document: the `proxies:` and `proxy-groups:` keys, the sequence indent, and each user's name as a YAML comment.
 - A link is named `<host>-<protocol>[-<port>][-<family>]-<user>`. The family appears only where a node has a link per family. The port appears only where it is needed to tell two links apart, which is when one user has more than one node of the same protocol: names key the proxy list in every client that reads these, so two links sharing one would silently replace each other.
-- Default output carries every format each node supports, grouped for reading: a `[format]` heading, the user under it, and that user's links below — each heading printed once, not above every line. Within a user the address families sit together, so one block can be taken at once. The links themselves carry no colour: they are what gets copied. An explicit format still streams the artifact itself, unchanged. `--json` returns `data.nodes`, each node's available `formats` and credential-bearing `content`.
-- `--surge`, `--uri`, `--mihomo` and `--json` are mutually exclusive. There is no sing-box client export: it was withdrawn in v0.3.1.
-- `--mihomo` writes a `proxies:` document, one flow-style YAML mapping per entry, followed by `proxy-groups:` when a node has a fallback group, ready to load. The default view prints the same wrapper around its `[mihomo]` section — the `proxies:` and `proxy-groups:` keys, the sequence indent, and each user's name as a YAML comment — so that section loads as written too. `--json` carries a node's group as `mihomo_group`, and `targets` as `links` and `mihomo` target lists. Surge and URI exports contain import content only.
-- A mapping drops the space after each comma but keeps the one after each colon. Dropping the second still parses — into a mapping whose keys are the whole `name:"value"` string and whose values are all null — so the configuration would be silently wrong rather than rejected.
-- A selected format exports the nodes that support it and names the rest on stderr: a user whose nodes do not all share one format still gets the ones that do. Selecting a single node with `--node` is an explicit pair, so a node with no export in that format still fails.
-- Format coverage: VLESS has no Surge renderer; Snell is Surge-only, which also covers Snell behind ShadowTLS rather than offering a misleading direct URI. Snell has no mihomo entry because mihomo implements Snell v1–v5 while this project deploys snell-server v6, whose wire format derives a per-deployment profile from the PSK — a v5 entry would load and then fail to connect.
-- `--target <IP>` avoids DNS/HTTP discovery, and `--uri` alone needs none. A domain's records and the server's addresses are looked up within a bounded deadline. If automatic detection cannot find a usable target, supply one explicitly.
+- A mihomo mapping drops the space after each comma but keeps the one after each colon. Dropping the second still parses — into a mapping whose keys are the whole `name:"value"` string and whose values are all null — so the configuration would be silently wrong rather than rejected.
+- Format coverage: VLESS has no Surge line; Snell is Surge-only, which also covers Snell behind ShadowTLS rather than offering a misleading direct URI. Snell has no mihomo entry because mihomo implements Snell v1–v5 while this project deploys snell-server v6, whose wire format derives a per-deployment profile from the PSK — a v5 entry would load and then fail to connect. There is no sing-box client export: it was withdrawn in v0.3.1.
+- A domain's records and the server's addresses are looked up within a bounded deadline. If automatic detection cannot find a usable address, supply one with `--target`.
 - Subscription exports and `config view --show-secrets` contain secrets. Use private files; never paste them into reports or public release notes. Ordinary inspection and errors are redacted.
 
 ```bash
 umask 077
-gproxy sub alice --node vless_reality_24443 --mihomo > client-proxies.yaml
+gproxy sub alice > alice-links.txt
 ```
 
 There is no HTTP subscription publishing server in this CLI; Caddy is used for certificates.

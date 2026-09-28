@@ -144,49 +144,46 @@ func TestSubscriptionInvalidUTF8DecodesLikeEncodingJSON(t *testing.T) {
 func TestEmptySubscriptionExportsNothingRatherThanNull(t *testing.T) {
 	a := protocolTestApp(t)
 	ctx := context.Background()
-	// The default export is structured rather than raw now: it is grouped for
-	// display, so it is checked separately below.
-	for _, format := range []subscription.Format{subscription.FormatSurge, subscription.FormatURI} {
-		result, err := a.Subscription(ctx, SubscriptionOptions{Target: "192.0.2.1", Format: format})
-		if err != nil {
-			t.Fatalf("format %q: %v", format, err)
-		}
-		if result.Raw == nil {
-			t.Fatalf("format %q handed back a nil export, which the entry point renders as null", format)
-		}
-		if len(result.Raw) != 0 {
-			t.Fatalf("format %q exported %q for a user with no nodes", format, result.Raw)
-		}
-	}
-	// The default export carries no links at all rather than a nil result,
-	// which the entry point would have rendered as null.
+	// The export carries no links at all rather than a nil result, which the
+	// entry point would have rendered as null.
 	plain, err := a.Subscription(ctx, SubscriptionOptions{Target: "192.0.2.1"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	links, ok := plain.Data.(map[string]any)["links"].([]SubscriptionLink)
 	if !ok {
-		t.Fatalf("default export is not a link list: %#v", plain.Data)
+		t.Fatalf("export is not a link list: %#v", plain.Data)
 	}
 	if len(links) != 0 {
 		t.Fatalf("a user with no nodes exported %d links", len(links))
 	}
+}
 
-	// Asked for by name, mihomo is the document a client loads, so an empty
-	// one is a well-formed empty list rather than a key with nothing under it.
-	result, err := a.Subscription(ctx, SubscriptionOptions{Target: "192.0.2.1", Format: subscription.FormatMihomo})
-	if err != nil {
-		t.Fatal(err)
+// exportLinks is the link list an export hands the renderer.
+func exportLinks(t *testing.T, result Result) []SubscriptionLink {
+	t.Helper()
+	links, ok := result.Data.(map[string]any)["links"].([]SubscriptionLink)
+	if !ok {
+		t.Fatalf("export is not a link list: %#v", result.Data)
 	}
-	if strings.TrimSpace(string(result.Raw)) != "proxies: []" {
-		t.Fatalf("empty mihomo export is %q", result.Raw)
+	return links
+}
+
+// linksIn is the content of the links of one format, groups left out.
+func linksIn(links []SubscriptionLink, format string) []string {
+	var contents []string
+	for _, link := range links {
+		if link.Format == format && !link.Group {
+			contents = append(contents, link.Content)
+		}
 	}
+	return contents
 }
 
 // A client that cannot represent one node should still get the others. The
 // export used to refuse the whole request, which sent a Surge reader away with
 // nothing over a node they never asked about.
-func TestUnsupportedNodesAreSkippedRatherThanRefused(t *testing.T) {
+func TestEachNodeExportsTheFormatsItHas(t *testing.T) {
 	a := protocolTestApp(t)
 	ctx := context.Background()
 	snapshot, err := a.Snapshot(ctx)
@@ -204,41 +201,32 @@ func TestUnsupportedNodesAreSkippedRatherThanRefused(t *testing.T) {
 	if err := snapshot.Store.Save(); err != nil {
 		t.Fatal(err)
 	}
-
-	// Surge cannot carry vless; the anytls node still exports.
-	result, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "192.0.2.1", Format: subscription.FormatSurge})
+	result, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "192.0.2.1"})
 	if err != nil {
-		t.Fatalf("mixed surge export failed instead of skipping: %v", err)
+		t.Fatal(err)
 	}
-	body := string(result.Raw)
-	if !strings.Contains(body, "= anytls,") {
-		t.Fatalf("the supported node was dropped with the unsupported one: %q", body)
+	// Surge cannot carry vless; the anytls node is still in its section.
+	surge := strings.Join(linksIn(exportLinks(t, result), "surge"), "\n")
+	if !strings.Contains(surge, "= anytls,") || strings.Contains(surge, "vless") {
+		t.Fatalf("surge section: %q", surge)
 	}
-	if strings.Contains(body, "vless") {
-		t.Fatalf("a node surge cannot represent reached the output: %q", body)
+	// --node narrows the export to that node's links in every format it has.
+	result, err = a.Subscription(ctx, SubscriptionOptions{User: "alice", Node: "vless_reality_24443", Target: "192.0.2.1"})
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	// Naming the node and the format together is an explicit pair.
-	if _, err := a.Subscription(ctx, SubscriptionOptions{
-		User: "alice", Node: "vless_reality_24443", Target: "192.0.2.1", Format: subscription.FormatSurge,
-	}); err == nil {
-		t.Fatal("an explicitly selected node with no surge export must fail")
+	for _, link := range exportLinks(t, result) {
+		if link.Tag != "vless_reality_24443" || link.Format == "surge" {
+			t.Fatalf("--node exported another node or format: %#v", link)
+		}
 	}
 }
 
 // Asked for by name, the mihomo export is the document a client loads: a
 // proxies key with sequence items under it, well-formed even when empty.
-func TestMihomoExportIsAProxiesDocument(t *testing.T) {
+func TestMihomoLinksCarryWhatTheClientNeeds(t *testing.T) {
 	a := protocolTestApp(t)
 	ctx := context.Background()
-	empty, err := a.Subscription(ctx, SubscriptionOptions{Target: "192.0.2.1", Format: subscription.FormatMihomo})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.TrimSpace(string(empty.Raw)) != "proxies: []" {
-		t.Fatalf("empty mihomo export is %q", empty.Raw)
-	}
-
 	snapshot, err := a.Snapshot(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -254,34 +242,32 @@ func TestMihomoExportIsAProxiesDocument(t *testing.T) {
 	if err := snapshot.Store.Save(); err != nil {
 		t.Fatal(err)
 	}
-	result, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "192.0.2.1", Format: subscription.FormatMihomo})
+	result, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "192.0.2.1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := strings.Split(strings.TrimRight(string(result.Raw), "\n"), "\n")
-	if lines[0] != "proxies:" {
-		t.Fatalf("export does not open the list: %q", result.Raw)
+	entries := linksIn(exportLinks(t, result), "mihomo")
+	if len(entries) != 2 {
+		t.Fatalf("expected one mihomo entry per node: %q", entries)
 	}
-	if len(lines) != 3 {
-		t.Fatalf("expected one entry per node, got %d lines: %s", len(lines)-1, result.Raw)
-	}
-	for _, line := range lines[1:] {
-		// Flow style: two spaces, a dash, and one mapping on one line.
-		if !strings.HasPrefix(line, "  - {") || !strings.HasSuffix(line, "}") {
-			t.Fatalf("entry is not a sequence item: %q", line)
+	for _, entry := range entries {
+		// Flow style: one mapping on one line.
+		if !strings.HasPrefix(entry, "{") || !strings.HasSuffix(entry, "}") {
+			t.Fatalf("entry is not one mapping: %q", entry)
 		}
 		for _, want := range []string{`name: "`, `type: "`, `server: "192.0.2.1"`, "port: "} {
-			if !strings.Contains(line, want) {
-				t.Fatalf("entry is missing %q: %s", want, line)
+			if !strings.Contains(entry, want) {
+				t.Fatalf("entry is missing %q: %s", want, entry)
 			}
 		}
 	}
 	// The reality entry carries what the handshake needs, and never the key
 	// that stays on the server.
-	if !strings.Contains(string(result.Raw), "reality-opts: {public-key:") {
-		t.Fatalf("reality node exported without its handshake key: %s", result.Raw)
+	all := strings.Join(entries, "\n")
+	if !strings.Contains(all, "reality-opts: {public-key:") {
+		t.Fatalf("reality node exported without its handshake key: %s", all)
 	}
-	if strings.Contains(string(result.Raw), snapshot.Store.SingBox.Inbounds[0].TLS.Reality.PrivateKey) {
+	if strings.Contains(all, snapshot.Store.SingBox.Inbounds[0].TLS.Reality.PrivateKey) {
 		t.Fatal("client export contains a server private key")
 	}
 }
@@ -306,19 +292,20 @@ func TestMihomoEntriesAreUniquelyNamed(t *testing.T) {
 	if err := snapshot.Store.Save(); err != nil {
 		t.Fatal(err)
 	}
-	result, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "192.0.2.1", Format: subscription.FormatMihomo})
+	result, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Target: "192.0.2.1"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	all := strings.Join(linksIn(exportLinks(t, result), "mihomo"), "\n")
 	seen := map[string]bool{}
-	for _, name := range regexp.MustCompile(`name: "([^"]+)"`).FindAllStringSubmatch(string(result.Raw), -1) {
+	for _, name := range regexp.MustCompile(`name: "([^"]+)"`).FindAllStringSubmatch(all, -1) {
 		if seen[name[1]] {
-			t.Fatalf("duplicate proxy name %q:\n%s", name[1], result.Raw)
+			t.Fatalf("duplicate proxy name %q:\n%s", name[1], all)
 		}
 		seen[name[1]] = true
 	}
 	if len(seen) == 0 {
-		t.Fatalf("no named entries: %s", result.Raw)
+		t.Fatalf("no named entries: %s", all)
 	}
 }
 
@@ -364,5 +351,54 @@ func TestDefaultExportIsOrderedForGrouping(t *testing.T) {
 			}
 		}
 		previous = link
+	}
+}
+
+// A user's export is that user's links and no one else's, and --node alone is
+// every member of that node.
+func TestSubscriptionIsScopedToTheUserOrNode(t *testing.T) {
+	a := protocolTestApp(t)
+	ctx := context.Background()
+	snapshot, err := a.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []protocol.InstallParams{
+		{ProtoType: protocol.AnyTLS, Port: 24445, UserName: "alice", Domain: "example.com"},
+		{ProtoType: protocol.VLESSReality, Port: 24443, UserName: "bob", SNI: "www.netbsd.org"},
+	} {
+		if _, err := protocol.Install(snapshot.Store, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := range snapshot.Store.SingBox.Inbounds {
+		if ib := &snapshot.Store.SingBox.Inbounds[i]; ib.Tag == "anytls_24445" {
+			if _, err := protocol.AddUserToExisting(snapshot.Store, ib, "bob"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := snapshot.Store.Save(); err != nil {
+		t.Fatal(err)
+	}
+	users := func(opts SubscriptionOptions) (map[string]bool, map[string]bool) {
+		result, err := a.Subscription(ctx, opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		who, tags := map[string]bool{}, map[string]bool{}
+		for _, link := range exportLinks(t, result) {
+			who[link.User], tags[link.Tag] = true, true
+		}
+		return who, tags
+	}
+	if who, tags := users(SubscriptionOptions{User: "alice", Target: "192.0.2.1"}); len(who) != 1 || !who["alice"] || tags["vless_reality_24443"] {
+		t.Fatalf("alice's export: users %v nodes %v", who, tags)
+	}
+	if who, tags := users(SubscriptionOptions{Node: "anytls_24445", Target: "192.0.2.1"}); len(who) != 2 || len(tags) != 1 {
+		t.Fatalf("--node alone: users %v nodes %v", who, tags)
+	}
+	if _, err := a.Subscription(ctx, SubscriptionOptions{User: "alice", Node: "vless_reality_24443", Target: "192.0.2.1"}); err == nil {
+		t.Fatal("a node the user is not a member of exported")
 	}
 }
