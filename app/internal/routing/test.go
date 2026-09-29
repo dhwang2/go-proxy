@@ -86,7 +86,7 @@ func Evaluate(s *store.Store, user, target string, match RuleSetMatcher) (Evalua
 		server := toDNS[outbound]
 		return Decision{
 			Rule: index, MatchBy: by, Value: value,
-			Outbound: OutboundLabel(outbound), DNSServer: server, DNSVia: OutboundLabel(detour[server]),
+			Outbound: outbound, DNSServer: server, DNSVia: detour[server],
 		}
 	}
 	var rules []store.RouteRule

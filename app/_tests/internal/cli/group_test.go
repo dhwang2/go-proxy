@@ -280,7 +280,6 @@ func initializedRuntimeFixture(t *testing.T) string {
 		&config.SingBoxConfig:      "conf/sing-box.json",
 		&config.UserMetaFile:       "user-management.json",
 		&config.UserRouteFile:      "user-route-rules.json",
-		&config.UserTemplateFile:   "user-route-templates.json",
 		&config.FirewallConfigFile: "firewall-ports.json",
 		&config.SnellConfigFile:    "snell-v6.conf",
 	} {

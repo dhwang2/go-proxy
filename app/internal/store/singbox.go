@@ -20,21 +20,8 @@ type SingBoxConfig struct {
 	Route        *RouteConfig      `json:"route,omitempty"`
 }
 
-// DirectTag is the tag of the direct outbound. Configurations written before
-// it was plain carry LegacyDirectTag, which loading rewrites.
-const (
-	DirectTag       = "direct"
-	LegacyDirectTag = "🐸 direct"
-)
-
-// DirectOutbound returns the tag, if any, a stored outbound name should be
-// rewritten to: the legacy direct tag becomes the plain one.
-func DirectOutbound(tag string) string {
-	if tag == LegacyDirectTag {
-		return DirectTag
-	}
-	return tag
-}
+// DirectTag is the tag of the direct outbound.
+const DirectTag = "direct"
 
 // EnsureDefaultDomainResolver sets route.default_domain_resolver if missing.
 // Uses dns.final if available, otherwise the first DNS server tag.
@@ -306,14 +293,14 @@ func (c *SingBoxConfig) Normalize() {
 	if c.Route == nil {
 		c.Route = &RouteConfig{}
 	}
-	if c.Route.Final == "" || c.Route.Final == LegacyDirectTag {
+	if c.Route.Final == "" {
 		c.Route.Final = DirectTag
 	}
 	defaultRuleSets := rawMessagesFromMaps(config.DefaultRuleSetCatalog())
 	if len(c.Route.RuleSet) == 0 {
 		c.Route.RuleSet = defaultRuleSets
 	} else {
-		c.Route.RuleSet = appendMissingTaggedRaw(normalizeRuleSetCatalog(c.Route.RuleSet), defaultRuleSets)
+		c.Route.RuleSet = appendMissingTaggedRaw(c.Route.RuleSet, defaultRuleSets)
 	}
 	c.Route.Rules = ensureBaseRouteRules(c.Route.Rules)
 	c.EnsureDefaultDomainResolver()
@@ -457,14 +444,10 @@ func defaultDirectOutbounds() []json.RawMessage {
 
 func normalizeOutbounds(outbounds []json.RawMessage) []json.RawMessage {
 	hasDirect := false
-	for i, raw := range outbounds {
+	for _, raw := range outbounds {
 		var header OutboundHeader
 		if json.Unmarshal(raw, &header) != nil {
 			continue
-		}
-		if header.Tag == LegacyDirectTag {
-			outbounds[i] = editRaw(raw, func(v *jsonorder.Value) { v.Set("tag", jsonorder.String(DirectTag)) })
-			header.Tag = DirectTag
 		}
 		if header.Tag == DirectTag {
 			hasDirect = true
@@ -476,25 +459,12 @@ func normalizeOutbounds(outbounds []json.RawMessage) []json.RawMessage {
 	return append(outbounds, defaultDirectOutbounds()...)
 }
 
-func normalizeRuleSetCatalog(ruleSets []json.RawMessage) []json.RawMessage {
-	for i, raw := range ruleSets {
-		var item struct {
-			Detour string `json:"download_detour"`
-		}
-		if json.Unmarshal(raw, &item) == nil && item.Detour == LegacyDirectTag {
-			ruleSets[i] = editRaw(raw, func(v *jsonorder.Value) { v.Set("download_detour", jsonorder.String(DirectTag)) })
-		}
-	}
-	return ruleSets
-}
-
 func ensureBaseRouteRules(rules []RouteRule) []RouteRule {
 	hasSniff := false
 	hasHijackDNS := false
 	hasPrivateDirect := false
 
 	for i := range rules {
-		rules[i].Outbound = DirectOutbound(rules[i].Outbound)
 		if rules[i].Action == "sniff" {
 			hasSniff = true
 		}

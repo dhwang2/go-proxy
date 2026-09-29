@@ -7,6 +7,7 @@ import (
 
 	"go-proxy/internal/derived"
 	"go-proxy/internal/protocol"
+	"go-proxy/internal/routing"
 	"go-proxy/internal/service"
 	"go-proxy/internal/store"
 	"go-proxy/internal/user"
@@ -25,8 +26,6 @@ type UserView struct {
 	Name        string           `json:"name"`
 	Memberships []UserMembership `json:"memberships"`
 	Routes      int              `json:"route_count"`
-	Expiry      string           `json:"expiry,omitempty"`
-	Template    string           `json:"template,omitempty"`
 }
 
 func (a *App) UserList(ctx context.Context) (Result, error) {
@@ -37,7 +36,7 @@ func (a *App) UserList(ctx context.Context) (Result, error) {
 	users := user.List(snapshot.Store)
 	result := make([]UserView, 0, len(users))
 	for _, u := range users {
-		r := UserView{Name: u.Name, Memberships: []UserMembership{}, Routes: u.RouteCount, Expiry: u.Expiry, Template: u.Template}
+		r := UserView{Name: u.Name, Memberships: []UserMembership{}, Routes: u.RouteCount}
 		for _, m := range u.Memberships {
 			membership := UserMembership{Tag: m.Tag, Protocol: m.Proto, Port: m.Port}
 			// The wrapper is matched the way protocolNodes matches it, by the
@@ -111,6 +110,14 @@ func (a *App) UserRename(ctx context.Context, oldName, newName string) (Result, 
 		}
 		if err = user.Rename(snapshot.Store, oldName, newName); err != nil {
 			return Result{}, err
+		}
+		// The compiled rules name users; rebuild them when a stored rule
+		// names the one renamed.
+		for _, rule := range snapshot.Store.UserRoutes {
+			if slices.Contains(rule.AuthUser, newName) {
+				routing.Sync(snapshot.Store)
+				break
+			}
 		}
 		if err = a.Commit(ctx, snapshot); err != nil {
 			return Result{}, err

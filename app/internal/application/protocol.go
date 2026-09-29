@@ -21,7 +21,6 @@ import (
 	"go-proxy/internal/service"
 	"go-proxy/internal/store"
 	"go-proxy/internal/user"
-	"go-proxy/pkg/sysutil"
 )
 
 type ProtocolOptions struct {
@@ -539,11 +538,21 @@ func tcpPortFree(port int) bool {
 	return true
 }
 
+// udpPortFree reports whether a UDP socket could bind port on every address.
+func udpPortFree(port int) bool {
+	conn, err := net.ListenPacket("udp", net.JoinHostPort("", strconv.Itoa(port)))
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
 func availableProtocolPort(pt protocol.Type, port int, used map[int]bool) (int, error) {
 	explicit := port != 0
-	host := "0.0.0.0"
-	if sysutil.IPv6Available() {
-		host = "::"
+	free := tcpPortFree
+	if pt == protocol.TUIC {
+		free = udpPortFree
 	}
 	for attempts := 0; attempts < 100; attempts++ {
 		if !explicit {
@@ -555,22 +564,7 @@ func availableProtocolPort(pt protocol.Type, port int, used map[int]bool) (int, 
 			}
 			continue
 		}
-		var err error
-		if pt != protocol.TUIC {
-			var ln net.Listener
-			ln, err = net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
-			if err == nil {
-				err = ln.Close()
-			}
-		}
-		if err == nil && pt == protocol.TUIC {
-			var conn net.PacketConn
-			conn, err = net.ListenPacket("udp", net.JoinHostPort(host, strconv.Itoa(port)))
-			if err == nil {
-				err = conn.Close()
-			}
-		}
-		if err == nil {
+		if free(port) {
 			return port, nil
 		}
 		if explicit {
@@ -722,9 +716,9 @@ func (a *App) finishProtocolRemoval(ctx context.Context, snapshot *Snapshot, dat
 	for _, name := range derived.UserNames(snapshot.Store) {
 		active[name] = true
 	}
-	if derived.PruneOrphanAuthUsers(snapshot.Store, active) {
+	if derived.PruneRouteUsers(snapshot.Store, active) {
 		snapshot.Store.MarkDirty(store.FileUserRoutes)
-		snapshot.Store.MarkDirty(store.FileSingBox)
+		routing.Sync(snapshot.Store)
 		services = append(services, service.SingBox)
 	}
 	if err := a.Commit(ctx, snapshot); err != nil {

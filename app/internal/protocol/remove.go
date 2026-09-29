@@ -42,31 +42,6 @@ func Remove(s *store.Store, tag string) error {
 // cleanupUserMeta removes all user-management.json entries referencing the given tag.
 func cleanupUserMeta(s *store.Store, tag string) {
 	changed := false
-	for key, entry := range s.UserMeta.Disabled {
-		if entry.Tag == tag {
-			delete(s.UserMeta.Disabled, key)
-			changed = true
-		}
-	}
-	// Remove entries whose keys contain the tag.
-	for key := range s.UserMeta.Expiry {
-		if keyHasTag(key, tag) {
-			delete(s.UserMeta.Expiry, key)
-			changed = true
-		}
-	}
-	for key := range s.UserMeta.Route {
-		if keyHasTag(key, tag) {
-			delete(s.UserMeta.Route, key)
-			changed = true
-		}
-	}
-	for key := range s.UserMeta.Template {
-		if keyHasTag(key, tag) {
-			delete(s.UserMeta.Template, key)
-			changed = true
-		}
-	}
 	for key := range s.UserMeta.Name {
 		if keyHasTag(key, tag) {
 			delete(s.UserMeta.Name, key)
@@ -147,22 +122,6 @@ func cleanupUserMetaForUser(s *store.Store, tag, userName string) {
 	changed := false
 	if _, ok := s.UserMeta.Name[targetKey]; ok {
 		delete(s.UserMeta.Name, targetKey)
-		changed = true
-	}
-	if _, ok := s.UserMeta.Expiry[targetKey]; ok {
-		delete(s.UserMeta.Expiry, targetKey)
-		changed = true
-	}
-	if _, ok := s.UserMeta.Route[targetKey]; ok {
-		delete(s.UserMeta.Route, targetKey)
-		changed = true
-	}
-	if _, ok := s.UserMeta.Template[targetKey]; ok {
-		delete(s.UserMeta.Template, targetKey)
-		changed = true
-	}
-	if _, ok := s.UserMeta.Disabled[targetKey]; ok {
-		delete(s.UserMeta.Disabled, targetKey)
 		changed = true
 	}
 	if changed {

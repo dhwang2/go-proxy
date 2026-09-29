@@ -1324,21 +1324,6 @@ func ruleTarget(p palette, outbound, address string) string {
 	return line
 }
 
-// target is the "-> where it goes" half of a line, shared by the rule and chain
-// listings so one reads like the other. A chain names only its address; a rule
-// names the outbound it selected, and the address behind it when that outbound
-// is a chain rather than direct egress.
-func target(p palette, outbound, address string) string {
-	parts := []string{}
-	if outbound != "" {
-		parts = append(parts, p.label(clean(outbound)))
-	}
-	if address != "" {
-		parts = append(parts, p.sys(clean(address)))
-	}
-	return p.hint("-> ") + strings.Join(parts, gap)
-}
-
 func renderChains(w io.Writer, p palette, fields map[string]any) bool {
 	chains, ok := fields["chains"].([]application.ChainView)
 	if !ok {

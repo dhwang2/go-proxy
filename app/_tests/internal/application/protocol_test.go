@@ -22,7 +22,7 @@ import (
 func protocolTestApp(t *testing.T) *App {
 	t.Helper()
 	dir := t.TempDir()
-	for name, ptr := range map[string]*string{"sing-box.json": &config.SingBoxConfig, "users.json": &config.UserMetaFile, "routes.json": &config.UserRouteFile, "templates.json": &config.UserTemplateFile, "firewall.json": &config.FirewallConfigFile, "snell.conf": &config.SnellConfigFile, ".domain": &config.DomainFile} {
+	for name, ptr := range map[string]*string{"sing-box.json": &config.SingBoxConfig, "users.json": &config.UserMetaFile, "routes.json": &config.UserRouteFile, "firewall.json": &config.FirewallConfigFile, "snell.conf": &config.SnellConfigFile, ".domain": &config.DomainFile} {
 		old := *ptr
 		*ptr = filepath.Join(dir, name)
 		t.Cleanup(func() { *ptr = old })

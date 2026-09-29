@@ -180,7 +180,7 @@ func ObservationContext(ctx context.Context) (context.Context, context.CancelFun
 
 func fingerprint(ctx context.Context) (string, error) {
 	h := sha256.New()
-	for _, path := range []string{config.SingBoxConfig, config.UserMetaFile, config.UserRouteFile, config.UserTemplateFile, config.FirewallConfigFile, config.SnellConfigFile} {
+	for _, path := range []string{config.SingBoxConfig, config.UserMetaFile, config.UserRouteFile, config.FirewallConfigFile, config.SnellConfigFile} {
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}

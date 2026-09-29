@@ -31,7 +31,7 @@ func routingApplicationFixture(t *testing.T) *App {
 		target *string
 		name   string
 	}{
-		{&config.SingBoxConfig, "sing-box.json"}, {&config.UserMetaFile, "users.json"}, {&config.UserRouteFile, "routes.json"}, {&config.UserTemplateFile, "templates.json"}, {&config.FirewallConfigFile, "firewall.json"}, {&config.SnellConfigFile, "snell.conf"}, {&config.SingBoxBin, "sing-box"}, {&config.DomainFile, "domain"}, {&config.CaddyFile, "Caddyfile"},
+		{&config.SingBoxConfig, "sing-box.json"}, {&config.UserMetaFile, "users.json"}, {&config.UserRouteFile, "routes.json"}, {&config.FirewallConfigFile, "firewall.json"}, {&config.SnellConfigFile, "snell.conf"}, {&config.SingBoxBin, "sing-box"}, {&config.DomainFile, "domain"}, {&config.CaddyFile, "Caddyfile"},
 	} {
 		saved := *item.target
 		*item.target = filepath.Join(dir, item.name)
@@ -938,5 +938,38 @@ func TestSnellSettingsAreValidated(t *testing.T) {
 	good.Mode, good.DNSIPPreference, good.DNS = "unshaped", "prefer-ipv4", "1.1.1.1, 2606:4700:4700::1111"
 	if err := ValidateProtocolOptions(good); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The compiled sing-box rules are rebuilt from the stored ones: a rename
+// carries the new name into them and a deletion takes the user out.
+func TestCompiledRulesFollowRenameAndDelete(t *testing.T) {
+	a := routingApplicationFixture(t)
+	ctx := context.Background()
+	if _, err := a.RoutingSet(ctx, "alice", []string{"openai"}, "direct"); err != nil {
+		t.Fatal(err)
+	}
+	compiled := func() string {
+		snapshot, err := a.Snapshot(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, _ := json.Marshal([]any{snapshot.Store.SingBox.Route.Rules, snapshot.Store.SingBox.DNS.Rules})
+		return string(encoded)
+	}
+	if !strings.Contains(compiled(), `"alice"`) {
+		t.Fatalf("the rule was not compiled: %s", compiled())
+	}
+	if _, err := a.UserRename(ctx, "alice", "carol"); err != nil {
+		t.Fatal(err)
+	}
+	if got := compiled(); strings.Contains(got, `"alice"`) || !strings.Contains(got, `"carol"`) {
+		t.Fatalf("rename did not reach the compiled rules: %s", got)
+	}
+	if _, err := a.UserDelete(ctx, "carol"); err != nil {
+		t.Fatal(err)
+	}
+	if got := compiled(); strings.Contains(got, `"carol"`) {
+		t.Fatalf("deletion left the user in the compiled rules: %s", got)
 	}
 }

@@ -221,7 +221,7 @@ func buildStandardTLS(p InstallParams) *store.TLSConfig {
 		Enabled:    true,
 		ServerName: domain,
 	}
-	certPath, keyPath := ResolveTLSCertPaths(domain)
+	certPath, keyPath := store.CaddyCertPair(domain)
 	if certPath != "" {
 		tls.CertificatePath = certPath
 		tls.KeyPath = keyPath

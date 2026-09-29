@@ -29,13 +29,9 @@ type SnellConfig struct {
 	EgressInterface string // optional interface outgoing sockets bind to
 }
 
-// ParseSnellConfig parses an INI-style snell configuration string. A file
-// from before v6 documented dns-ip-preference carries the deprecated ipv6
-// key instead, read the way snell-server reads it: false is ipv4-only, true
-// the default, and an explicit dns-ip-preference wins over either.
+// ParseSnellConfig parses an INI-style snell configuration string.
 func ParseSnellConfig(data string) (*SnellConfig, error) {
 	conf := &SnellConfig{}
-	legacyIPv6 := ""
 	for _, line := range strings.Split(data, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "[") || strings.HasPrefix(line, "#") {
@@ -54,18 +50,13 @@ func ParseSnellConfig(data string) (*SnellConfig, error) {
 			conf.PSK = val
 		case "mode":
 			conf.Mode = val
-		case "dns-ip-preference", "ipv-preference":
+		case "dns-ip-preference":
 			conf.DNSIPPreference = val
 		case "dns":
 			conf.DNS = val
 		case "egress-interface":
 			conf.EgressInterface = val
-		case "ipv6":
-			legacyIPv6 = strings.ToLower(val)
 		}
-	}
-	if conf.DNSIPPreference == "" && legacyIPv6 == "false" {
-		conf.DNSIPPreference = "ipv4-only"
 	}
 	conf.Mode, conf.DNSIPPreference = conf.Settings()
 	if conf.Listen == "" || conf.PSK == "" {

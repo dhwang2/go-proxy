@@ -48,15 +48,6 @@ func UserRouteLabel(rule store.UserRouteRule) string {
 	return "custom"
 }
 
-func OutboundLabel(outbound string) string {
-	switch outbound {
-	case store.DirectTag, store.LegacyDirectTag:
-		return store.DirectTag
-	default:
-		return outbound
-	}
-}
-
 func presetForRule(rule store.UserRouteRule) (Preset, bool) {
 	if len(rule.Domain) > 0 || len(rule.DomainKeyword) > 0 || len(rule.DomainRegex) > 0 || len(rule.IPCIDR) > 0 {
 		return Preset{}, false

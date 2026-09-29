@@ -2,13 +2,7 @@ package protocol
 
 import (
 	"fmt"
-	"io/fs"
 	"math/rand"
-	"os"
-	"path/filepath"
-	"strings"
-
-	"go-proxy/internal/config"
 )
 
 // Type represents a supported proxy protocol.
@@ -113,55 +107,4 @@ func DefaultPort(pt Type, usedPorts map[int]bool) int {
 		}
 	}
 	return 20000 + rand.Intn(10000)
-}
-
-// caddyCertIssuerDirs returns the issuer subdirectories under the caddy certificates directory.
-func caddyCertIssuerDirs() []string {
-	caddyCertDir := config.CaddyCertDir
-	entries, err := os.ReadDir(caddyCertDir)
-	if err != nil {
-		return nil
-	}
-	var dirs []string
-	for _, e := range entries {
-		if e.IsDir() {
-			dirs = append(dirs, filepath.Join(caddyCertDir, e.Name()))
-		}
-	}
-	return dirs
-}
-
-// ResolveTLSCertPaths returns certificate and key file paths for a domain.
-func ResolveTLSCertPaths(domain string) (certPath, keyPath string) {
-	if domain == "" {
-		return "", ""
-	}
-	for _, issuerDir := range caddyCertIssuerDirs() {
-		cert, key := resolveTLSCertPair(issuerDir, domain)
-		if cert != "" && key != "" {
-			return cert, key
-		}
-	}
-	return "", ""
-}
-
-func resolveTLSCertPair(rootDir, domain string) (string, string) {
-	var certPath string
-	var keyPath string
-	_ = filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d == nil || d.IsDir() {
-			return nil
-		}
-		if filepath.Base(path) != domain+".crt" || filepath.Base(filepath.Dir(path)) != domain {
-			return nil
-		}
-		keyCandidate := strings.TrimSuffix(path, ".crt") + ".key"
-		if _, err := os.Stat(keyCandidate); err != nil {
-			return nil
-		}
-		certPath = path
-		keyPath = keyCandidate
-		return fs.SkipAll
-	})
-	return certPath, keyPath
 }

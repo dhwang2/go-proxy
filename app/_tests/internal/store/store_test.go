@@ -18,7 +18,6 @@ func setupTestDir(t *testing.T) func() {
 	config.SingBoxConfig = filepath.Join(dir, "conf", "sing-box.json")
 	config.UserMetaFile = filepath.Join(dir, "user-management.json")
 	config.UserRouteFile = filepath.Join(dir, "user-route-rules.json")
-	config.UserTemplateFile = filepath.Join(dir, "user-route-templates.json")
 	config.SnellConfigFile = filepath.Join(dir, "snell-v6.conf")
 	config.SingBoxBin = "/nonexistent/sing-box" // skip validation
 
@@ -40,12 +39,6 @@ func TestLoadEmpty(t *testing.T) {
 	}
 	if s.UserMeta == nil {
 		t.Fatal("UserMeta should not be nil")
-	}
-	if s.UserMeta.Schema != 3 {
-		t.Errorf("UserMeta.Schema = %d, want 3", s.UserMeta.Schema)
-	}
-	if s.UserTemplate == nil {
-		t.Fatal("UserTemplate should not be nil")
 	}
 }
 
@@ -166,25 +159,6 @@ func TestSnellConfigMatchesTheWizardLayout(t *testing.T) {
 	}
 }
 
-// A file written before v6 documented dns-ip-preference is read the way
-// snell-server reads it.
-func TestSnellConfigReadsTheDeprecatedIPv6Key(t *testing.T) {
-	for content, want := range map[string]string{
-		"listen = 0.0.0.0:1443\npsk = testpsk1234567\nipv6 = false\n":                                  "ipv4-only",
-		"listen = 0.0.0.0:1443\npsk = testpsk1234567\nipv6 = true\n":                                   "default",
-		"listen = 0.0.0.0:1443\npsk = testpsk1234567\nipv6 = false\ndns-ip-preference = prefer-ipv6\n": "prefer-ipv6",
-		"listen = 0.0.0.0:1443\npsk = testpsk1234567\nipv-preference = ipv6-only\n":                    "ipv6-only",
-	} {
-		conf, err := ParseSnellConfig(content)
-		if err != nil || conf.DNSIPPreference != want || conf.Mode != "default" {
-			t.Fatalf("%q read as %+v %v, want %s", content, conf, err, want)
-		}
-		if strings.Contains(string(conf.MarshalSnellConfig()), "ipv6 =") {
-			t.Fatalf("rewrote the deprecated key: %s", conf.MarshalSnellConfig())
-		}
-	}
-}
-
 func TestUserKey(t *testing.T) {
 	key := UserKey("vless", "vless_8443", "test-uuid")
 	want := "vless|vless_8443|test-uuid"
@@ -250,11 +224,11 @@ func TestRoundtripPreservesShellProxyBaselineFields(t *testing.T) {
   "outbounds": [
     {
       "type": "direct",
-      "tag": "🐸 direct"
+      "tag": "direct"
     }
   ],
   "route": {
-    "final": "🐸 direct",
+    "final": "direct",
     "default_domain_resolver": "public4",
     "rules": [
       {
@@ -264,7 +238,7 @@ func TestRoundtripPreservesShellProxyBaselineFields(t *testing.T) {
       {
         "ip_is_private": true,
         "action": "route",
-        "outbound": "🐸 direct"
+        "outbound": "direct"
       },
       {
         "protocol": "dns",

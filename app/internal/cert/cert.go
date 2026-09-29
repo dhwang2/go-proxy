@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"html"
 	"io"
-	"io/fs"
 	"net"
 	"net/http"
 	"net/mail"
@@ -237,7 +236,7 @@ func waitForSite(ctx context.Context, domain string, port int) error {
 // CertExists checks if TLS certificate files exist for the given domain
 // under any ACME issuer directory in CaddyCertDir.
 func CertExists(domain string) bool {
-	certFile, keyFile := findCertPair(domain)
+	certFile, keyFile := store.CaddyCertPair(domain)
 	if certFile == "" || keyFile == "" {
 		return false
 	}
@@ -303,31 +302,6 @@ func WaitForCaddySub(ctx context.Context) error {
 		case <-ticker.C:
 		}
 	}
-}
-
-func findCertPair(domain string) (string, string) {
-	if domain == "" {
-		return "", ""
-	}
-
-	var certFile string
-	var keyFile string
-	_ = filepath.WalkDir(config.CaddyCertDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d == nil || d.IsDir() {
-			return nil
-		}
-		if filepath.Base(path) != domain+".crt" || filepath.Base(filepath.Dir(path)) != domain {
-			return nil
-		}
-		keyCandidate := strings.TrimSuffix(path, ".crt") + ".key"
-		if _, err := os.Stat(keyCandidate); err != nil {
-			return nil
-		}
-		certFile = path
-		keyFile = keyCandidate
-		return fs.SkipAll
-	})
-	return certFile, keyFile
 }
 
 func domainPointsToThisServer(ctx context.Context, domain string) bool {
@@ -411,7 +385,7 @@ type Status struct {
 func Inspect() Status {
 	domain := ReadDomain()
 	result := Status{Domain: domain, Ready: CertExists(domain)}
-	certFile, keyFile := findCertPair(domain)
+	certFile, keyFile := store.CaddyCertPair(domain)
 	if certFile != "" && keyFile != "" {
 		pair, err := tls.LoadX509KeyPair(certFile, keyFile)
 		if err == nil && len(pair.Certificate) > 0 {

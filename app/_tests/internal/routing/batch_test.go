@@ -16,7 +16,6 @@ func setupRoutingStore(t *testing.T) *store.Store {
 	config.SingBoxConfig = filepath.Join(dir, "conf", "sing-box.json")
 	config.UserMetaFile = filepath.Join(dir, "user-management.json")
 	config.UserRouteFile = filepath.Join(dir, "user-route-rules.json")
-	config.UserTemplateFile = filepath.Join(dir, "user-route-templates.json")
 	config.FirewallConfigFile = filepath.Join(dir, "firewall-ports.json")
 	config.SnellConfigFile = filepath.Join(dir, "snell-v6.conf")
 	config.SingBoxBin = "/nonexistent/sing-box"

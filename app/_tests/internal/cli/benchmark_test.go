@@ -15,7 +15,7 @@ func BenchmarkCLIDataOutput(b *testing.B) {
 	if dir == "" {
 		b.Skip("requires a synthetic fixture")
 	}
-	paths := []*string{&config.SingBoxConfig, &config.UserMetaFile, &config.UserRouteFile, &config.UserTemplateFile, &config.FirewallConfigFile, &config.SnellConfigFile}
+	paths := []*string{&config.SingBoxConfig, &config.UserMetaFile, &config.UserRouteFile, &config.FirewallConfigFile, &config.SnellConfigFile}
 	names := []string{"conf/sing-box.json", "user-management.json", "user-route-rules.json", "user-route-templates.json", "firewall-ports.json", "snell-v6.conf"}
 	old := make([]string, len(paths))
 	for i, p := range paths {

@@ -151,9 +151,8 @@ func TestRenderInfersLegacySnellOwnerFromSingleActiveInboundUser(t *testing.T) {
 				},
 			},
 		},
-		UserMeta:     store.NewUserManagement(),
-		UserTemplate: &store.UserRouteTemplates{Templates: map[string][]store.TemplateRule{}},
-		SnellConf:    &store.SnellConfig{Listen: "0.0.0.0:8448", PSK: "legacy-psk"},
+		UserMeta:  store.NewUserManagement(),
+		SnellConf: &store.SnellConfig{Listen: "0.0.0.0:8448", PSK: "legacy-psk"},
 	}
 	s.UserMeta.Groups["~/.groups"] = []string{"u1", "u2"}
 
@@ -179,10 +178,9 @@ func TestRenderUsesShadowTLSFrontAndRejectsUnsupportedFormats(t *testing.T) {
 	}
 
 	s := &store.Store{
-		SingBox:      &store.SingBoxConfig{},
-		UserMeta:     store.NewUserManagement(),
-		UserTemplate: &store.UserRouteTemplates{Templates: map[string][]store.TemplateRule{}},
-		SnellConf:    &store.SnellConfig{Listen: "0.0.0.0:443", PSK: "server-psk"},
+		SingBox:   &store.SingBoxConfig{},
+		UserMeta:  store.NewUserManagement(),
+		SnellConf: &store.SnellConfig{Listen: "0.0.0.0:443", PSK: "server-psk"},
 	}
 	s.UserMeta.Groups["~/.groups"] = []string{"alice"}
 
@@ -234,9 +232,8 @@ func TestLinkNamesDoNotRepeatTheProtocol(t *testing.T) {
 				Users: []store.User{{Name: "alice", Password: "pw"}},
 				TLS:   &store.TLSConfig{Enabled: true, ServerName: "example.com"}},
 		}},
-		UserMeta:     store.NewUserManagement(),
-		UserTemplate: &store.UserRouteTemplates{Templates: map[string][]store.TemplateRule{}},
-		SnellConf:    &store.SnellConfig{Listen: "0.0.0.0:1443", PSK: "secret"},
+		UserMeta:  store.NewUserManagement(),
+		SnellConf: &store.SnellConfig{Listen: "0.0.0.0:1443", PSK: "secret"},
 	}
 	s.UserMeta.Groups["~/.groups"] = []string{"alice"}
 	renderer := NewRenderer(s, nil, Targets{Host: "1.2.3.4", Links: []Target{

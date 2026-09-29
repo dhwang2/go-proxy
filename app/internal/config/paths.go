@@ -68,7 +68,6 @@ var (
 var (
 	UserMetaFile       = filepath.Join(DataDir, "user-management.json")
 	UserRouteFile      = filepath.Join(DataDir, "user-route-rules.json")
-	UserTemplateFile   = filepath.Join(DataDir, "user-route-templates.json")
 	FirewallConfigFile = filepath.Join(DataDir, "firewall-ports.json")
 	DomainFile         = filepath.Join(DataDir, ".domain")
 )

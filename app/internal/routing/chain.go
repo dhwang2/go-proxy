@@ -107,12 +107,8 @@ func ListChains(s *store.Store) []ChainOutbound {
 // the DNS rules that use it.
 func ChainDNSTag(tag string) string { return tag + "-dns" }
 
-// legacyChainDNSPrefix is how chain DNS servers were named before u-2-144.
-// A sync renames them.
-const legacyChainDNSPrefix = "gproxy-chain-"
-
-// isChainDNS reports whether a DNS server belongs to the chain its detour
-// names, under the current name or the legacy one.
+// isChainDNS reports whether a DNS server is the one belonging to the chain
+// its detour names.
 func isChainDNS(tag, detour string) bool {
-	return detour != "" && (tag == ChainDNSTag(detour) || tag == legacyChainDNSPrefix+detour)
+	return detour != "" && tag == ChainDNSTag(detour)
 }

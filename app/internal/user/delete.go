@@ -3,7 +3,6 @@ package user
 import (
 	"fmt"
 
-	"go-proxy/internal/derived"
 	"go-proxy/internal/store"
 )
 
@@ -26,10 +25,6 @@ func Delete(s *store.Store, name string) error {
 				inboundsChanged = true
 				// Remove corresponding metadata.
 				key := store.UserKey(ib.Type, ib.Tag, u.Credential())
-				delete(s.UserMeta.Disabled, key)
-				delete(s.UserMeta.Expiry, key)
-				delete(s.UserMeta.Route, key)
-				delete(s.UserMeta.Template, key)
 				delete(s.UserMeta.Name, key)
 			} else {
 				kept = append(kept, u)
@@ -61,26 +56,12 @@ func Delete(s *store.Store, name string) error {
 		if mappedName != name {
 			continue
 		}
-		delete(s.UserMeta.Disabled, key)
-		delete(s.UserMeta.Expiry, key)
-		delete(s.UserMeta.Route, key)
-		delete(s.UserMeta.Template, key)
 		delete(s.UserMeta.Name, key)
 		found = true
 	}
 
 	if !found {
 		return fmt.Errorf("user %q not found", name)
-	}
-
-	// Prune orphan auth_user references from route and DNS rules.
-	activeUsers := make(map[string]bool)
-	for _, n := range derived.UserNames(s) {
-		activeUsers[n] = true
-	}
-	if derived.PruneOrphanAuthUsers(s, activeUsers) {
-		s.MarkDirty(store.FileUserRoutes)
-		inboundsChanged = true
 	}
 
 	if inboundsChanged {

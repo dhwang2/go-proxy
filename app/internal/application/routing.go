@@ -58,7 +58,7 @@ func routeEntries(s *store.Store, only string) []RouteEntry {
 			// rule is this loop's copy, so naming its outbound here leaves the
 			// stored rule alone.
 			shown := rule
-			shown.Outbound = routing.OutboundLabel(rule.Outbound)
+			shown.Outbound = rule.Outbound
 			preset := routing.UserRoutePreset(rule)
 			selector := routing.PresetSymbol(preset)
 			if selector == "" {
@@ -206,7 +206,7 @@ func (a *App) RoutingSet(ctx context.Context, name string, presets []string, out
 		}
 		// The user's rules after the change, so the reader sees where every
 		// one of them now goes rather than only the ones just added.
-		return map[string]any{"user": name, "presets": added, "already_added": already, "outbound": routing.OutboundLabel(target), "strategy": routeStrategy(s), "rules": routeEntries(s, name)}, nil
+		return map[string]any{"user": name, "presets": added, "already_added": already, "outbound": target, "strategy": routeStrategy(s), "rules": routeEntries(s, name)}, nil
 	})
 }
 
@@ -718,7 +718,7 @@ func (a *App) RoutingChainRemove(ctx context.Context, tag string) (Result, error
 		if referenced || final {
 			using := []RouteEntry{}
 			for _, entry := range routeEntries(s, "") {
-				if entry.Outbound == routing.OutboundLabel(tag) {
+				if entry.Outbound == tag {
 					using = append(using, entry)
 				}
 			}

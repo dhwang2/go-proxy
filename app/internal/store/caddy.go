@@ -2,7 +2,9 @@ package store
 
 import (
 	"bufio"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -51,4 +53,24 @@ func ReadCaddySite() (site CaddySite, found bool) {
 		}
 	}
 	return site, true
+}
+
+// CaddyCertPair is where Caddy keeps the certificate and key for domain,
+// under whichever ACME issuer issued it; empty when there is none.
+func CaddyCertPair(domain string) (certFile, keyFile string) {
+	if domain == "" {
+		return "", ""
+	}
+	_ = filepath.WalkDir(config.CaddyCertDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || filepath.Base(path) != domain+".crt" || filepath.Base(filepath.Dir(path)) != domain {
+			return nil
+		}
+		key := strings.TrimSuffix(path, ".crt") + ".key"
+		if _, err := os.Stat(key); err != nil {
+			return nil
+		}
+		certFile, keyFile = path, key
+		return fs.SkipAll
+	})
+	return certFile, keyFile
 }

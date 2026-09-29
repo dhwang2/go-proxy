@@ -14,24 +14,22 @@ import (
 
 // Store holds all configuration state in memory.
 type Store struct {
-	SingBox      *SingBoxConfig
-	UserMeta     *UserManagement
-	UserRoutes   []UserRouteRule
-	UserTemplate *UserRouteTemplates
-	Firewall     *FirewallConfig
-	SnellConf    *SnellConfig // nil if snell is not installed
+	SingBox    *SingBoxConfig
+	UserMeta   *UserManagement
+	UserRoutes []UserRouteRule
+	Firewall   *FirewallConfig
+	SnellConf  *SnellConfig // nil if snell is not installed
 
 	dirty map[string]bool
 }
 
 // File keys for MarkDirty/Apply.
 const (
-	FileSingBox      = "sing-box.json"
-	FileUserMeta     = "user-management.json"
-	FileUserRoutes   = "user-route-rules.json"
-	FileUserTemplate = "user-route-templates.json"
-	FileFirewall     = "firewall-ports.json"
-	FileSnellConf    = "snell-v6.conf"
+	FileSingBox    = "sing-box.json"
+	FileUserMeta   = "user-management.json"
+	FileUserRoutes = "user-route-rules.json"
+	FileFirewall   = "firewall-ports.json"
+	FileSnellConf  = "snell-v6.conf"
 )
 
 // Load reads all configuration files from disk into memory.
@@ -55,9 +53,6 @@ func Load() (*Store, error) {
 		return nil, fmt.Errorf("load %s: %w", FileUserMeta, err)
 	}
 	s.UserMeta = um
-	if s.UserMeta.Schema == 0 {
-		s.UserMeta.Schema = 3
-	}
 	ensureMetaMaps(s.UserMeta)
 
 	// user-route-rules.json
@@ -66,30 +61,6 @@ func Load() (*Store, error) {
 		return nil, fmt.Errorf("load %s: %w", FileUserRoutes, err)
 	}
 	s.UserRoutes = ur
-	for i := range s.UserRoutes {
-		if tag := DirectOutbound(s.UserRoutes[i].Outbound); tag != s.UserRoutes[i].Outbound {
-			s.UserRoutes[i].Outbound = tag
-			s.MarkDirty(FileUserRoutes)
-		}
-	}
-
-	// user-route-templates.json
-	ut, err := loadJSON[UserRouteTemplates](config.UserTemplateFile)
-	if err != nil {
-		return nil, fmt.Errorf("load %s: %w", FileUserTemplate, err)
-	}
-	s.UserTemplate = ut
-	if s.UserTemplate.Templates == nil {
-		s.UserTemplate.Templates = make(map[string][]TemplateRule)
-	}
-	for _, rules := range s.UserTemplate.Templates {
-		for i := range rules {
-			if tag := DirectOutbound(rules[i].Outbound); tag != rules[i].Outbound {
-				rules[i].Outbound = tag
-				s.MarkDirty(FileUserTemplate)
-			}
-		}
-	}
 
 	fw, err := loadJSON[FirewallConfig](config.FirewallConfigFile)
 	if err != nil {
@@ -150,8 +121,6 @@ func (s *Store) render(file string) ([]byte, error) {
 		return marshalJSON(s.UserMeta)
 	case FileUserRoutes:
 		return marshalJSON(s.UserRoutes)
-	case FileUserTemplate:
-		return marshalJSON(s.UserTemplate)
 	case FileFirewall:
 		if s.Firewall == nil {
 			s.Firewall = &FirewallConfig{}
@@ -227,8 +196,6 @@ func (s *Store) saveFile(file string) error {
 		return writeJSON(config.UserMetaFile, s.UserMeta)
 	case FileUserRoutes:
 		return writeJSON(config.UserRouteFile, s.UserRoutes)
-	case FileUserTemplate:
-		return writeJSON(config.UserTemplateFile, s.UserTemplate)
 	case FileFirewall:
 		if s.Firewall == nil {
 			s.Firewall = &FirewallConfig{}
@@ -256,8 +223,6 @@ func (s *Store) filePath(file string) string {
 		return config.UserMetaFile
 	case FileUserRoutes:
 		return config.UserRouteFile
-	case FileUserTemplate:
-		return config.UserTemplateFile
 	case FileFirewall:
 		return config.FirewallConfigFile
 	case FileSnellConf:
@@ -360,18 +325,6 @@ func marshalJSON(v any) ([]byte, error) {
 }
 
 func ensureMetaMaps(um *UserManagement) {
-	if um.Disabled == nil {
-		um.Disabled = make(map[string]DisabledEntry)
-	}
-	if um.Expiry == nil {
-		um.Expiry = make(map[string]string)
-	}
-	if um.Route == nil {
-		um.Route = make(map[string][]string)
-	}
-	if um.Template == nil {
-		um.Template = make(map[string]string)
-	}
 	if um.Name == nil {
 		um.Name = make(map[string]string)
 	}

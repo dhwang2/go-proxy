@@ -74,36 +74,13 @@ func Rename(s *store.Store, oldName, newName string) error {
 		return fmt.Errorf("user %q not found", oldName)
 	}
 
-	// Rename in route rules auth_user.
+	// Rename in the stored route rules; the compiled sing-box rules are
+	// rebuilt from them by routing.Sync.
 	for i := range s.UserRoutes {
 		for j := range s.UserRoutes[i].AuthUser {
 			if s.UserRoutes[i].AuthUser[j] == oldName {
 				s.UserRoutes[i].AuthUser[j] = newName
 				routesChanged = true
-			}
-		}
-	}
-
-	// Rename in sing-box route rules auth_user.
-	if s.SingBox.Route != nil {
-		for i := range s.SingBox.Route.Rules {
-			for j := range s.SingBox.Route.Rules[i].AuthUser {
-				if s.SingBox.Route.Rules[i].AuthUser[j] == oldName {
-					s.SingBox.Route.Rules[i].AuthUser[j] = newName
-					inboundsChanged = true
-				}
-			}
-		}
-	}
-
-	// Rename in sing-box DNS rules auth_user.
-	if s.SingBox.DNS != nil {
-		for i := range s.SingBox.DNS.Rules {
-			for j := range s.SingBox.DNS.Rules[i].AuthUser {
-				if s.SingBox.DNS.Rules[i].AuthUser[j] == oldName {
-					s.SingBox.DNS.Rules[i].AuthUser[j] = newName
-					inboundsChanged = true
-				}
 			}
 		}
 	}

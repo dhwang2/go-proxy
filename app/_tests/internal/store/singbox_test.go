@@ -42,39 +42,6 @@ func TestSingBoxNormalizeAddsBaselineSections(t *testing.T) {
 	}
 }
 
-// A configuration written with the old frog-tagged direct outbound is read as
-// the plain tag everywhere the tag appears.
-func TestNormalizeRewritesTheLegacyDirectTag(t *testing.T) {
-	cfg := &SingBoxConfig{
-		Outbounds: []json.RawMessage{json.RawMessage(`{"type":"direct","tag":"🐸 direct"}`)},
-		Route: &RouteConfig{
-			Final:   LegacyDirectTag,
-			Rules:   []RouteRule{{Action: "route", IPIsPrivate: true, Outbound: LegacyDirectTag}},
-			RuleSet: []json.RawMessage{json.RawMessage(`{"tag":"geosite-x","type":"remote","format":"binary","url":"https://example.com/x.srs","download_detour":"🐸 direct"}`)},
-		},
-	}
-	cfg.Normalize()
-	encoded, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(encoded), "🐸") {
-		t.Fatalf("legacy tag survived normalisation: %s", encoded)
-	}
-	if cfg.Route.Final != DirectTag {
-		t.Fatalf("route.final = %q", cfg.Route.Final)
-	}
-	directs := 0
-	for _, raw := range cfg.Outbounds {
-		if h, _ := ParseOutboundHeader(raw); h.Tag == DirectTag {
-			directs++
-		}
-	}
-	if directs != 1 {
-		t.Fatalf("direct outbounds = %d, want 1: %s", directs, encoded)
-	}
-}
-
 // The sections and the entries go-proxy owns are written in the order
 // sing-box documents them, not the alphabetical order a map encodes in.
 func TestNormalizeWritesSectionsAndOwnedEntriesInOrder(t *testing.T) {

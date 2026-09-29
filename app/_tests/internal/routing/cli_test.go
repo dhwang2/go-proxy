@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
-	"strings"
 	"testing"
 
 	"go-proxy/internal/store"
@@ -327,47 +326,33 @@ func TestDefaultChainResolverFollowsTheEndpointFamily(t *testing.T) {
 	}
 }
 
-// A chain DNS server written by an earlier gproxy converges on the next sync:
-// renamed to "<tag>-dns", its domain_strategy moved into the chain record, and
-// the default resolver moved to the family the chain reaches. The rest of the
-// entry keeps its keys in order.
-func TestSyncMigratesALegacyChainDNSServer(t *testing.T) {
+// A chain DNS server left on the default resolver follows the family the
+// chain reaches: an IPv6-only chain moves to Google's IPv6 address on the next
+// sync, and the rest of the entry keeps its keys in order.
+func TestSyncMovesTheDefaultResolverToTheChainsFamily(t *testing.T) {
 	s := setupRoutingStore(t)
 	if err := AddChain(s, "v6", "2001:db8::10", 1080, "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := AddChain(s, "byname", "proxy.example.net", 1080, "", ""); err != nil {
-		t.Fatal(err)
+	for i, raw := range s.SingBox.DNS.Servers {
+		var srv struct {
+			Tag string `json:"tag"`
+		}
+		if json.Unmarshal(raw, &srv) == nil && srv.Tag == "v6-dns" {
+			s.SingBox.DNS.Servers[i] = json.RawMessage(`{"tag":"v6-dns","type":"https","server":"8.8.8.8","server_port":443,"path":"/dns-query","tls":{"enabled":true,"server_name":"dns.google"},"detour":"v6"}`)
+		}
 	}
-	s.SingBox.DNS.Servers = append(s.SingBox.DNS.Servers,
-		json.RawMessage(`{"tag":"gproxy-chain-v6","type":"https","server":"8.8.8.8","server_port":443,"path":"/dns-query","tls":{"enabled":true,"server_name":"dns.google"},"detour":"v6","domain_strategy":"ipv6_only"}`),
-		json.RawMessage(`{"tag":"gproxy-chain-byname","type":"https","server":"8.8.8.8","server_port":443,"path":"/dns-query","tls":{"enabled":true,"server_name":"dns.google"},"detour":"byname","domain_strategy":"prefer_ipv4"}`))
 	Sync(s)
-	byTag := map[string]string{}
 	for _, raw := range s.SingBox.DNS.Servers {
 		var srv struct {
 			Tag string `json:"tag"`
 		}
-		_ = json.Unmarshal(raw, &srv)
-		byTag[srv.Tag] = string(raw)
-	}
-	if got := byTag["v6-dns"]; got != `{"tag":"v6-dns","type":"https","server":"2001:4860:4860::8888","server_port":443,"path":"/dns-query","tls":{"enabled":true,"server_name":"dns.google"},"detour":"v6"}` {
-		t.Fatalf("v6 server = %s", got)
-	}
-	if strings.Contains(byTag["byname-dns"], "domain_strategy") || byTag["byname-dns"] == "" {
-		t.Fatalf("byname server = %q", byTag["byname-dns"])
-	}
-	for tag := range byTag {
-		if strings.HasPrefix(tag, "gproxy-chain-") {
-			t.Fatalf("legacy server survived: %s", tag)
+		if json.Unmarshal(raw, &srv) == nil && srv.Tag == "v6-dns" {
+			if got := string(raw); got != `{"tag":"v6-dns","type":"https","server":"2001:4860:4860::8888","server_port":443,"path":"/dns-query","tls":{"enabled":true,"server_name":"dns.google"},"detour":"v6"}` {
+				t.Fatalf("v6 server = %s", got)
+			}
+			return
 		}
 	}
-	if got := ChainStrategies(s)["byname"]; got != "prefer_ipv4" {
-		t.Fatalf("hostname chain strategy = %q, want the migrated prefer_ipv4", got)
-	}
-	for _, rule := range s.SingBox.DNS.Rules {
-		if rule.Server == "gproxy-chain-v6" {
-			t.Fatalf("a rule still names the legacy server: %+v", rule)
-		}
-	}
+	t.Fatal("the v6 chain has no DNS server")
 }

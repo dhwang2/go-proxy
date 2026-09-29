@@ -16,7 +16,7 @@ func BenchmarkCapacity(b *testing.B) {
 	if dir == "" {
 		b.Skip("set GPROXY_BENCH_FIXTURE to an isolated synthetic fixture")
 	}
-	paths := []*string{&config.SingBoxConfig, &config.UserMetaFile, &config.UserRouteFile, &config.UserTemplateFile, &config.FirewallConfigFile, &config.SnellConfigFile}
+	paths := []*string{&config.SingBoxConfig, &config.UserMetaFile, &config.UserRouteFile, &config.FirewallConfigFile, &config.SnellConfigFile}
 	names := []string{"conf/sing-box.json", "user-management.json", "user-route-rules.json", "user-route-templates.json", "firewall-ports.json", "snell-v6.conf"}
 	previous := make([]string, len(paths))
 	for i, path := range paths {

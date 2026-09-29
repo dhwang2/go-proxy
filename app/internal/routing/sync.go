@@ -118,12 +118,9 @@ func chainEndpoints(s *store.Store) map[string]string {
 }
 
 // syncChainDNSServers gives every chain one DNS server and drops the servers of
-// chains that are gone. It also brings a server written by an earlier gproxy
-// into the current shape, keeping every other key it carries in its order:
-//   - a legacy "gproxy-chain-<tag>" name becomes "<tag>-dns";
-//   - a domain_strategy field moves into the chain strategy record;
-//   - the default resolver is moved to the address family the chain reaches,
-//     so an IPv6-only chain stops sending its lookups to 8.8.8.8.
+// chains that are gone. A server on the default resolver follows the address
+// family the chain reaches, so an IPv6-only chain does not send its lookups
+// to 8.8.8.8; every other key it carries is kept in its order.
 func syncChainDNSServers(s *store.Store) {
 	if s.SingBox.DNS == nil {
 		return
@@ -142,9 +139,6 @@ func syncChainDNSServers(s *store.Store) {
 	existing := make(map[string]bool)
 	for _, raw := range s.SingBox.DNS.Servers {
 		var srv chainDNSServer
-		var legacy struct {
-			DomainStrategy string `json:"domain_strategy"`
-		}
 		if json.Unmarshal(raw, &srv) != nil || !isChainDNS(srv.Tag, srv.Detour) {
 			kept = append(kept, raw)
 			continue
@@ -152,10 +146,6 @@ func syncChainDNSServers(s *store.Store) {
 		if _, ok := endpoints[srv.Detour]; !ok {
 			s.MarkDirty(store.FileSingBox)
 			continue
-		}
-		_ = json.Unmarshal(raw, &legacy)
-		if legacy.DomainStrategy != "" && recordedStrategy(s, srv.Detour) == "" {
-			recordChainStrategy(s, srv.Detour, legacy.DomainStrategy)
 		}
 		strategy := chainStrategyOf(s, srv.Detour, endpoints[srv.Detour])
 		resolver := ChainResolver{Type: srv.Type, Server: srv.Server, ServerPort: srv.ServerPort, Path: srv.Path}
@@ -166,28 +156,13 @@ func syncChainDNSServers(s *store.Store) {
 		if IsDefaultChainResolver(resolver) {
 			want = DefaultChainResolverFor(strategy).Server
 		}
-		value, err := jsonorder.Parse(raw)
-		if err != nil {
-			kept = append(kept, raw)
-			continue
-		}
-		changed := false
-		if srv.Tag != ChainDNSTag(srv.Detour) {
-			value.Set("tag", jsonorder.String(ChainDNSTag(srv.Detour)))
-			changed = true
-		}
-		if value.Get("domain_strategy") != nil {
-			value.Delete("domain_strategy")
-			changed = true
-		}
 		if want != srv.Server {
-			value.Set("server", jsonorder.String(want))
-			changed = true
-		}
-		if changed {
-			if encoded, err := value.MarshalJSON(); err == nil {
-				raw = encoded
-				s.MarkDirty(store.FileSingBox)
+			if value, err := jsonorder.Parse(raw); err == nil {
+				value.Set("server", jsonorder.String(want))
+				if encoded, err := value.MarshalJSON(); err == nil {
+					raw = encoded
+					s.MarkDirty(store.FileSingBox)
+				}
 			}
 		}
 		if existing[ChainDNSTag(srv.Detour)] {
@@ -486,5 +461,5 @@ func RouteFinal(s *store.Store) string {
 	if s.SingBox.Route == nil || s.SingBox.Route.Final == "" {
 		return store.DirectTag
 	}
-	return OutboundLabel(s.SingBox.Route.Final)
+	return s.SingBox.Route.Final
 }

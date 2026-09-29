@@ -16,9 +16,6 @@ func TestUserRouteLabelUsesPresetLabel(t *testing.T) {
 	if got := UserRouteLabel(rule); got != preset.Label {
 		t.Fatalf("UserRouteLabel() = %q, want %q", got, preset.Label)
 	}
-	if got := OutboundLabel(rule.Outbound); got != "direct" {
-		t.Fatalf("OutboundLabel() = %q, want direct", got)
-	}
 }
 
 func TestCompiledUserRouteRulesKeepGeositeAndGeoIPGrouped(t *testing.T) {

@@ -28,9 +28,8 @@ func TestDesiredFirewallPortsOpenCaddysPorts(t *testing.T) {
 	}
 
 	s := &store.Store{
-		SingBox:      &store.SingBoxConfig{},
-		UserMeta:     store.NewUserManagement(),
-		UserTemplate: &store.UserRouteTemplates{Templates: map[string][]store.TemplateRule{}},
+		SingBox:  &store.SingBoxConfig{},
+		UserMeta: store.NewUserManagement(),
 	}
 
 	specs, err := DesiredFirewallPorts(context.Background(), s)
@@ -72,9 +71,8 @@ func hasCaddyPorts(specs []FirewallPortSpec, ports ...int) bool {
 
 func TestDesiredFirewallPortsIncludesCustomPorts(t *testing.T) {
 	s := &store.Store{
-		SingBox:      &store.SingBoxConfig{},
-		UserMeta:     store.NewUserManagement(),
-		UserTemplate: &store.UserRouteTemplates{Templates: map[string][]store.TemplateRule{}},
+		SingBox:  &store.SingBoxConfig{},
+		UserMeta: store.NewUserManagement(),
 		Firewall: &store.FirewallConfig{
 			Ports: []store.FirewallPort{
 				{Proto: "udp", Port: 5353},

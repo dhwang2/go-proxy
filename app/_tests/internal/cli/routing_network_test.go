@@ -141,7 +141,7 @@ func TestChainRemoveListsTheRulesInTheWay(t *testing.T) {
 	dir := t.TempDir()
 	for target, name := range map[*string]string{
 		&config.SingBoxConfig: "sing-box.json", &config.UserMetaFile: "users.json", &config.UserRouteFile: "routes.json",
-		&config.UserTemplateFile: "templates.json", &config.FirewallConfigFile: "firewall.json", &config.SnellConfigFile: "snell.conf",
+		&config.FirewallConfigFile: "firewall.json", &config.SnellConfigFile: "snell.conf",
 		&config.SingBoxBin: "sing-box", &config.DomainFile: "domain", &config.CaddyFile: "Caddyfile",
 	} {
 		original := *target
