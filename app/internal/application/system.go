@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -525,7 +524,7 @@ func (a *App) Watchdog(ctx context.Context) (Result, error) {
 	}
 	return Result{Silent: true}, service.RunWatchdog(ctx, cfg)
 }
-func (a *App) Log(ctx context.Context, selector string, lines, maxBytes int, follow bool, out io.Writer) (Result, error) {
+func (a *App) Log(ctx context.Context, selector string, lines int) (Result, error) {
 	if selector == "" {
 		selector = string(service.SingBox)
 	}
@@ -550,14 +549,11 @@ func (a *App) Log(ctx context.Context, selector string, lines, maxBytes int, fol
 			return Result{}, Invalid("several shadow-tls services; select one: " + strings.Join(units, ", "))
 		}
 	}
-	if lines <= 0 || maxBytes <= 0 {
-		return Result{}, Invalid("log limits must be positive")
+	if lines <= 0 {
+		return Result{}, Invalid("--lines must be positive")
 	}
 	path, unit := logs.ServiceLogSource(selector)
-	if follow {
-		return Result{Silent: true}, logs.Follow(ctx, path, unit, lines, out)
-	}
-	content, source, err := logs.Read(ctx, path, unit, lines, maxBytes)
+	content, source, err := logs.Read(ctx, path, unit, lines)
 	if err != nil {
 		return Result{}, err
 	}

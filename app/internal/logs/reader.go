@@ -5,10 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -16,7 +16,11 @@ import (
 	"go-proxy/pkg/textutil"
 )
 
-var ErrOutputLimit = errors.New("log output exceeds byte limit")
+// maxLogBytes bounds what one read returns, so a log of very long lines
+// cannot become an unbounded buffer; --lines is the reader's control.
+const maxLogBytes = 1 << 20
+
+var ErrOutputLimit = errors.New("log output exceeds 1 MiB; ask for fewer --lines")
 
 func ServiceLogSource(svc string) (logFile, unit string) {
 	switch svc {
@@ -37,33 +41,27 @@ func ServiceLogSource(svc string) (logFile, unit string) {
 	return "", svc
 }
 
-func command(ctx context.Context, logFile, unit string, lines int, follow bool) (*exec.Cmd, string, error) {
+func command(ctx context.Context, logFile, unit string, lines int) (*exec.Cmd, string, error) {
 	if logFile != "" {
 		st, err := os.Stat(logFile)
 		if err != nil && !os.IsNotExist(err) {
 			return nil, "", err
 		}
 		if err == nil && st.Size() > 0 {
-			args := []string{"-n", strconv.Itoa(lines)}
-			if follow {
-				args = append(args, "-F")
-			}
-			args = append(args, "--", logFile)
-			return exec.CommandContext(ctx, "tail", args...), logFile, nil
+			return exec.CommandContext(ctx, "tail", "-n", strconv.Itoa(lines), "--", logFile), logFile, nil
 		}
 	}
-	args := []string{"-u", unit, "-n", strconv.Itoa(lines), "--no-pager", "--boot", "--output=short-iso"}
-	if follow {
-		args = append(args, "--follow")
-	}
-	return exec.CommandContext(ctx, "journalctl", args...), "journal", nil
+	return exec.CommandContext(ctx, "journalctl", "-u", unit, "-n", strconv.Itoa(lines), "--no-pager", "--boot", "--output=short-iso"), "journal", nil
 }
-func Read(ctx context.Context, logFile, unit string, lines, maxBytes int) (string, string, error) {
-	cmd, source, err := command(ctx, logFile, unit, lines, false)
+
+// Read returns the last lines of a service's log, cleaned: escape sequences
+// stripped and each line tidied (see tidyLine).
+func Read(ctx context.Context, logFile, unit string, lines int) (string, string, error) {
+	cmd, source, err := command(ctx, logFile, unit, lines)
 	if err != nil {
 		return "", "", err
 	}
-	out := &limitedBuffer{limit: maxBytes}
+	out := &limitedBuffer{limit: maxLogBytes}
 	diagnostics := &limitedBuffer{limit: 64 << 10}
 	cmd.Stdout = out
 	cmd.Stderr = diagnostics
@@ -74,19 +72,32 @@ func Read(ctx context.Context, logFile, unit string, lines, maxBytes int) (strin
 	if err != nil {
 		return "", source, fmt.Errorf("read log: %w", err)
 	}
-	// sing-box and caddy colour their own logs. Stripped here, where the foreign
-	// text enters, rather than in the renderer: `--json` promises to carry no
-	// escape sequence under any condition, and the JSON path never renders.
-	return textutil.CleanText(out.String()), source, nil
-}
-func Follow(ctx context.Context, logFile, unit string, lines int, out io.Writer) error {
-	cmd, _, err := command(ctx, logFile, unit, lines, true)
-	if err != nil {
-		return err
+	// sing-box, caddy and shadow-tls colour their own logs. Stripped here, where
+	// the foreign text enters, rather than in the renderer: `--json` promises to
+	// carry no escape sequence under any condition, and the JSON path never
+	// renders.
+	text := strings.Split(textutil.CleanText(out.String()), "\n")
+	for i := range text {
+		text[i] = tidyLine(text[i])
 	}
-	cmd.Stdout = out
-	cmd.Stderr = &limitedBuffer{limit: 64 << 10}
-	return cmd.Run()
+	return strings.Join(text, "\n"), source, nil
+}
+
+var (
+	// sing-box writes its timestamp with the zone offset first
+	// ("+0000 2026-09-29 06:56:33 ERROR ..."); every service runs in UTC, so
+	// the offset says nothing.
+	zoneOffset = regexp.MustCompile(`^[+-]\d{4} (\d{4}-\d{2}-\d{2} )`)
+	// What sing-box logs before its logger is set up, while it reads its
+	// configuration, comes out as "WARN[0000]": the bracket is seconds since
+	// the process started, always 0000 at that point.
+	startupLevel = regexp.MustCompile(`^(TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL|PANIC)\[\d+\] ?`)
+)
+
+// tidyLine drops the parts of a log line that carry no information.
+func tidyLine(line string) string {
+	line = zoneOffset.ReplaceAllString(line, "$1")
+	return startupLevel.ReplaceAllString(line, "$1 ")
 }
 
 type limitedBuffer struct {

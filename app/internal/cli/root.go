@@ -89,8 +89,7 @@ func (r *Runner) leaf(use, short string, args cobra.PositionalArgs, fn func(cont
 	cmd := &cobra.Command{Use: use, Short: short, Args: args}
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		r.executed = true
-		stream, _ := cmd.Flags().GetBool("follow")
-		stream = stream || cmd.Name() == "watchdog"
+		stream := cmd.Name() == "watchdog"
 		if stream && r.JSON {
 			return application.Invalid("--json is not available for streaming commands")
 		}

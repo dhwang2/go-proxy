@@ -202,7 +202,8 @@ func TestRoundtripPreservesShellProxyBaselineFields(t *testing.T) {
   },
   "experimental": {
     "cache_file": {
-      "enabled": true
+      "enabled": true,
+      "store_rdrc": true
     }
   },
   "dns": {
@@ -283,8 +284,14 @@ func TestRoundtripPreservesShellProxyBaselineFields(t *testing.T) {
 	if got := dnsMap["reverse_mapping"]; got != true {
 		t.Fatalf("dns.reverse_mapping = %v, want true", got)
 	}
-	if got := dnsMap["independent_cache"]; got != true {
-		t.Fatalf("dns.independent_cache = %v, want true", got)
+	// Options sing-box 1.14 deprecated leave the file with the next write:
+	// independent_cache is gone, and store_rdrc is store_dns.
+	if _, ok := dnsMap["independent_cache"]; ok {
+		t.Fatal("dns.independent_cache survived the save")
+	}
+	cacheFile := parsed["experimental"].(map[string]any)["cache_file"].(map[string]any)
+	if _, ok := cacheFile["store_rdrc"]; ok || cacheFile["store_dns"] != true {
+		t.Fatalf("experimental.cache_file = %v, want store_dns and no store_rdrc", cacheFile)
 	}
 	if got := dnsMap["cache_capacity"]; got != float64(8192) {
 		t.Fatalf("dns.cache_capacity = %v, want 8192", got)

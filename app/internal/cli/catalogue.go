@@ -370,21 +370,17 @@ func strategyGuidance(args []string) error {
 		map[string]any{"strategies": strategies})
 }
 
-// logGuidance answers a bare `gproxy log` with the signature and one command
-// that can be run as written. Defaulting to sing-box was a guess at which
-// service the reader meant, and a wrong guess reads as a working command.
+// logGuidance answers a bare `gproxy log` with its form. Defaulting to
+// sing-box was a guess at which service the reader meant, and a wrong guess
+// reads as a working command.
 //
-// The selectors are not listed: shell completion offers them, the example names
-// one, and two lines is the whole answer. Hint carries the human form and
-// JSONMessage the machine one, so a caller parsing the envelope still gets a
-// sentence and the full selector list in Data.
+// The selectors are not listed: shell completion offers them. Hint carries the
+// human form and JSONMessage the machine one, so a caller parsing the envelope
+// still gets a sentence and the full selector list in Data.
 func logGuidance() error {
 	return &application.Error{
-		Code: "invalid_argument",
-		Hint: []string{
-			"gproxy log <service> [--lines <count>] [--max-bytes <bytes>] [--follow]",
-			"gproxy log sing-box --lines 100",
-		},
+		Code:        "invalid_argument",
+		Hint:        []string{"gproxy log <service> [--lines <n>]"},
 		JSONMessage: "gproxy log requires a service",
 		Data:        map[string]any{"services": application.ManagedServiceNames()},
 	}

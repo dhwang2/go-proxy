@@ -7,7 +7,9 @@ import (
 	"go-proxy/pkg/fileutil"
 )
 
-// DefaultExperimentalConfig returns the shell-proxy-aligned experimental cache block.
+// DefaultExperimentalConfig returns the experimental cache block. store_dns
+// persists the DNS cache in the cache file, sing-box 1.14's replacement for
+// store_rdrc.
 func DefaultExperimentalConfig() map[string]any {
 	return map[string]any{
 		"cache_file": map[string]any{
@@ -15,7 +17,7 @@ func DefaultExperimentalConfig() map[string]any {
 			"cache_id":     "cache.db",
 			"path":         SingBoxCache,
 			"store_fakeip": false,
-			"store_rdrc":   true,
+			"store_dns":    true,
 		},
 	}
 }
@@ -91,14 +93,23 @@ func DefaultRuleSetCatalog() []map[string]any {
 	items := make([]map[string]any, 0, len(specs))
 	for _, spec := range specs {
 		items = append(items, map[string]any{
-			"tag":             spec.tag,
-			"type":            "remote",
-			"format":          "binary",
-			"url":             spec.url,
-			"download_detour": "direct",
+			"tag":    spec.tag,
+			"type":   "remote",
+			"format": "binary",
+			"url":    spec.url,
 		})
 	}
 	return items
+}
+
+// DefaultHTTPClientTag names the HTTP client remote rule-sets download
+// through, reaching the internet by the direct outbound. sing-box 1.14 replaced
+// each rule-set's download_detour with it.
+const DefaultHTTPClientTag = "direct"
+
+// DefaultHTTPClients returns the top-level HTTP clients.
+func DefaultHTTPClients() []map[string]any {
+	return []map[string]any{{"tag": DefaultHTTPClientTag, "detour": "direct"}}
 }
 
 // DefaultSingBoxConfig returns the initial sing-box configuration generated on first use.
@@ -112,21 +123,22 @@ func DefaultSingBoxConfig() map[string]any {
 		},
 		"experimental": DefaultExperimentalConfig(),
 		"dns": map[string]any{
-			"servers":           DefaultDNSServers(),
-			"rules":             []any{},
-			"final":             "public4",
-			"strategy":          "ipv4_only", // unchosen until the first install or routing change reads the host's addresses
-			"reverse_mapping":   true,
-			"independent_cache": true,
-			"cache_capacity":    8192,
+			"servers":         DefaultDNSServers(),
+			"rules":           []any{},
+			"final":           "public4",
+			"strategy":        "ipv4_only", // unchosen until the first install or routing change reads the host's addresses
+			"reverse_mapping": true,
+			"cache_capacity":  8192,
 		},
-		"inbounds": []any{},
+		"inbounds":     []any{},
+		"http_clients": DefaultHTTPClients(),
 		"outbounds": []map[string]any{
 			{"type": "direct", "tag": "direct"},
 		},
 		"route": map[string]any{
 			"final":                   "direct",
 			"default_domain_resolver": "public4",
+			"default_http_client":     DefaultHTTPClientTag,
 			"rules": []map[string]any{
 				{"action": "sniff", "sniffer": []string{"http", "tls", "quic", "dns"}},
 				{"protocol": "dns", "action": "hijack-dns"},

@@ -73,7 +73,7 @@ gproxy network bbr status|enable|disable            # on by default from a fresh
 gproxy network firewall status|apply|release|add|remove [<port>/<tcp|udp|both>]    # off until applied
 gproxy network fail2ban status|enable|disable      # off until enabled
 
-gproxy log <service> [--lines <n>] [--max-bytes <n>] [--follow]
+gproxy log <service> [--lines <n>]
 gproxy cert status|ensure [--domain <domain>] [--email <address>]
 gproxy cert port [<port>]
 gproxy update [--check] [--version <v>]

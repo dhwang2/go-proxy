@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"math"
@@ -35,7 +34,8 @@ import (
 const (
 	ansiReset = "\x1b[0m"
 	ansiOK    = "\x1b[38;2;152;195;121m" // running, ready
-	ansiBad   = "\x1b[38;2;224;108;117m" // stopped, failing
+	ansiBad   = "\x1b[38;2;224;108;117m" // stopped, failing; an error in a log
+	ansiWarn  = "\x1b[38;2;229;192;123m" // a warning in a log
 	// Darker variants for the service row, where many names sit side by side and
 	// the brighter pair above reads as alarming rather than informative.
 	ansiRunning = "\x1b[38;2;34;120;54m"   // running
@@ -103,6 +103,7 @@ func (p palette) wrap(code, text string) string {
 func (p palette) ok(text string) string       { return p.wrap(ansiOK, text) }
 func (p palette) bad(text string) string      { return p.wrap(ansiBad, text) }
 func (p palette) sys(text string) string      { return p.wrap(ansiSys, text) }
+func (p palette) warn(text string) string     { return p.wrap(ansiWarn, text) }
 func (p palette) count(text string) string    { return p.wrap(ansiCount, text) }
 func (p palette) label(text string) string    { return p.wrap(ansiLabel, text) }
 func (p palette) hint(text string) string     { return p.wrap(ansiHint, text) }
@@ -1635,7 +1636,7 @@ func renderLog(w io.Writer, p palette, fields map[string]any) bool {
 		return false
 	}
 	// The selector, not the shortened display name: it sits beside the source
-	// path, which carries the same unit name, and it is what --follow retakes.
+	// path, which carries the same unit name, and it is what `gproxy log` takes.
 	header := p.label(clean(text(fields["service"])))
 	if source := clean(text(fields["source"])); source != "" {
 		header += " " + p.hint(source)
@@ -1656,27 +1657,37 @@ func renderLog(w io.Writer, p palette, fields map[string]any) bool {
 	return true
 }
 
-// logLine colours a whole line by the level it names, the way the v0.1.59
-// viewer did. The level is the only part of a foreign log line this CLI can
-// recognise, and a failure has to be findable by eye in fifty lines of routine
-// output. Unlike that viewer, a plain informational line is left uncoloured:
-// colouring every line is what stops any of them standing out.
+// logLine colours the level word of a line, and only that word: an error red,
+// a warning yellow. The level is the one part of a foreign log line this CLI
+// can recognise, and a failure has to be findable by eye in fifty lines of
+// routine output; colouring the whole message made the message itself hard to
+// read. Informational levels are left uncoloured.
 //
-// The line is stripped first, so a log that colours itself -- sing-box and
-// caddy both do -- cannot paint past --no-color or into a captured file.
+// The level is found in each service's own form: sing-box's and shadow-tls's
+// bare "ERROR"/"WARN", Snell's "<WARN>", Caddy's JSON "level":"warn", and this
+// CLI's own "error:" in the watchdog log. The line is stripped first, so a log
+// that colours itself cannot paint past --no-color or into a captured file.
 func logLine(p palette, line string) string {
 	line = collapseSpaces(clean(line))
-	upper := strings.ToUpper(line)
-	for _, level := range []string{"FATAL", "PANIC", "ERROR", "FAILED"} {
-		if strings.Contains(upper, level) {
-			return p.bad(line)
-		}
+	match := logLevel.FindStringSubmatchIndex(line)
+	if match == nil {
+		return line
 	}
-	if strings.Contains(upper, "WARN") {
-		return p.sys(line)
+	start, end := match[2], match[3]
+	for group := 4; start < 0 && group < len(match); group += 2 {
+		start, end = match[group], match[group+1]
 	}
-	return line
+	word := line[start:end]
+	paint := p.bad
+	if strings.HasPrefix(strings.ToUpper(word), "WARN") {
+		paint = p.warn
+	}
+	return line[:start] + paint(word) + line[end:]
 }
+
+// logLevel finds the first warning or error level in a line: a bare level
+// word, Caddy's JSON level, or a leading "error:".
+var logLevel = regexp.MustCompile(`\b(FATAL|PANIC|ERROR|WARNING|WARN)\b|"level":"(fatal|panic|error|warn)"|^(error):`)
 
 // collapseSpaces reduces each run of spaces between words to one, which is
 // only display: loggers pad a level to a fixed width ("Z  INFO"), and the
@@ -1689,53 +1700,6 @@ func collapseSpaces(line string) string {
 }
 
 var repeatedSpaces = regexp.MustCompile(` {2,}`)
-
-// logWriter applies renderLog's per-line treatment to a followed stream. It
-// buffers only the partial line at the end of a read; a line longer than the
-// cap is flushed uncoloured rather than grown without limit, because a log with
-// no newline in it must not become a memory leak.
-type logWriter struct {
-	out     io.Writer
-	p       palette
-	partial []byte
-}
-
-const logLineCap = 64 << 10
-
-func (l *logWriter) Write(data []byte) (int, error) {
-	consumed := len(data)
-	for {
-		index := bytes.IndexByte(data, '\n')
-		if index < 0 {
-			break
-		}
-		line := append(l.partial, data[:index]...)
-		l.partial = nil
-		data = data[index+1:]
-		if _, err := fmt.Fprintln(l.out, logLine(l.p, string(line))); err != nil {
-			return consumed, err
-		}
-	}
-	l.partial = append(l.partial, data...)
-	if len(l.partial) > logLineCap {
-		if _, err := l.out.Write(l.partial); err != nil {
-			return consumed, err
-		}
-		l.partial = nil
-	}
-	return consumed, nil
-}
-
-// Close writes whatever the stream ended on. A followed log is cancelled rather
-// than finished, so the last read usually stops mid-line.
-func (l *logWriter) Close() error {
-	if len(l.partial) == 0 {
-		return nil
-	}
-	_, err := fmt.Fprintln(l.out, logLine(l.p, string(l.partial)))
-	l.partial = nil
-	return err
-}
 
 // renderRouteTest is one line: the name, the rule that takes it -- numbered as
 // route rule list numbers it, or the route final -- where the traffic goes, and

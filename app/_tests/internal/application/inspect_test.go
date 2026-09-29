@@ -15,7 +15,7 @@ import (
 
 func TestConfigViewRedactsTypedAndArbitrarySecretsWithoutWriting(t *testing.T) {
 	a := protocolTestApp(t)
-	configJSON := []byte(`{"inbounds":[{"type":"vless","tag":"test","users":[{"name":"alice","uuid":"secret-uuid","password":"secret-user"}],"tls":{"enabled":true,"reality":{"enabled":true,"private_key":"secret-reality"}}}],"outbounds":[{"type":"socks","tag":"relay","password":"secret-relay"}],"dns":{"servers":[{"tag":"test","password":"secret-dns"}]},"route":{"rule_set":[{"tag":"test","headers":{"key":"secret-header"}}]},"experimental":{"nested":[{"PSK":"secret-experimental"}]}}`)
+	configJSON := []byte(`{"inbounds":[{"type":"vless","tag":"test","users":[{"name":"alice","uuid":"secret-uuid","password":"secret-user"}],"tls":{"enabled":true,"reality":{"enabled":true,"private_key":"secret-reality"}}}],"outbounds":[{"type":"socks","tag":"relay","password":"secret-relay","nested":[{"PSK":"secret-nested"}]}],"dns":{"servers":[{"tag":"test","password":"secret-dns"}]},"route":{"rule_set":[{"tag":"test","headers":{"key":"secret-header"}}]}}`)
 	if err := os.WriteFile(config.SingBoxConfig, configJSON, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestConfigViewRedactsTypedAndArbitrarySecretsWithoutWriting(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, secret := range []string{"uuid", "user", "reality", "relay", "dns", "header", "experimental"} {
+		for _, secret := range []string{"uuid", "user", "reality", "relay", "dns", "header", "nested"} {
 			if strings.Contains(string(encoded), "secret-"+secret) != secrets {
 				t.Fatalf("secret inclusion mismatch for %s, show-secrets=%v", secret, secrets)
 			}

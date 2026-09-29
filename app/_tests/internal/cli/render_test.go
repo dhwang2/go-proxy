@@ -472,47 +472,51 @@ func TestCaddyPortIsOneLine(t *testing.T) {
 	}
 }
 
-// A log is another program's output. It keeps its own lines, unnumbered and
-// unindented, because numbering would break a copied or grepped line and no
-// command takes a log line number the way --rules takes a rule index. That is
-// why `gproxy log` is absent from the numbered-layout cases above.
-func TestLogKeepsItsLinesAndColoursOnlyFailures(t *testing.T) {
+// A log keeps its own lines, stripped of the service's own colour; with colour
+// on, only the level word of a warning or an error is painted, in each
+// service's form, and informational lines are left alone.
+func TestLogColoursOnlyTheLevelWord(t *testing.T) {
 	fields := map[string]any{
 		"service": "sing-box",
 		"source":  "/etc/go-proxy/logs/sing-box.service.log",
-		// sing-box colours its own output; the residue of a half-stripped
-		// escape is what made this unreadable.
-		"content": "\x1b[33mWARN\x1b[0m[0000] deprecated option\nINFO[0001] rule-set loaded\n\x1b[31mERROR\x1b[0m[0002] address already in use\n",
+		"content": "\x1b[33mWARN\x1b[0m deprecated option\n" +
+			"2026-09-29 06:56:33 ERROR [1 135ms] inbound/anytls: unknown user password\n" +
+			"2026-09-29 06:56:34 INFO [2 1ms] inbound/anytls: accepted\n" +
+			"2026-09-27 09:19:00.481964 [server_tunnel-1] <WARN> Session error E01\n" +
+			"2026-09-29T08:53:37.815116Z WARN shadow_tls::server: ClientHello verify failed\n" +
+			`{"level":"error","logger":"tls","msg":"renewal failed"}` + "\n" +
+			"error: operation cancelled\n",
 	}
 	var plain bytes.Buffer
 	if !render(&plain, palette{}, "gproxy log", fields) {
 		t.Fatal("log produced no rendering")
 	}
 	text := plain.String()
-	if strings.Contains(text, "\x1b") || strings.Contains(text, "[33m") || strings.Contains(text, "[31m") {
+	if strings.Contains(text, "\x1b") {
 		t.Fatalf("foreign escape survived into colour-free output:\n%q", text)
 	}
-	// One space after the service, and the log starts on the next line.
 	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
-	if lines[0] != "sing-box /etc/go-proxy/logs/sing-box.service.log" {
-		t.Fatalf("header is not the service and its source:\n%q", text)
-	}
-	for index, want := range []string{"WARN[0000] deprecated option", "INFO[0001] rule-set loaded", "ERROR[0002] address already in use"} {
-		if lines[index+1] != want {
-			t.Fatalf("log line %d is %q, want %q", index+1, lines[index+1], want)
-		}
+	if lines[0] != "sing-box /etc/go-proxy/logs/sing-box.service.log" || lines[1] != "WARN deprecated option" {
+		t.Fatalf("header or first line:\n%q", text)
 	}
 
 	var coloured bytes.Buffer
 	render(&coloured, palette{on: true}, "gproxy log", fields)
-	for _, want := range []string{ansiBad + "ERROR[0002]", ansiSys + "WARN[0000]"} {
-		if !strings.Contains(coloured.String(), want) {
-			t.Fatalf("failure line is not highlighted: %q missing", want)
+	got := strings.Split(strings.TrimRight(coloured.String(), "\n"), "\n")[1:]
+	red := func(word string) string { return ansiBad + word + ansiReset }
+	yellow := func(word string) string { return ansiWarn + word + ansiReset }
+	for index, want := range []string{
+		yellow("WARN") + " deprecated option",
+		"2026-09-29 06:56:33 " + red("ERROR") + " [1 135ms] inbound/anytls: unknown user password",
+		"2026-09-29 06:56:34 INFO [2 1ms] inbound/anytls: accepted",
+		"2026-09-27 09:19:00.481964 [server_tunnel-1] <" + yellow("WARN") + "> Session error E01",
+		"2026-09-29T08:53:37.815116Z " + yellow("WARN") + " shadow_tls::server: ClientHello verify failed",
+		`{"level":"` + red("error") + `","logger":"tls","msg":"renewal failed"}`,
+		red("error") + ": operation cancelled",
+	} {
+		if got[index] != want {
+			t.Fatalf("line %d:\n%q\nwant:\n%q", index, got[index], want)
 		}
-	}
-	// Colouring every line is what stops any of them standing out.
-	if strings.Contains(coloured.String(), ansiBad+"INFO") || strings.Contains(coloured.String(), ansiSys+"INFO") {
-		t.Fatalf("a routine line was highlighted:\n%q", coloured.String())
 	}
 }
 
@@ -523,51 +527,6 @@ func TestEmptyLogSaysSo(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "no entries") {
 		t.Fatalf("empty log rendered %q", out.String())
-	}
-}
-
-// A followed log never reaches the renderer, so the same treatment has to be
-// applied as the stream arrives -- including across a read that stops mid-line.
-func TestFollowWriterColoursLinesAcrossPartialReads(t *testing.T) {
-	var out bytes.Buffer
-	writer := &logWriter{out: &out, p: palette{on: true}}
-	for _, chunk := range []string{"INFO star", "ted\n\x1b[31mERROR", "[1] failed to bind\nWARN tail"} {
-		if _, err := writer.Write([]byte(chunk)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
-	}
-	text := out.String()
-	if !strings.Contains(text, "INFO started\n") {
-		t.Fatalf("a line split across reads was not rejoined:\n%q", text)
-	}
-	if !strings.Contains(text, ansiBad+"ERROR[1] failed to bind") {
-		t.Fatalf("failure line not highlighted:\n%q", text)
-	}
-	// A followed log is cancelled rather than finished, so the last read
-	// usually stops mid-line and that remainder must still be written.
-	if !strings.Contains(text, ansiSys+"WARN tail") {
-		t.Fatalf("trailing partial line was dropped:\n%q", text)
-	}
-	if strings.Contains(text, "[31m") {
-		t.Fatalf("foreign escape passed through the follow path:\n%q", text)
-	}
-}
-
-// A log line with no newline in it must not be buffered without limit.
-func TestFollowWriterFlushesAnUnterminatedLine(t *testing.T) {
-	var out bytes.Buffer
-	writer := &logWriter{out: &out, p: palette{}}
-	if _, err := writer.Write(bytes.Repeat([]byte("x"), logLineCap+1)); err != nil {
-		t.Fatal(err)
-	}
-	if out.Len() != logLineCap+1 {
-		t.Fatalf("wrote %d bytes of an oversized line, want %d", out.Len(), logLineCap+1)
-	}
-	if len(writer.partial) != 0 {
-		t.Fatalf("held %d bytes after flushing", len(writer.partial))
 	}
 }
 

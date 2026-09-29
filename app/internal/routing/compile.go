@@ -251,8 +251,15 @@ func userRouteToRouteRule(rule store.UserRouteRule) store.RouteRule {
 	}
 }
 
-func dnsRulesFromRouteRules(routeRules []store.RouteRule, outboundToDNS map[string]string, serverStrategy map[string]string, defaultStrategy string) []store.DNSRule {
-	rules := make([]store.DNSRule, 0, len(routeRules))
+// dnsRoute is a DNS rule before it takes its sing-box form: where its queries
+// go and the address families its server's chain can reach.
+type dnsRoute struct {
+	rule     store.DNSRule
+	strategy string
+}
+
+func dnsRulesFromRouteRules(routeRules []store.RouteRule, outboundToDNS map[string]string, serverStrategy map[string]string, defaultStrategy string) []dnsRoute {
+	rules := make([]dnsRoute, 0, len(routeRules))
 	for _, rule := range routeRules {
 		if len(rule.AuthUser) == 0 {
 			continue
@@ -270,7 +277,6 @@ func dnsRulesFromRouteRules(routeRules []store.RouteRule, outboundToDNS map[stri
 		dnsRule := store.DNSRule{
 			Action:        "route",
 			Server:        server,
-			Strategy:      strategy,
 			AuthUser:      append([]string(nil), rule.AuthUser...),
 			RuleSet:       append([]string(nil), rule.RuleSet...),
 			Domain:        append([]string(nil), rule.Domain...),
@@ -285,7 +291,7 @@ func dnsRulesFromRouteRules(routeRules []store.RouteRule, outboundToDNS map[stri
 			len(dnsRule.DomainRegex) == 0 {
 			continue
 		}
-		rules = append(rules, dnsRule)
+		rules = append(rules, dnsRoute{rule: dnsRule, strategy: strategy})
 	}
 	return rules
 }

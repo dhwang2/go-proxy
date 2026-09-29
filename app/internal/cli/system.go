@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -136,8 +135,7 @@ func registerSystem(r *Runner, root *cobra.Command) {
 		"done, read its log with `gproxy log proxy-watchdog`; to control it, use\n" +
 		"`gproxy server start|stop|restart proxy-watchdog`."
 	root.AddCommand(watchdog)
-	var lines, maxBytes int
-	var follow bool
+	var lines int
 	logArgs := func(cmd *cobra.Command, args []string) error {
 		if len(args) == 1 {
 			return nil
@@ -147,24 +145,10 @@ func registerSystem(r *Runner, root *cobra.Command) {
 		}
 		return logGuidance()
 	}
-	logCommand := r.leaf("log <service>", "Read bounded logs or explicitly follow", logArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
-		if follow && r.JSON {
-			return application.Result{}, application.Invalid("--json and --follow are mutually exclusive")
-		}
-		// A followed log is written straight through rather than returned, so
-		// the colouring and control-character stripping the rendered path does
-		// has to wrap the writer instead.
-		out := io.Writer(r.Out)
-		if follow {
-			writer := &logWriter{out: out, p: palette{on: colorEnabled(r.Out, r.NoColor)}}
-			defer writer.Close()
-			out = writer
-		}
-		return r.App.Log(ctx, args[0], lines, maxBytes, follow, out)
+	logCommand := r.leaf("log <service>", "Read a service's recent log", logArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
+		return r.App.Log(ctx, args[0], lines)
 	})
-	logCommand.Flags().IntVar(&lines, "lines", 50, "Maximum recent lines")
-	logCommand.Flags().IntVar(&maxBytes, "max-bytes", 1<<20, "Maximum finite log output bytes")
-	logCommand.Flags().BoolVar(&follow, "follow", false, "Stream until cancelled")
+	logCommand.Flags().IntVar(&lines, "lines", 50, "Recent lines to show")
 	root.AddCommand(logCommand)
 	var preview bool
 	// Checked as arguments so neither refusal follows a progress line: uninstall

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"strings"
 	"testing"
 
 	"go-proxy/internal/store"
@@ -56,19 +57,16 @@ func TestNamedChainSyncPreservesStrategyAndRemovesOwnedDNS(t *testing.T) {
 			if s.SingBox.DNS.Strategy != strategy {
 				t.Fatal("global strategy changed")
 			}
-			found := false
-			for _, rule := range s.SingBox.DNS.Rules {
-				if len(rule.AuthUser) > 0 {
-					found = true
-					// The endpoint is IPv4, so its lookups ask for IPv4 alone
-					// whatever the host's own direct strategy is.
-					if rule.Server != ChainDNSTag("relay-a") || rule.Strategy != "ipv4_only" {
-						t.Fatalf("incorrect DNS route: %#v", rule)
-					}
-				}
+			// The endpoint is IPv4, so its lookups stay IPv4 whatever the
+			// host's own direct strategy is: AAAA queries for its domains get
+			// an empty answer, and its address rules evaluate A queries only.
+			if got := familyDrops(s.SingBox.DNS.Rules)[ChainDNSTag("relay-a")]; got != "AAAA" {
+				t.Fatalf("chain domain rules drop %q, want AAAA:\n%s", got, describeDNSRules(s.SingBox.DNS.Rules))
 			}
-			if !found {
-				t.Fatal("no user DNS route")
+			for _, rule := range s.SingBox.DNS.Rules {
+				if rule.Action == "evaluate" && (rule.Server != ChainDNSTag("relay-a") || strings.Join(rule.QueryType, ",") != "A") {
+					t.Fatalf("incorrect evaluate rule: %#v", rule)
+				}
 			}
 			if got := ListChains(s); len(got) != 1 || got[0].Tag != "relay-a" {
 				t.Fatalf("named chain missing: %#v", got)
@@ -153,17 +151,12 @@ func TestChainDNSStrategyFollowsTheEndpointFamily(t *testing.T) {
 		t.Fatal(err)
 	}
 	Sync(s)
-	seen := map[string]string{}
-	for _, rule := range s.SingBox.DNS.Rules {
-		if len(rule.AuthUser) > 0 {
-			seen[rule.Server] = rule.Strategy
-		}
+	drops := familyDrops(s.SingBox.DNS.Rules)
+	if got := drops[ChainDNSTag("v4-chain")]; got != "AAAA" {
+		t.Fatalf("chain rules drop %q, want AAAA:\n%s", got, describeDNSRules(s.SingBox.DNS.Rules))
 	}
-	if got := seen[ChainDNSTag("v4-chain")]; got != "ipv4_only" {
-		t.Fatalf("chain rule strategy = %q, want ipv4_only", got)
-	}
-	if got := seen["public4"]; got != "ipv6_only" {
-		t.Fatalf("direct rule strategy = %q, want the configured ipv6_only", got)
+	if got := drops["public4"]; got != "A" {
+		t.Fatalf("direct rules drop %q, want A for the configured ipv6_only:\n%s", got, describeDNSRules(s.SingBox.DNS.Rules))
 	}
 
 	// A hostname endpoint is decided by whatever resolved it, which records
@@ -355,4 +348,25 @@ func TestSyncMovesTheDefaultResolverToTheChainsFamily(t *testing.T) {
 		}
 	}
 	t.Fatal("the v6 chain has no DNS server")
+}
+
+// familyDrops maps each server a user's domain rule routes to onto the query
+// type the empty-answer rule just before it drops ("" when none does).
+func familyDrops(rules []store.DNSRule) map[string]string {
+	drops := map[string]string{}
+	for index, rule := range rules {
+		if len(rule.AuthUser) == 0 || rule.Action != "route" {
+			continue
+		}
+		drops[rule.Server] = ""
+		if index > 0 && rules[index-1].Action == "predefined" {
+			drops[rule.Server] = strings.Join(rules[index-1].QueryType, ",")
+		}
+	}
+	return drops
+}
+
+func describeDNSRules(rules []store.DNSRule) string {
+	encoded, _ := json.MarshalIndent(rules, "", "  ")
+	return string(encoded)
 }

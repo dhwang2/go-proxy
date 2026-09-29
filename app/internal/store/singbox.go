@@ -15,6 +15,7 @@ type SingBoxConfig struct {
 	Log          *LogConfig        `json:"log,omitempty"`
 	Experimental json.RawMessage   `json:"experimental,omitempty"`
 	DNS          *DNSConfig        `json:"dns,omitempty"`
+	HTTPClients  []json.RawMessage `json:"http_clients,omitempty"`
 	Inbounds     []Inbound         `json:"inbounds,omitempty"`
 	Outbounds    []json.RawMessage `json:"outbounds,omitempty"`
 	Route        *RouteConfig      `json:"route,omitempty"`
@@ -56,13 +57,12 @@ type LogConfig struct {
 
 // DNSConfig holds sing-box DNS configuration.
 type DNSConfig struct {
-	Servers          []json.RawMessage `json:"servers,omitempty"`
-	Rules            []DNSRule         `json:"rules,omitempty"`
-	Final            string            `json:"final,omitempty"`
-	Strategy         string            `json:"strategy,omitempty"`
-	ReverseMapping   bool              `json:"reverse_mapping,omitempty"`
-	IndependentCache bool              `json:"independent_cache,omitempty"`
-	CacheCapacity    int               `json:"cache_capacity,omitempty"`
+	Servers        []json.RawMessage `json:"servers,omitempty"`
+	Rules          []DNSRule         `json:"rules,omitempty"`
+	Final          string            `json:"final,omitempty"`
+	Strategy       string            `json:"strategy,omitempty"`
+	ReverseMapping bool              `json:"reverse_mapping,omitempty"`
+	CacheCapacity  int               `json:"cache_capacity,omitempty"`
 }
 
 // dnsServerFieldsToStrip lists fields that sing-box 1.13.x rejects inside
@@ -105,12 +105,16 @@ func (d *DNSConfig) FirstServerTag() string {
 
 // DNSRule is a sing-box DNS routing rule.
 type DNSRule struct {
-	Action        string   `json:"action,omitempty"`
-	Server        string   `json:"server,omitempty"`
-	Strategy      string   `json:"strategy,omitempty"`
+	Action string `json:"action,omitempty"`
+	Server string `json:"server,omitempty"`
+	// Tag names an evaluate rule's response, which a later rule matches with
+	// MatchResponse set to the same tag.
+	Tag           string   `json:"tag,omitempty"`
 	AuthUser      []string `json:"auth_user,omitempty"`
 	Inbound       []string `json:"inbound,omitempty"`
+	QueryType     []string `json:"query_type,omitempty"`
 	RuleSet       []string `json:"rule_set,omitempty"`
+	MatchResponse string   `json:"match_response,omitempty"`
 	Domain        []string `json:"domain,omitempty"`
 	DomainSuffix  []string `json:"domain_suffix,omitempty"`
 	DomainKeyword []string `json:"domain_keyword,omitempty"`
@@ -212,6 +216,7 @@ func ParseOutboundHeader(raw json.RawMessage) (OutboundHeader, error) {
 type RouteConfig struct {
 	Final                 string            `json:"final,omitempty"`
 	DefaultDomainResolver string            `json:"default_domain_resolver,omitempty"`
+	DefaultHTTPClient     string            `json:"default_http_client,omitempty"`
 	Rules                 []RouteRule       `json:"rules,omitempty"`
 	RuleSet               []json.RawMessage `json:"rule_set,omitempty"`
 }
@@ -255,10 +260,11 @@ func (c *SingBoxConfig) Normalize() {
 		}
 	}
 
-	if len(c.Experimental) == 0 {
-		if raw, err := json.Marshal(config.DefaultExperimentalConfig()); err == nil {
-			c.Experimental = raw
-		}
+	// The experimental block is gproxy's own: nothing else edits it, so it is
+	// always the current default, and a sing-box option retired upstream
+	// leaves the file with the next write.
+	if raw, err := json.Marshal(config.DefaultExperimentalConfig()); err == nil {
+		c.Experimental = raw
 	}
 
 	if c.DNS == nil {
@@ -280,9 +286,6 @@ func (c *SingBoxConfig) Normalize() {
 	if !c.DNS.ReverseMapping {
 		c.DNS.ReverseMapping = true
 	}
-	if !c.DNS.IndependentCache {
-		c.DNS.IndependentCache = true
-	}
 
 	if len(c.Outbounds) == 0 {
 		c.Outbounds = defaultDirectOutbounds()
@@ -295,6 +298,14 @@ func (c *SingBoxConfig) Normalize() {
 	}
 	if c.Route.Final == "" {
 		c.Route.Final = DirectTag
+	}
+	// Remote rule-sets download through the default HTTP client; a
+	// per-rule-set download_detour is sing-box 1.14's deprecated form.
+	if len(c.HTTPClients) == 0 {
+		c.HTTPClients = rawMessagesFromMaps(config.DefaultHTTPClients())
+	}
+	if c.Route.DefaultHTTPClient == "" {
+		c.Route.DefaultHTTPClient = config.DefaultHTTPClientTag
 	}
 	defaultRuleSets := rawMessagesFromMaps(config.DefaultRuleSetCatalog())
 	if len(c.Route.RuleSet) == 0 {
@@ -312,13 +323,17 @@ func (c *SingBoxConfig) Normalize() {
 // documents them, so the file reads the way shell-proxy wrote it. Keys not
 // listed keep their place after these.
 var (
-	dnsServerOrder = []string{"tag", "type", "server", "server_port", "path", "tls", "detour", "domain_strategy"}
-	outboundOrder  = []string{"type", "tag", "server", "server_port", "version", "udp_over_tcp", "username", "password", "domain_resolver"}
-	ruleSetOrder   = []string{"tag", "type", "format", "url", "download_detour"}
-	cacheFileOrder = []string{"enabled", "cache_id", "path", "store_fakeip", "store_rdrc"}
+	dnsServerOrder  = []string{"tag", "type", "server", "server_port", "path", "tls", "detour", "domain_strategy"}
+	outboundOrder   = []string{"type", "tag", "server", "server_port", "version", "udp_over_tcp", "username", "password", "domain_resolver"}
+	ruleSetOrder    = []string{"tag", "type", "format", "url"}
+	httpClientOrder = []string{"tag", "detour"}
+	cacheFileOrder  = []string{"enabled", "cache_id", "path", "store_fakeip", "store_dns"}
 )
 
 func (c *SingBoxConfig) canonicalOrder() {
+	for i, raw := range c.HTTPClients {
+		c.HTTPClients[i] = editRaw(raw, func(v *jsonorder.Value) { v.Reorder(httpClientOrder...) })
+	}
 	if len(c.Experimental) > 0 {
 		c.Experimental = editRaw(c.Experimental, func(v *jsonorder.Value) {
 			v.Get("cache_file").Reorder(cacheFileOrder...)
@@ -340,7 +355,10 @@ func (c *SingBoxConfig) canonicalOrder() {
 	}
 	if c.Route != nil {
 		for i, raw := range c.Route.RuleSet {
-			c.Route.RuleSet[i] = editRaw(raw, func(v *jsonorder.Value) { v.Reorder(ruleSetOrder...) })
+			c.Route.RuleSet[i] = editRaw(raw, func(v *jsonorder.Value) {
+				v.Delete("download_detour")
+				v.Reorder(ruleSetOrder...)
+			})
 		}
 	}
 }

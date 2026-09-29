@@ -46,7 +46,7 @@ func syncDNS(s *store.Store, outboundToDNS map[string]string, strategy string, r
 		}
 	}
 
-	newRules := mergeDNSRulesByServer(dnsRulesFromRouteRules(rules, outboundToDNS, ChainDNSStrategies(s), strategy))
+	newRules := dnsRulesFor(mergeDNSRulesByServer(dnsRulesFromRouteRules(rules, outboundToDNS, ChainDNSStrategies(s), strategy)))
 	kept = append(kept, newRules...)
 
 	s.SingBox.DNS.Rules = kept

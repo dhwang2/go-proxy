@@ -14,24 +14,42 @@ func TestReadFileBoundsAndRequestedTail(t *testing.T) {
 	if err := os.WriteFile(path, []byte("first\nsecond\nthird\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	content, source, err := Read(context.Background(), path, "unused", 2, 1024)
+	content, source, err := Read(context.Background(), path, "unused", 2)
 	if err != nil || source != path || content != "second\nthird\n" {
 		t.Fatalf("unexpected log result %q %q %v", content, source, err)
 	}
-	if _, _, err := Read(context.Background(), path, "unused", 3, 4); !errors.Is(err, ErrOutputLimit) {
+	// A read is bounded at 1 MiB whatever --lines asks for.
+	long := strings.Repeat("x", 700<<10) + "\n"
+	if err := os.WriteFile(path, []byte(long+long), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Read(context.Background(), path, "unused", 2); !errors.Is(err, ErrOutputLimit) {
 		t.Fatalf("wanted output limit, got %v", err)
 	}
 }
-func TestFollowCancellation(t *testing.T) {
+
+// The zone offset sing-box puts before its timestamp and the seconds counter
+// in its startup lines carry nothing, and are dropped; other lines are kept
+// as written.
+func TestReadDropsSingBoxsOffsetAndStartupCounter(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "service.log")
-	if err := os.WriteFile(path, []byte("entry\n"), 0600); err != nil {
+	body := "+0000 2026-09-29 06:56:33 ERROR [196379889 135ms] inbound/anytls[anytls_2053]: EOF\n" +
+		"\x1b[33mWARN\x1b[0m[0000] `independent_cache` DNS option is deprecated\n" +
+		"2026-09-27 09:19:00.481964 [server_tunnel-1] <WARN> Session error E01\n" +
+		"price +0000 2026-09-29 stays\n"
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	var out strings.Builder
-	if err := Follow(ctx, path, "unused", 1, &out); err == nil {
-		t.Fatal("cancelled follow succeeded")
+	content, _, err := Read(context.Background(), path, "unused", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "2026-09-29 06:56:33 ERROR [196379889 135ms] inbound/anytls[anytls_2053]: EOF\n" +
+		"WARN `independent_cache` DNS option is deprecated\n" +
+		"2026-09-27 09:19:00.481964 [server_tunnel-1] <WARN> Session error E01\n" +
+		"price +0000 2026-09-29 stays\n"
+	if content != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", content, want)
 	}
 }
 
@@ -44,7 +62,7 @@ func TestReadStripsForeignTerminalControls(t *testing.T) {
 	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
 		t.Fatal(err)
 	}
-	content, _, err := Read(context.Background(), path, "unused", 10, 1<<20)
+	content, _, err := Read(context.Background(), path, "unused", 10)
 	if err != nil {
 		t.Fatal(err)
 	}

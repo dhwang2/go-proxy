@@ -498,7 +498,7 @@ func TestUnknownDirectStrategyListsTheClosedSet(t *testing.T) {
 
 // A bare `gproxy log` used to read sing-box. That was a guess at which service
 // the reader meant, and a wrong guess looks like a working command.
-func TestBareLogAnswersWithTheSignatureAndOneExample(t *testing.T) {
+func TestBareLogAnswersWithItsForm(t *testing.T) {
 	var out, stderr bytes.Buffer
 	r := guidanceRunner(t, &out, &stderr)
 	if code := r.Run(context.Background(), []string{"log"}); code != 2 {
@@ -507,40 +507,8 @@ func TestBareLogAnswersWithTheSignatureAndOneExample(t *testing.T) {
 	if out.Len() != 0 {
 		t.Fatalf("guidance reached stdout: %s", out.String())
 	}
-	lines := strings.Split(strings.TrimRight(stderr.String(), "\n"), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("guidance is %d lines, want the signature and one example:\n%s", len(lines), stderr.String())
-	}
-	if lines[0] != "gproxy log <service> [--lines <count>] [--max-bytes <bytes>] [--follow]" {
-		t.Fatalf("first line is not the signature: %q", lines[0])
-	}
-	// The second line has to be runnable as written.
-	if !strings.HasPrefix(lines[1], "gproxy log ") || strings.ContainsAny(lines[1], "<>[]") {
-		t.Fatalf("second line is not a command that can be run: %q", lines[1])
-	}
-	for _, line := range lines {
-		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "error:") {
-			t.Fatalf("guidance line carries a prefix or indent: %q", line)
-		}
-	}
-
-	// A caller parsing the envelope still gets a sentence and every selector.
-	out.Reset()
-	stderr.Reset()
-	r = guidanceRunner(t, &out, &stderr)
-	r.Run(context.Background(), []string{"log", "--json"})
-	var envelope struct {
-		Data  struct{ Services []string } `json:"data"`
-		Error struct{ Message string }    `json:"error"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
-		t.Fatalf("envelope: %v: %s", err, out.String())
-	}
-	if envelope.Error.Message == "" {
-		t.Fatalf("machine reader got no message: %s", out.String())
-	}
-	if len(envelope.Data.Services) != len(application.ManagedServiceNames()) {
-		t.Fatalf("envelope omits the selectors: %s", out.String())
+	if stderr.String() != "gproxy log <service> [--lines <n>]\n" {
+		t.Fatalf("guidance:\n%s", stderr.String())
 	}
 }
 

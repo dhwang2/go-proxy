@@ -76,3 +76,23 @@ func TestNormalizeWritesSectionsAndOwnedEntriesInOrder(t *testing.T) {
 		t.Fatalf("DirectResolver() = %q %q %v", server, strategy, ok)
 	}
 }
+
+// Remote rule-sets download through a declared HTTP client, which the route
+// names as its default, and carry no download_detour of their own.
+func TestNormalizeDeclaresTheRuleSetHTTPClient(t *testing.T) {
+	cfg := &SingBoxConfig{Route: &RouteConfig{RuleSet: []json.RawMessage{
+		json.RawMessage(`{"tag":"geosite-x","type":"remote","format":"binary","url":"https://example.com/x.srs","download_detour":"direct"}`),
+	}}}
+	cfg.Normalize()
+	if got := string(cfg.HTTPClients[0]); got != `{"tag":"direct","detour":"direct"}` {
+		t.Fatalf("http_clients = %s", got)
+	}
+	if cfg.Route.DefaultHTTPClient != "direct" {
+		t.Fatalf("default_http_client = %q", cfg.Route.DefaultHTTPClient)
+	}
+	for _, raw := range cfg.Route.RuleSet {
+		if strings.Contains(string(raw), "download_detour") {
+			t.Fatalf("rule-set kept download_detour: %s", raw)
+		}
+	}
+}

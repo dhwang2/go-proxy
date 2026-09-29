@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -57,10 +58,10 @@ func TestDNSRulesMatchCompiledRouteRules(t *testing.T) {
 	if len(dnsRules) != 2 {
 		t.Fatalf("len(dnsRules) = %d, want 2", len(dnsRules))
 	}
-	if got := dnsRules[0].RuleSet; len(got) != 1 || got[0] != "geosite-google" {
+	if got := dnsRules[0].rule.RuleSet; len(got) != 1 || got[0] != "geosite-google" {
 		t.Fatalf("dnsRules[0].RuleSet = %#v", got)
 	}
-	if got := dnsRules[1].RuleSet; len(got) != 1 || got[0] != "geoip-google" {
+	if got := dnsRules[1].rule.RuleSet; len(got) != 1 || got[0] != "geoip-google" {
 		t.Fatalf("dnsRules[1].RuleSet = %#v", got)
 	}
 }
@@ -224,5 +225,29 @@ func TestEvaluateIgnoresFallbackDomainsSingBoxNeverSees(t *testing.T) {
 	}
 	if result.Decision.MatchBy != "final" {
 		t.Fatalf("a fallback domain decided: %#v", result.Decision)
+	}
+}
+
+// Each rule takes its sing-box 1.14 form: no strategy on any rule; a single-
+// family chain answers the other family's queries for its domains with an
+// empty answer and evaluates only its own family's queries for its address
+// sets; address sets match the evaluated answer, which respond returns.
+func TestDNSRulesTakeTheSingBox114Form(t *testing.T) {
+	users := []string{"alice"}
+	routes := []dnsRoute{
+		{rule: store.DNSRule{Action: "route", Server: "res-dns", AuthUser: users, RuleSet: []string{"geosite-openai"}}, strategy: "ipv4_only"},
+		{rule: store.DNSRule{Action: "route", Server: "res-dns", AuthUser: users, RuleSet: []string{"geoip-ai"}}, strategy: "ipv4_only"},
+		{rule: store.DNSRule{Action: "route", Server: "public4", AuthUser: users, RuleSet: []string{"geosite-netflix"}}, strategy: "prefer_ipv4"},
+	}
+	got, _ := json.Marshal(dnsRulesFor(routes))
+	want := `[` +
+		`{"action":"predefined","auth_user":["alice"],"query_type":["AAAA"],"rule_set":["geosite-openai"]},` +
+		`{"action":"route","server":"res-dns","auth_user":["alice"],"rule_set":["geosite-openai"]},` +
+		`{"action":"evaluate","server":"res-dns","tag":"res-dns-geoip-1","auth_user":["alice"],"query_type":["A"]},` +
+		`{"action":"respond","auth_user":["alice"],"rule_set":["geoip-ai"],"match_response":"res-dns-geoip-1"},` +
+		`{"action":"route","server":"public4","auth_user":["alice"],"rule_set":["geosite-netflix"]}` +
+		`]`
+	if string(got) != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}
 }

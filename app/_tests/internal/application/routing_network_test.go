@@ -89,9 +89,11 @@ func TestRoutingOperationsPersistStrategyAndRejectStaleIndexes(t *testing.T) {
 	if len(saved.UserRoutes) != 1 {
 		t.Fatalf("unexpected routes: %#v", saved.UserRoutes)
 	}
+	// A prefer strategy lets either family through, so no rule answers a
+	// query type empty.
 	for _, rule := range saved.SingBox.DNS.Rules {
-		if len(rule.AuthUser) > 0 && rule.Strategy != "prefer_ipv6" {
-			t.Fatal("compiled DNS strategy was reset")
+		if len(rule.AuthUser) > 0 && rule.Action == "predefined" {
+			t.Fatalf("a prefer strategy dropped a query type: %#v", rule)
 		}
 	}
 }
@@ -757,8 +759,10 @@ func TestRouteTestMatchesAgainstSingBoxsCache(t *testing.T) {
 	a := routingApplicationFixture(t)
 	ctx := context.Background()
 	cachePath := filepath.Join(t.TempDir(), "cache.db")
-	settings := `{"dns":{"strategy":"prefer_ipv6"},"outbounds":[{"type":"direct","tag":"direct"}],` +
-		`"experimental":{"cache_file":{"enabled":true,"cache_id":"cache.db","path":"` + cachePath + `"}}}`
+	savedCache := config.SingBoxCache
+	config.SingBoxCache = cachePath
+	t.Cleanup(func() { config.SingBoxCache = savedCache })
+	settings := `{"dns":{"strategy":"prefer_ipv6"},"outbounds":[{"type":"direct","tag":"direct"}]}`
 	if err := os.WriteFile(config.SingBoxConfig, []byte(settings), 0o600); err != nil {
 		t.Fatal(err)
 	}
