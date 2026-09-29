@@ -251,3 +251,32 @@ func TestDNSRulesTakeTheSingBox114Form(t *testing.T) {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+// gstatic.com leaves directly even for a user whose Google rule goes through
+// a chain; the rest of Google still takes the chain.
+func TestGstaticLeavesDirectlyAheadOfAChainedGoogleRule(t *testing.T) {
+	s := setupRoutingStore(t)
+	if err := AddChain(s, "res-a", "198.51.100.10", 1080, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	preset, ok := FindPreset("google")
+	if !ok {
+		t.Fatal("FindPreset(google) = false")
+	}
+	if err := SetRule(s, "alice", PresetToRule(preset, "alice", "res-a")); err != nil {
+		t.Fatal(err)
+	}
+	Sync(s)
+	s.SingBox.Normalize()
+	holds := map[string][]string{"geosite-google": {"www.gstatic.com", "www.google.com"}}
+	for target, want := range map[string]string{"www.gstatic.com": store.DirectTag, "connectivitycheck.gstatic.com": store.DirectTag, "www.google.com": "res-a"} {
+		var asked []string
+		result, err := Evaluate(s, "alice", target, matchSets(holds, target, &asked))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Decision.Outbound != want {
+			t.Fatalf("%s leaves by %q (%#v), want %q", target, result.Decision.Outbound, result.Decision, want)
+		}
+	}
+}

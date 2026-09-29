@@ -299,20 +299,23 @@ func TestRoundtripPreservesShellProxyBaselineFields(t *testing.T) {
 
 	routeMap := parsed["route"].(map[string]any)
 	rules := routeMap["rules"].([]any)
-	if len(rules) != 3 {
-		t.Fatalf("route.rules len = %d, want 3", len(rules))
+	// The base rules in their fixed order, each kept as the file had it,
+	// then gstatic.com direct ahead of anything a user adds.
+	if len(rules) != 4 {
+		t.Fatalf("route.rules len = %d, want 4", len(rules))
 	}
-	first := rules[0].(map[string]any)
-	if _, ok := first["sniffer"]; !ok {
+	if _, ok := rules[0].(map[string]any)["sniffer"]; !ok {
 		t.Fatal("first route rule is missing sniffer")
 	}
-	second := rules[1].(map[string]any)
-	if got := second["ip_is_private"]; got != true {
-		t.Fatalf("second route rule ip_is_private = %v, want true", got)
+	if got := rules[1].(map[string]any)["protocol"]; got != "dns" {
+		t.Fatalf("second route rule protocol = %v, want dns", got)
 	}
-	third := rules[2].(map[string]any)
-	if got := third["protocol"]; got != "dns" {
-		t.Fatalf("third route rule protocol = %v, want dns", got)
+	if got := rules[2].(map[string]any)["ip_is_private"]; got != true {
+		t.Fatalf("third route rule ip_is_private = %v, want true", got)
+	}
+	fourth := rules[3].(map[string]any)
+	if suffixes, _ := fourth["domain_suffix"].([]any); len(suffixes) != 1 || suffixes[0] != "gstatic.com" || fourth["outbound"] != "direct" {
+		t.Fatalf("fourth route rule = %v, want gstatic.com direct", fourth)
 	}
 }
 

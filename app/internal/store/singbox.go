@@ -473,45 +473,48 @@ func normalizeOutbounds(outbounds []json.RawMessage) []json.RawMessage {
 	return append(outbounds, defaultDirectOutbounds()...)
 }
 
+// DirectDomainSuffixes always leave the server directly, ahead of every
+// user rule and a chain route final. gstatic.com is Google's static-content
+// CDN -- fonts, images, scripts and connectivity checks -- with nothing
+// account- or region-bound, and residential exits refuse it often enough
+// that sending it through a chain breaks pages and connection checks.
+var DirectDomainSuffixes = []string{"gstatic.com"}
+
+// ensureBaseRouteRules puts the rules every configuration starts with first,
+// in this order, keeping an existing one as it is: sniff, so later rules see
+// the domain; DNS hijacking; private addresses direct; and
+// DirectDomainSuffixes direct. User rules follow.
 func ensureBaseRouteRules(rules []RouteRule) []RouteRule {
-	hasSniff := false
-	hasHijackDNS := false
-	hasPrivateDirect := false
+	base := []RouteRule{
+		{Action: "sniff", Sniffer: []string{"http", "tls", "quic", "dns"}},
+		{Protocol: "dns", Action: "hijack-dns"},
+		{Action: "route", Outbound: DirectTag, IPIsPrivate: true},
+		{Action: "route", Outbound: DirectTag, DomainSuffix: append([]string(nil), DirectDomainSuffixes...)},
+	}
+	rest := make([]RouteRule, 0, len(rules))
+	for _, rule := range rules {
+		if kind := baseRuleKind(rule); kind >= 0 {
+			base[kind] = rule
+			continue
+		}
+		rest = append(rest, rule)
+	}
+	return append(base, rest...)
+}
 
-	for i := range rules {
-		if rules[i].Action == "sniff" {
-			hasSniff = true
-		}
-		if rules[i].Action == "hijack-dns" && rules[i].Protocol == "dns" {
-			hasHijackDNS = true
-		}
-		if rules[i].Action == "route" && rules[i].IPIsPrivate && rules[i].Outbound == DirectTag {
-			hasPrivateDirect = true
-		}
+// baseRuleKind is the position in the base rules a rule fills, or -1.
+func baseRuleKind(rule RouteRule) int {
+	userless := len(rule.AuthUser) == 0 && len(rule.Inbound) == 0 && len(rule.RuleSet) == 0
+	switch {
+	case rule.Action == "sniff":
+		return 0
+	case rule.Action == "hijack-dns" && rule.Protocol == "dns":
+		return 1
+	case rule.Action == "route" && rule.Outbound == DirectTag && rule.IPIsPrivate && userless:
+		return 2
+	case rule.Action == "route" && rule.Outbound == DirectTag && userless && !rule.IPIsPrivate &&
+		slices.Equal(rule.DomainSuffix, DirectDomainSuffixes) && len(rule.Domain)+len(rule.DomainKeyword)+len(rule.DomainRegex)+len(rule.IPCIDR) == 0:
+		return 3
 	}
-
-	var base []RouteRule
-	if !hasSniff {
-		base = append(base, RouteRule{
-			Action:  "sniff",
-			Sniffer: []string{"http", "tls", "quic", "dns"},
-		})
-	}
-	if !hasHijackDNS {
-		base = append(base, RouteRule{
-			Protocol: "dns",
-			Action:   "hijack-dns",
-		})
-	}
-	if !hasPrivateDirect {
-		base = append(base, RouteRule{
-			Action:      "route",
-			Outbound:    DirectTag,
-			IPIsPrivate: true,
-		})
-	}
-	if len(base) == 0 {
-		return rules
-	}
-	return append(base, rules...)
+	return -1
 }
