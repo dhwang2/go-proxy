@@ -366,7 +366,7 @@ func strategyGuidance(args []string) error {
 	}
 	strategies := application.DirectStrategies()
 	return guidance(message,
-		[]string{"gproxy route direct set <" + strings.Join(strategies, "|") + ">", "gproxy route direct set auto"},
+		[]string{"gproxy route direct set <" + strings.Join(strategies, "|") + ">"},
 		map[string]any{"strategies": strategies})
 }
 
@@ -397,6 +397,6 @@ func finalGuidance(args []string) error {
 		message = "gproxy route final set takes one target"
 	}
 	return guidance(message,
-		[]string{"gproxy route final set <direct|chain tag>", "gproxy route final set res1", "gproxy route final set direct"},
+		[]string{"gproxy route final set <direct|chain tag>"},
 		map[string]any{"missing": []string{"<direct|chain tag>"}})
 }

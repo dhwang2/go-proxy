@@ -263,6 +263,8 @@ func TestRouteGuidanceIsTheCommandsForms(t *testing.T) {
 			"gproxy route chain add res1 --parameter [2001:db8::1]:1080:alice:secret\n" +
 			"gproxy route chain add res1 --parameter 198.51.100.7:1080:alice:secret --dns https://dns.quad9.net/dns-query\n",
 		"route chain modify": "gproxy route chain modify <tag> [--parameter <host>:<port>[:<username>:<password>]] [--dns <resolver>]\n",
+		"route direct set":   "gproxy route direct set <ipv4_only|ipv6_only|prefer_ipv4|prefer_ipv6|asis|auto>\n",
+		"route final set":    "gproxy route final set <direct|chain tag>\n",
 	} {
 		var out, stderr bytes.Buffer
 		r := guidanceRunner(t, &out, &stderr)
