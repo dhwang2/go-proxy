@@ -251,9 +251,9 @@ func TestPresetMenuCoversEveryPresetOnce(t *testing.T) {
 	}
 }
 
-// Bare, each route command answers with its forms and nothing else: the
-// rule commands with placeholders, chain add with two examples for what its
-// form leaves implicit.
+// Bare, each route command and config view answer with their forms and
+// nothing else: the rule commands with placeholders, chain add with two
+// examples for what its form leaves implicit.
 func TestRouteGuidanceIsTheCommandsForms(t *testing.T) {
 	for args, want := range map[string]string{
 		"route rule modify": "gproxy route rule modify --user <name> --rules <indexes> --out <direct|chain tag>\n",
@@ -265,6 +265,7 @@ func TestRouteGuidanceIsTheCommandsForms(t *testing.T) {
 		"route chain modify": "gproxy route chain modify <tag> [--parameter <host>:<port>[:<username>:<password>]] [--dns <resolver>]\n",
 		"route direct set":   "gproxy route direct set <ipv4_only|ipv6_only|prefer_ipv4|prefer_ipv6|asis|auto>\n",
 		"route final set":    "gproxy route final set <direct|chain tag>\n",
+		"config view":        "gproxy config view <sing-box|snell|shadow-tls> [--detail]\n",
 	} {
 		var out, stderr bytes.Buffer
 		r := guidanceRunner(t, &out, &stderr)

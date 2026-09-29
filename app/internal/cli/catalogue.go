@@ -308,7 +308,7 @@ func configGuidance(args []string) error {
 	}
 	kinds := application.ConfigKinds()
 	return guidance(message,
-		[]string{"gproxy config view <" + strings.Join(kinds, "|") + "> [--show-secrets]", "gproxy config view sing-box"},
+		[]string{"gproxy config view <" + strings.Join(kinds, "|") + "> [--detail]"},
 		map[string]any{"configurations": kinds})
 }
 

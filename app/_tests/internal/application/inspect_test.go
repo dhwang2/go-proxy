@@ -30,7 +30,7 @@ func TestConfigViewRedactsTypedAndArbitrarySecretsWithoutWriting(t *testing.T) {
 		}
 		for _, secret := range []string{"uuid", "user", "reality", "relay", "dns", "header", "nested"} {
 			if strings.Contains(string(encoded), "secret-"+secret) != secrets {
-				t.Fatalf("secret inclusion mismatch for %s, show-secrets=%v", secret, secrets)
+				t.Fatalf("secret inclusion mismatch for %s, detail=%v", secret, secrets)
 			}
 		}
 		if !strings.Contains(string(encoded), "alice") || !strings.Contains(string(encoded), "relay") {

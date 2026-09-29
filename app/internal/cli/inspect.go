@@ -12,17 +12,17 @@ func registerInspect(r *Runner, root *cobra.Command) {
 		return r.App.Status(ctx)
 	}))
 	configuration := &cobra.Command{Use: "config", Short: "Inspect or validate managed configuration"}
-	var secrets bool
+	var detail bool
 	viewArgs := func(cmd *cobra.Command, args []string) error {
 		if len(args) == 1 {
 			return nil
 		}
 		return configGuidance(args)
 	}
-	view := r.leaf("view <sing-box|snell|shadow-tls>", "Inspect configuration (redacted by default)", viewArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
-		return r.App.ConfigView(ctx, args[0], secrets)
+	view := r.leaf("view <sing-box|snell|shadow-tls>", "Inspect configuration (redacted and folded by default)", viewArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
+		return r.App.ConfigView(ctx, args[0], detail)
 	})
-	view.Flags().BoolVar(&secrets, "show-secrets", false, "Explicitly include server credentials; protect saved output")
+	view.Flags().BoolVar(&detail, "detail", false, "Show credentials and the folded rule_set catalogue; protect saved output")
 	configuration.AddCommand(view, r.leaf("validate", "Validate managed configuration", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
 		return r.App.ConfigValidate(ctx)
 	}))

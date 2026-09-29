@@ -73,3 +73,16 @@ func TestReadStripsForeignTerminalControls(t *testing.T) {
 		t.Fatalf("stripping changed the log text: %q", content)
 	}
 }
+
+// An emptied log file is read as empty rather than falling back to the
+// journal, which holds only systemd's start and stop lines.
+func TestEmptyLogFileIsReadAsEmpty(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "service.log")
+	if err := os.WriteFile(path, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	content, source, err := Read(context.Background(), path, "unused", 10)
+	if err != nil || source != path || content != "" {
+		t.Fatalf("empty log read as %q from %q: %v", content, source, err)
+	}
+}

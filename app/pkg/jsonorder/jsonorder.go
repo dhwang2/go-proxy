@@ -129,20 +129,6 @@ func (v *Value) Set(key string, field *Value) {
 	v.Fields = append(v.Fields, field)
 }
 
-// Delete removes a key, if present.
-func (v *Value) Delete(key string) {
-	if v == nil || v.Kind != Object {
-		return
-	}
-	for index, name := range v.Keys {
-		if name == key {
-			v.Keys = append(v.Keys[:index], v.Keys[index+1:]...)
-			v.Fields = append(v.Fields[:index], v.Fields[index+1:]...)
-			return
-		}
-	}
-}
-
 // Reorder moves the named keys to the front, in the order given. Keys not
 // named keep their relative order after them.
 func (v *Value) Reorder(order ...string) {

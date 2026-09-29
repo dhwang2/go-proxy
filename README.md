@@ -64,7 +64,7 @@ gproxy route test --user <name> --domain <domain|ip>
 
 gproxy sub [--user <user>] [--target <domain|ip>]
 
-gproxy config view <sing-box|snell|shadow-tls> [--show-secrets]
+gproxy config view <sing-box|snell|shadow-tls> [--detail]
 gproxy config validate
 
 gproxy core version|check|update [<component>|--all] [--version <v>]

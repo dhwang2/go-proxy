@@ -42,12 +42,15 @@ func ServiceLogSource(svc string) (logFile, unit string) {
 }
 
 func command(ctx context.Context, logFile, unit string, lines int) (*exec.Cmd, string, error) {
+	// A service's log file is its log, empty or not: an emptied log is
+	// read as empty, not replaced by systemd's start and stop lines. The
+	// journal is read only for a service without one.
 	if logFile != "" {
-		st, err := os.Stat(logFile)
+		_, err := os.Stat(logFile)
 		if err != nil && !os.IsNotExist(err) {
 			return nil, "", err
 		}
-		if err == nil && st.Size() > 0 {
+		if err == nil {
 			return exec.CommandContext(ctx, "tail", "-n", strconv.Itoa(lines), "--", logFile), logFile, nil
 		}
 	}

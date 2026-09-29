@@ -110,7 +110,7 @@ func membershipsByUser(snapshot *Snapshot) map[string][]string {
 	return byUser
 }
 
-func (a *App) ConfigView(ctx context.Context, kind string, secrets bool) (Result, error) {
+func (a *App) ConfigView(ctx context.Context, kind string, detail bool) (Result, error) {
 	if !slices.Contains(ConfigKinds(), kind) {
 		return Result{}, Invalid("configuration must be sing-box, snell or shadow-tls")
 	}
@@ -121,7 +121,7 @@ func (a *App) ConfigView(ctx context.Context, kind string, secrets bool) (Result
 	var value any
 	switch kind {
 	case "sing-box":
-		if !secrets {
+		if !detail {
 			if err := redactSingBox(ctx, snapshot.Store.SingBox); err != nil {
 				return Result{}, err
 			}
@@ -133,7 +133,7 @@ func (a *App) ConfigView(ctx context.Context, kind string, secrets bool) (Result
 			return Result{}, &Error{Code: "not_found", Message: "snell is not configured"}
 		}
 		view := snellView{Listen: conf.Listen, PSK: conf.PSK, Mode: conf.Mode, DNSIPPreference: conf.DNSIPPreference, DNS: conf.DNS, EgressInterface: conf.EgressInterface}
-		if !secrets {
+		if !detail {
 			view.PSK = redactedValue
 		}
 		value = view
@@ -141,14 +141,14 @@ func (a *App) ConfigView(ctx context.Context, kind string, secrets bool) (Result
 		bindings := make([]shadowTLSView, 0, len(snapshot.Bindings))
 		for _, b := range snapshot.Bindings {
 			view := shadowTLSView{ListenPort: b.ListenPort, BackendProtocol: b.BackendProto, BackendPort: b.BackendPort, SNI: b.SNI, Password: b.Password, Version: b.Version}
-			if !secrets {
+			if !detail {
 				view.Password = redactedValue
 			}
 			bindings = append(bindings, view)
 		}
 		value = bindings
 	}
-	return Result{Data: map[string]any{"component": kind, "configuration": value, "secrets_included": secrets}}, nil
+	return Result{Data: map[string]any{"component": kind, "configuration": value, "detail": detail}}, nil
 }
 
 const redactedValue = "<redacted>"

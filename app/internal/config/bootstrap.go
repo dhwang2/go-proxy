@@ -103,8 +103,7 @@ func DefaultRuleSetCatalog() []map[string]any {
 }
 
 // DefaultHTTPClientTag names the HTTP client remote rule-sets download
-// through, reaching the internet by the direct outbound. sing-box 1.14 replaced
-// each rule-set's download_detour with it.
+// through, reaching the internet by the direct outbound.
 const DefaultHTTPClientTag = "direct"
 
 // DefaultHTTPClients returns the top-level HTTP clients.

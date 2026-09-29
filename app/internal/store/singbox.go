@@ -299,8 +299,7 @@ func (c *SingBoxConfig) Normalize() {
 	if c.Route.Final == "" {
 		c.Route.Final = DirectTag
 	}
-	// Remote rule-sets download through the default HTTP client; a
-	// per-rule-set download_detour is sing-box 1.14's deprecated form.
+	// Remote rule-sets download through the default HTTP client.
 	if len(c.HTTPClients) == 0 {
 		c.HTTPClients = rawMessagesFromMaps(config.DefaultHTTPClients())
 	}
@@ -355,10 +354,7 @@ func (c *SingBoxConfig) canonicalOrder() {
 	}
 	if c.Route != nil {
 		for i, raw := range c.Route.RuleSet {
-			c.Route.RuleSet[i] = editRaw(raw, func(v *jsonorder.Value) {
-				v.Delete("download_detour")
-				v.Reorder(ruleSetOrder...)
-			})
+			c.Route.RuleSet[i] = editRaw(raw, func(v *jsonorder.Value) { v.Reorder(ruleSetOrder...) })
 		}
 	}
 }

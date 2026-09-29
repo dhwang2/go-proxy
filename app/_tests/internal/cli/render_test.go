@@ -1081,7 +1081,7 @@ func TestUserListGroupsMembershipsUnderTheName(t *testing.T) {
 func TestConfigViewPrintsTheConfigurationInShellProxyLayout(t *testing.T) {
 	raw := `{"log":{"level":"error"},"dns":{"servers":[{"tag":"public4","type":"https","server_port":443}],"rules":[{"action":"route","server":"public4","auth_user":["alice"]}],"strategy":"prefer_ipv4"},"route":{"final":"direct","rules":[{"action":"sniff"},{"ip_is_private":true,"outbound":"direct"}],"rule_set":[{"tag":"geosite-openai","url":"https://example.com"}]}}`
 	var value json.RawMessage = json.RawMessage(raw)
-	fields := map[string]any{"component": "sing-box", "configuration": value, "secrets_included": false}
+	fields := map[string]any{"component": "sing-box", "configuration": value, "detail": false}
 	var out bytes.Buffer
 	if !render(&out, palette{}, "gproxy config view", fields) {
 		t.Fatal("config view produced no rendering")
@@ -1119,6 +1119,21 @@ func TestConfigViewPrintsTheConfigurationInShellProxyLayout(t *testing.T) {
 		t.Fatalf("rendering:\n%s\nwant:\n%s", out.String(), want)
 	}
 
+	// --detail unfolds the catalogue.
+	var detailed bytes.Buffer
+	render(&detailed, palette{}, "gproxy config view", map[string]any{"component": "sing-box", "configuration": value, "detail": true})
+	unfolded := strings.Replace(want, `    "rule_set": [
+      "..."
+    ]`, `    "rule_set": [
+      {
+        "tag": "geosite-openai",
+        "url": "https://example.com"
+      }
+    ]`, 1)
+	if detailed.String() != unfolded {
+		t.Fatalf("detailed rendering:\n%s\nwant:\n%s", detailed.String(), unfolded)
+	}
+
 	var coloured bytes.Buffer
 	render(&coloured, palette{on: true}, "gproxy config view", fields)
 	for _, part := range []string{jqKey + `"strategy"` + ansiReset, jqString + `"prefer_ipv4"` + ansiReset, jqPlain + "443" + ansiReset} {
@@ -1131,7 +1146,7 @@ func TestConfigViewPrintsTheConfigurationInShellProxyLayout(t *testing.T) {
 // snell and shadow-tls print their configuration alone as well, with no
 // rule folding and no HTML escaping of a redacted secret.
 func TestConfigViewOmitsTheEnvelopeForEveryComponent(t *testing.T) {
-	fields := map[string]any{"component": "snell", "configuration": map[string]any{"psk": "<redacted>"}, "secrets_included": false}
+	fields := map[string]any{"component": "snell", "configuration": map[string]any{"psk": "<redacted>"}, "detail": false}
 	var out bytes.Buffer
 	render(&out, palette{}, "gproxy config view", fields)
 	if want := "{\n  \"psk\": \"<redacted>\"\n}\n"; out.String() != want {

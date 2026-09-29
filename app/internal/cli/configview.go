@@ -24,7 +24,8 @@ const (
 // JSON result carries, in shell-proxy's layout: two-space indentation, keys in
 // the order the file holds them, each DNS and route rule on one line, and the
 // route's rule_set catalogue folded to "..." -- it is dozens of download URLs
-// that are in the real file but tell a reader nothing.
+// that are in the real file but tell a reader nothing. --detail shows it, with
+// the credentials.
 func renderConfig(w io.Writer, p palette, fields map[string]any) bool {
 	configuration, ok := fields["configuration"]
 	if !ok {
@@ -47,7 +48,8 @@ func renderConfig(w io.Writer, p palette, fields map[string]any) bool {
 				}
 			}
 		}
-		if route := value.Get("route"); route != nil && route.Get("rule_set") != nil {
+		detail, _ := fields["detail"].(bool)
+		if route := value.Get("route"); !detail && route != nil && route.Get("rule_set") != nil {
 			route.Set("rule_set", &jsonorder.Value{Kind: jsonorder.Array, Items: []*jsonorder.Value{jsonorder.String("...")}})
 		}
 	}
