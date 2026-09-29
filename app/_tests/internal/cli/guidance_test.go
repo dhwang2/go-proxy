@@ -201,17 +201,15 @@ func TestChainGuidanceExplainsTagAndParameter(t *testing.T) {
 	}
 }
 
-// The preset guidance is flush left: the error, one command that runs as
-// written, then the menu in shell-proxy's numbering with every preset's label.
+// The preset guidance is flush left: the command's form, then the menu in
+// shell-proxy's numbering with every preset's label.
 func TestPresetGuidanceNumbersEveryPresetFlushLeft(t *testing.T) {
 	var out, stderr bytes.Buffer
 	r := guidanceRunner(t, &out, &stderr)
 	r.Run(context.Background(), []string{"route", "rule", "add"})
 	lines := strings.Split(strings.TrimRight(stderr.String(), "\n"), "\n")
-	// The example shows several indexes at once, which is what the error line
-	// used to say.
-	if lines[0] != "gproxy route rule add --user alice --rules 1,3,5,9,a,b --out direct" {
-		t.Fatalf("first line is not the example command: %q", lines[0])
+	if lines[0] != "gproxy route rule add --user <name> --rules <indexes> --out <direct|chain tag>" {
+		t.Fatalf("first line is not the command's form: %q", lines[0])
 	}
 	menu := routing.PresetMenu()
 	if len(lines) != 1+len(menu) {
@@ -253,28 +251,26 @@ func TestPresetMenuCoversEveryPresetOnce(t *testing.T) {
 	}
 }
 
-// modify and remove say which rules the same way: flush-left commands taking
-// several comma-separated indexes, and remove's example carries --confirm.
-func TestRuleSelectGuidanceIsFlushLeftAndMultiSelect(t *testing.T) {
-	for action, want := range map[string]string{
-		"remove": "gproxy route rule remove --user alice --rules 1,3,a --confirm",
-		"modify": "gproxy route rule modify --user alice --rules 1,3,a --out res1",
+// Bare, each route command answers with its forms and nothing else: the
+// rule commands with placeholders, chain add with two examples for what its
+// form leaves implicit.
+func TestRouteGuidanceIsTheCommandsForms(t *testing.T) {
+	for args, want := range map[string]string{
+		"route rule modify": "gproxy route rule modify --user <name> --rules <indexes> --out <direct|chain tag>\n",
+		"route rule remove": "gproxy route rule remove --user <name> --rules <indexes> --confirm\n" +
+			"gproxy route rule remove [--user <name>] --all --confirm\n",
+		"route chain add": "gproxy route chain add <tag> --parameter <host>:<port>[:<username>:<password>] [--dns <resolver>]\n" +
+			"gproxy route chain add res1 --parameter [2001:db8::1]:1080:alice:secret\n" +
+			"gproxy route chain add res1 --parameter 198.51.100.7:1080:alice:secret --dns https://dns.quad9.net/dns-query\n",
+		"route chain modify": "gproxy route chain modify <tag> [--parameter <host>:<port>[:<username>:<password>]] [--dns <resolver>]\n",
 	} {
 		var out, stderr bytes.Buffer
 		r := guidanceRunner(t, &out, &stderr)
-		args := []string{"route", "rule", action}
-		if action == "remove" {
-			args = append(args, "--confirm")
+		if code := r.Run(context.Background(), strings.Fields(args)); code != 2 {
+			t.Fatalf("%s: exit %d", args, code)
 		}
-		r.Run(context.Background(), args)
-		text := stderr.String()
-		if !strings.Contains(text, want) || strings.Contains(text, "error:") {
-			t.Fatalf("%s guidance:\n%s", action, text)
-		}
-		for _, line := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
-			if !strings.HasPrefix(line, "gproxy route rule ") {
-				t.Fatalf("%s guidance line is not a flush-left command: %q", action, line)
-			}
+		if stderr.String() != want {
+			t.Fatalf("%s guidance:\n%s\nwant:\n%s", args, stderr.String(), want)
 		}
 	}
 }
@@ -672,12 +668,11 @@ func TestRefusalsPrintNoProgressLine(t *testing.T) {
 }
 
 // chain modify and chain remove answer a missing tag the way chain add does:
-// the full command, flush left, and for modify one example; no error line.
+// the full command, flush left; no error line.
 func TestChainModifyAndRemoveGuidanceIsFlushLeft(t *testing.T) {
 	for args, want := range map[string][]string{
 		"route chain modify": {
 			"gproxy route chain modify <tag> [--parameter <host>:<port>[:<username>:<password>]] [--dns <resolver>]",
-			"gproxy route chain modify res1 --parameter 198.51.100.7:1080:alice:secret",
 		},
 		"route chain remove": {
 			"gproxy route chain remove <tag> --confirm",

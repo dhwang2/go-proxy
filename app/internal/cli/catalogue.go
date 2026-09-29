@@ -171,13 +171,13 @@ func installGuidance(entry protocolEntry, missing []string) error {
 
 // presetGuidance replaces the separate `routing presets` command: the menu is
 // only ever needed while composing a rule, which is exactly when this prints.
-// It is laid out like the install guidance, flush left: one command that runs
-// as written, then the menu in shell-proxy's numbering, whose indexes the
-// command takes, several at once.
+// It is laid out like the install guidance, flush left: the command's form,
+// then the menu in shell-proxy's numbering, whose indexes the command takes,
+// several at once.
 func presetGuidance(missing []string) error {
 	menu := routing.PresetMenu()
 	hint := make([]string, 0, len(menu)+1)
-	hint = append(hint, "gproxy route rule add --user alice --rules 1,3,5,9,a,b --out direct")
+	hint = append(hint, "gproxy route rule add --user <name> --rules <indexes> --out <direct|chain tag>")
 	names := make([]string, 0, len(menu))
 	indexes := make(map[string]string, len(menu))
 	for _, choice := range menu {
@@ -189,17 +189,16 @@ func presetGuidance(missing []string) error {
 		hint, map[string]any{"missing": missing, "presets": names, "indexes": indexes})
 }
 
-// ruleSelectGuidance answers a modify or remove that did not say which rules:
-// the numbers route rule list prints, which are the preset menu's, several at
-// once.
+// ruleSelectGuidance answers a modify or remove that did not say which rules
+// with the command's forms; the indexes are the numbers route rule list
+// prints, which are the preset menu's, several at once.
 func ruleSelectGuidance(action string, missing []string) error {
-	hint := []string{"gproxy route rule list --user alice"}
-	if action == "modify" {
-		hint = append(hint, "gproxy route rule modify --user alice --rules 1,3,a --out res1")
-	} else {
-		hint = append(hint,
-			"gproxy route rule remove --user alice --rules 1,3,a --confirm",
-			"gproxy route rule remove --user alice --all --confirm")
+	hint := []string{"gproxy route rule modify --user <name> --rules <indexes> --out <direct|chain tag>"}
+	if action == "remove" {
+		hint = []string{
+			"gproxy route rule remove --user <name> --rules <indexes> --confirm",
+			"gproxy route rule remove [--user <name>] --all --confirm",
+		}
 	}
 	return guidance(joinList(annotateIndexed(missing, "--rules"))+" required for gproxy route rule "+action,
 		hint, map[string]any{"missing": missing})
@@ -220,15 +219,12 @@ func annotateIndexed(missing []string, flag string) []string {
 
 // chainGuidance answers an add that is missing its tag or endpoint the way
 // installGuidance does: the one command with every optional part, unindented
-// so it can be taken off the screen, then examples that run as written. The
-// examples carry what prose used to explain: the bracketed IPv6 host, the
-// credentials going together, and --dns.
+// so it can be taken off the screen, then two examples for what the form
+// leaves implicit: the bracketed IPv6 host with credentials, and --dns.
 func chainGuidance(missing []string) error {
 	return guidance(joinList(missing)+" required for gproxy route chain add",
 		[]string{
 			"gproxy route chain add <tag> --parameter <host>:<port>[:<username>:<password>] [--dns <resolver>]",
-			"gproxy route chain add res1 --parameter 198.51.100.7:1080",
-			"gproxy route chain add res1 --parameter 198.51.100.7:1080:alice:secret",
 			"gproxy route chain add res1 --parameter [2001:db8::1]:1080:alice:secret",
 			"gproxy route chain add res1 --parameter 198.51.100.7:1080:alice:secret --dns https://dns.quad9.net/dns-query",
 		},
@@ -329,7 +325,6 @@ func chainModifyGuidance(missingTag bool) error {
 	return guidance(message,
 		[]string{
 			"gproxy route chain modify <tag> [--parameter <host>:<port>[:<username>:<password>]] [--dns <resolver>]",
-			"gproxy route chain modify res1 --parameter 198.51.100.7:1080:alice:secret",
 		},
 		map[string]any{"missing": missing})
 }

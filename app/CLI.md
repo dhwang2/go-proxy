@@ -253,7 +253,7 @@ gproxy server restart          # lists the selectable services
 gproxy route rule add          # prints the numbered preset menu
 ```
 
-Guidance is commands only, flush left, with no `error:` line above them: the full command with every option it takes, closed sets of values written inside it (`<ipv4_only|ipv6_only|...>`), then one or two examples that run as written, or a numbered menu whose indexes the command takes. It is meant to be copied off the screen and edited. An error with no commands to show after it, such as `unknown preset x` or a port out of range, keeps its `error:` line.
+Guidance is commands only, flush left, with no `error:` line above them: the full command with every option it takes, placeholders for what the reader supplies (`<name>`, `<indexes>`) and closed sets of values written inside it (`<direct|chain tag>`, `<ipv4_only|ipv6_only|...>`). An example follows only where the form leaves something implicit, such as `route chain add` with an IPv6 endpoint and credentials or with `--dns`, and `route rule add` is followed by the numbered menu whose indexes it takes. It is meant to be copied off the screen and edited. An error with no commands to show after it, such as `unknown preset x` or a port out of range, keeps its `error:` line.
 
 This is a **usage error, not a result**: it goes to stderr, exits **2**, writes nothing to stdout, and under `--json` returns the ordinary `invalid_argument` envelope, with the message the human output leaves out and the same choices in `data` (`data.protocols`, `data.services`, `data.presets`, `data.missing`). Never parse the human guidance; read `data`.
 
