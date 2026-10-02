@@ -63,9 +63,8 @@ func registerCompletions(root *cobra.Command) {
 	positional := map[string][]string{
 		"gproxy protocol add": catalogueNames(),
 		"gproxy config view":  application.ConfigKinds(),
-		"gproxy core check":   coreComponentNames(),
 		"gproxy core update":  coreComponentNames(),
-		"gproxy log":          serviceNames,
+		"gproxy log":          application.LogServiceNames(),
 
 		"gproxy route direct set": application.DirectStrategies(),
 	}

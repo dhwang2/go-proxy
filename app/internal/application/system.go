@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -130,6 +131,28 @@ var serviceAliases = map[string]service.Name{
 	"snell":    service.Snell,
 	"caddy":    service.CaddySub,
 	"watchdog": service.Watchdog,
+}
+
+// LogServiceNames are the names `log` offers: caddy and the watchdog by their
+// short names, since caddy-sub and proxy-watchdog only repeat what the service
+// is. Both forms are accepted.
+func LogServiceNames() []string {
+	names := ManagedServiceNames()
+	for i, name := range names {
+		names[i] = LogServiceName(name)
+	}
+	return names
+}
+
+// LogServiceName is the name `log` offers for a unit.
+func LogServiceName(unit string) string {
+	switch service.Name(unit) {
+	case service.CaddySub:
+		return "caddy"
+	case service.Watchdog:
+		return "watchdog"
+	}
+	return unit
 }
 
 // canonicalService turns a short dashboard name into the unit name.
@@ -368,18 +391,10 @@ func Components(selector string, all bool) ([]core.Component, error) {
 	}
 	return nil, Invalid("unknown core component")
 }
-func (a *App) CoreVersions(ctx context.Context) (Result, error) {
-	infos := make([]core.VersionInfo, 0, 4)
-	for _, c := range core.AllComponents() {
-		infos = append(infos, core.InstalledVersion(ctx, core.BinaryPath(c), c))
-	}
-	return Result{Data: infos}, nil
-}
-func (a *App) CoreCheck(ctx context.Context, selector string) (Result, error) {
-	components, err := Components(selector, selector == "")
-	if err != nil {
-		return Result{}, err
-	}
+
+// CoreCheck scans every core: the version installed, if any, and the latest.
+func (a *App) CoreCheck(ctx context.Context) (Result, error) {
+	components := core.AllComponents()
 	checks := make([]*core.UpdateCheck, 0, len(components))
 	for _, c := range components {
 		check, err := core.CheckUpdate(ctx, c, core.BinaryPath(c))
@@ -475,14 +490,14 @@ func (a *App) CoreUpdate(ctx context.Context, selector, version string, all bool
 		return Result{Changed: changed, Data: map[string]any{"updated": applied, "results": results}}, nil
 	})
 }
-func (a *App) SelfUpdate(ctx context.Context, current, version string, checkOnly bool) (Result, error) {
+func (a *App) SelfUpdate(ctx context.Context, current string, checkOnly bool) (Result, error) {
 	if checkOnly {
-		returnCheck, err := update.ResolveSelfUpdate(ctx, current, version)
+		returnCheck, err := update.ResolveSelfUpdate(ctx, current)
 		return Result{Data: returnCheck}, err
 	}
 	result, err := a.Operation(ctx, func() (Result, error) {
 		a.Progress("checking go-proxy update")
-		check, err := update.ResolveSelfUpdate(ctx, current, version)
+		check, err := update.ResolveSelfUpdate(ctx, current)
 		if err != nil {
 			return Result{}, err
 		}
@@ -522,7 +537,13 @@ func (a *App) Watchdog(ctx context.Context) (Result, error) {
 		})
 		return err
 	}
-	return Result{Silent: true}, service.RunWatchdog(ctx, cfg)
+	err := service.RunWatchdog(ctx, cfg)
+	// systemd stops the watchdog by cancelling it: that is its normal end, not
+	// a failure to log as an error or to record as a failed unit.
+	if errors.Is(err, context.Canceled) && ctx.Err() != nil {
+		err = nil
+	}
+	return Result{Silent: true}, err
 }
 func (a *App) Log(ctx context.Context, selector string, lines int) (Result, error) {
 	if selector == "" {

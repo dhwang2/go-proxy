@@ -485,7 +485,10 @@ func TestLogColoursOnlyTheLevelWord(t *testing.T) {
 			"2026-09-27 09:19:00.481964 [server_tunnel-1] <WARN> Session error E01\n" +
 			"2026-09-29T08:53:37.815116Z WARN shadow_tls::server: ClientHello verify failed\n" +
 			`{"level":"error","logger":"tls","msg":"renewal failed"}` + "\n" +
-			"error: operation cancelled\n",
+			"error: operation cancelled\n" +
+			`{"level":"info","logger":"http.acme_client","msg":"error in renewal info? no"}` + "\n" +
+			"2026-09-29 10:30:45.774310 [server_main] <NOTIFY> Start snell server on :::1443\n" +
+			"2026-09-29 06:56:35 DEBUG [3 1ms] router: matched\n",
 	}
 	var plain bytes.Buffer
 	if !render(&plain, palette{}, "gproxy log", fields) {
@@ -499,20 +502,29 @@ func TestLogColoursOnlyTheLevelWord(t *testing.T) {
 	if lines[0] != "sing-box /etc/go-proxy/logs/sing-box.service.log" || lines[1] != "WARN deprecated option" {
 		t.Fatalf("header or first line:\n%q", text)
 	}
+	var caddy bytes.Buffer
+	render(&caddy, palette{}, "gproxy log", map[string]any{"service": "caddy-sub", "source": "/etc/go-proxy/logs/caddy-sub.service.log", "content": ""})
+	if header := strings.SplitN(caddy.String(), "\n", 2)[0]; header != "caddy /etc/go-proxy/logs/caddy-sub.service.log" {
+		t.Fatalf("caddy header %q", header)
+	}
 
 	var coloured bytes.Buffer
 	render(&coloured, palette{on: true}, "gproxy log", fields)
 	got := strings.Split(strings.TrimRight(coloured.String(), "\n"), "\n")[1:]
 	red := func(word string) string { return ansiBad + word + ansiReset }
 	yellow := func(word string) string { return ansiWarn + word + ansiReset }
+	blue := func(word string) string { return ansiInfo + word + ansiReset }
 	for index, want := range []string{
 		yellow("WARN") + " deprecated option",
 		"2026-09-29 06:56:33 " + red("ERROR") + " [1 135ms] inbound/anytls: unknown user password",
-		"2026-09-29 06:56:34 INFO [2 1ms] inbound/anytls: accepted",
+		"2026-09-29 06:56:34 " + blue("INFO") + " [2 1ms] inbound/anytls: accepted",
 		"2026-09-27 09:19:00.481964 [server_tunnel-1] <" + yellow("WARN") + "> Session error E01",
 		"2026-09-29T08:53:37.815116Z " + yellow("WARN") + " shadow_tls::server: ClientHello verify failed",
 		`{"level":"` + red("error") + `","logger":"tls","msg":"renewal failed"}`,
 		red("error") + ": operation cancelled",
+		`{"level":"` + blue("info") + `","logger":"http.acme_client","msg":"error in renewal info? no"}`,
+		"2026-09-29 10:30:45.774310 [server_main] <" + blue("NOTIFY") + "> Start snell server on :::1443",
+		"2026-09-29 06:56:35 DEBUG [3 1ms] router: matched",
 	} {
 		if got[index] != want {
 			t.Fatalf("line %d:\n%q\nwant:\n%q", index, got[index], want)
@@ -1570,7 +1582,6 @@ func TestSelfUpdateIsOneLine(t *testing.T) {
 		{update.SelfUpdateCheck{CurrentVersion: "v0.3.1", LatestVersion: "v0.3.1"}, "go-proxy-cli version: v0.3.1 (already latest version)\n"},
 		{update.SelfUpdateCheck{CurrentVersion: "0.3.0", LatestVersion: "v0.3.1", UpdateAvail: true}, "go-proxy-cli version: v0.3.0 -> v0.3.1 (updates available)\n"},
 		{update.SelfUpdateCheck{CurrentVersion: "v0.3.0", LatestVersion: "v0.3.1", UpdateAvail: true, Updated: true}, "go-proxy-cli version: v0.3.0 -> v0.3.1 (updated)\n"},
-		{update.SelfUpdateCheck{CurrentVersion: "v0.3.1", LatestVersion: "v0.3.0", UpdateAvail: true}, "go-proxy-cli version: v0.3.1 -> v0.3.0 (downgrade available)\n"},
 		{update.SelfUpdateCheck{CurrentVersion: "dev", LatestVersion: "v0.3.1"}, "go-proxy-cli version: dev (development build; latest v0.3.1)\n"},
 	} {
 		check := c.check
@@ -1736,18 +1747,6 @@ func TestBracketedNotesAreLowercaseAndSpaced(t *testing.T) {
 				}
 			}
 		}
-	}
-}
-
-// core version is one row per core, named rather than numbered.
-func TestCoreVersionIsUnnumbered(t *testing.T) {
-	var out bytes.Buffer
-	render(&out, palette{}, "gproxy core version", []core.VersionInfo{
-		{Component: core.CompSingBox, Installed: true, Version: "1.14.2"},
-		{Component: core.CompCaddy},
-	})
-	if want := "sing-box  1.14.2\ncaddy     not installed\n"; out.String() != want {
-		t.Fatalf("got %q, want %q", out.String(), want)
 	}
 }
 

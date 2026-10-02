@@ -32,7 +32,6 @@ A command that is missing something prints the complete command that would work,
 
 ```text
 gproxy status                                    dashboard: system, network, protocols, services, certificate
-gproxy version
 
 gproxy server status
 gproxy server start|stop|restart <service>|--all
@@ -67,7 +66,8 @@ gproxy sub [--user <user>] [--target <domain|ip>]
 gproxy config view <sing-box|snell|shadow-tls> [--detail]
 gproxy config validate
 
-gproxy core version|check|update [<component>|--all] [--version <v>]
+gproxy core check
+gproxy core update [<component>|--all] [--version <v>]
 
 gproxy network bbr status|enable|disable            # on by default from a fresh install
 gproxy network firewall status|apply|release|add|remove [<port>/<tcp|udp|both>]    # off until applied
@@ -76,7 +76,7 @@ gproxy network fail2ban status|enable|disable      # off until enabled
 gproxy log <service> [--lines <n>]
 gproxy cert status|ensure [--domain <domain>] [--email <address>]
 gproxy cert port [<port>]
-gproxy update [--check] [--version <v>]
+gproxy update --check|--confirm
 gproxy uninstall [--preview] [--confirm]
 gproxy completion bash|zsh|fish|powershell
 ```
@@ -122,7 +122,7 @@ gproxy network fail2ban status
 
 ```bash
 cd app
-make build VERSION=v0.3.5-dev
+make build VERSION=v0.3.6-dev
 make test
 ./gproxy --help
 ```

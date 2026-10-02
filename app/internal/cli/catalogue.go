@@ -382,7 +382,7 @@ func logGuidance() error {
 		Code:        "invalid_argument",
 		Hint:        []string{"gproxy log <service> [--lines <n>]"},
 		JSONMessage: "gproxy log requires a service",
-		Data:        map[string]any{"services": application.ManagedServiceNames()},
+		Data:        map[string]any{"services": application.LogServiceNames()},
 	}
 }
 

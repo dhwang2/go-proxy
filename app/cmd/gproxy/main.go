@@ -34,7 +34,9 @@ func main() {
 	}()
 	runner := cli.New(version, revision, os.Stdin, os.Stdout, os.Stderr)
 	code := runner.Run(ctx, os.Args[1:])
-	if signalCode := interrupted.Load(); signalCode != 0 {
+	// A command that ends cleanly on the signal, as the watchdog does when
+	// systemd stops it, keeps its exit 0; one the signal cut short does not.
+	if signalCode := interrupted.Load(); signalCode != 0 && code != 0 {
 		code = int(signalCode)
 	}
 	os.Exit(code)

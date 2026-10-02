@@ -91,15 +91,9 @@ func registerSystem(r *Runner, root *cobra.Command) {
 	}))
 	root.AddCommand(certificates)
 	cores := &cobra.Command{Use: "core", Short: "Inspect and update proxy cores"}
-	cores.AddCommand(r.leaf("version", "Inspect installed core versions", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
-		return r.App.CoreVersions(ctx)
-	}))
-	cores.AddCommand(r.leaf("check [component]", "Check available core updates", atMostOne("component"), func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
-		selector := ""
-		if len(args) > 0 {
-			selector = args[0]
-		}
-		return r.App.CoreCheck(ctx, selector)
+	// One scan answers both questions: what each core is at and what it could be.
+	cores.AddCommand(r.leaf("check", "Scan every core's installed and latest version", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
+		return r.App.CoreCheck(ctx)
 	}))
 	var coreVersion string
 	var coreAll bool
@@ -115,12 +109,26 @@ func registerSystem(r *Runner, root *cobra.Command) {
 	cores.AddCommand(coreUpdate)
 	root.AddCommand(cores)
 	var updateCheck bool
-	var selfVersion string
-	selfUpdate := r.leaf("update", "Check or update go-proxy", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
-		return r.App.SelfUpdate(ctx, r.Version, selfVersion, updateCheck)
+	// Like uninstall, update names what it will do: --check only looks,
+	// --confirm replaces the executable, and neither answers with both forms.
+	updateArgs := func(cmd *cobra.Command, args []string) error {
+		if err := cobra.NoArgs(cmd, args); err != nil {
+			return err
+		}
+		if updateCheck && r.Yes {
+			return application.Invalid("--check and --confirm are mutually exclusive")
+		}
+		if !updateCheck && !r.Yes {
+			return guidance("gproxy update requires --check or --confirm",
+				[]string{"gproxy update --check", "gproxy update --confirm"},
+				map[string]any{"missing": []string{"--check", "--confirm"}})
+		}
+		return nil
+	}
+	selfUpdate := r.leaf("update", "Check for or install the latest go-proxy release", updateArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
+		return r.App.SelfUpdate(ctx, r.Version, updateCheck)
 	})
 	selfUpdate.Flags().BoolVar(&updateCheck, "check", false, "Only check for an update")
-	selfUpdate.Flags().StringVar(&selfVersion, "version", "", "Select an exact release version")
 	root.AddCommand(selfUpdate)
 	watchdog := r.leaf("watchdog", "Service entry point for proxy-watchdog; runs until cancelled", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
 		if r.JSON {

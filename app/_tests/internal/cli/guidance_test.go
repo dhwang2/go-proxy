@@ -299,14 +299,15 @@ func TestServiceVerbsAreNoLongerTopLevel(t *testing.T) {
 	}
 }
 
-// init and watchdog are hidden because nobody picks them from a list, but they
-// are load-bearing: install.sh ends with `gproxy init`, and
-// proxy-watchdog.service has `gproxy watchdog` as its ExecStart. Hidden makes
+// init, watchdog and version are hidden because nobody picks them from a list,
+// but they are load-bearing: install.sh ends with `gproxy init`,
+// proxy-watchdog.service has `gproxy watchdog` as its ExecStart, and self-update
+// validates a downloaded release with `<staged> version`. Hidden makes
 // them easy to mistake for dead code, so this pins that they still resolve.
 func TestMachineEntryPointsStayCallableWhileHidden(t *testing.T) {
 	var out, stderr bytes.Buffer
 	root := New("test", "test", strings.NewReader(""), &out, &stderr).Root()
-	for _, name := range []string{"init", "watchdog"} {
+	for _, name := range []string{"init", "watchdog", "version"} {
 		cmd, _, err := root.Find([]string{name})
 		if err != nil || cmd == nil || cmd.Name() != name {
 			t.Fatalf("%q no longer resolves: systemd or the installer would break", name)
@@ -317,6 +318,19 @@ func TestMachineEntryPointsStayCallableWhileHidden(t *testing.T) {
 		if cmd.Short == "" {
 			t.Fatalf("%q has no description for its own --help", name)
 		}
+	}
+}
+
+// systemd stops the watchdog by cancelling it. The command has to end as a
+// clean stop: exit 0 and nothing on stderr, so its log does not fill with
+// "error: operation cancelled" and the unit is not recorded as failed.
+func TestCancelledWatchdogExitsCleanly(t *testing.T) {
+	var out, stderr bytes.Buffer
+	r := guidanceRunner(t, &out, &stderr)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if code := r.Run(ctx, []string{"watchdog"}); code != 0 || stderr.Len() != 0 || out.Len() != 0 {
+		t.Fatalf("exit %d, stdout=%q stderr=%q; want a clean stop", code, out.String(), stderr.String())
 	}
 }
 
@@ -510,6 +524,43 @@ func TestBareLogAnswersWithItsForm(t *testing.T) {
 	}
 	if stderr.String() != "gproxy log <service> [--lines <n>]\n" {
 		t.Fatalf("guidance:\n%s", stderr.String())
+	}
+}
+
+// update names what it will do: bare, it answers with both forms; --check and
+// --confirm together, and the removed --version, are refused before any lookup.
+func TestUpdateTakesCheckOrConfirm(t *testing.T) {
+	var out, stderr bytes.Buffer
+	r := guidanceRunner(t, &out, &stderr)
+	if code := r.Run(context.Background(), []string{"update"}); code != 2 {
+		t.Fatalf("exit %d, want 2; stdout=%s stderr=%s", code, out.String(), stderr.String())
+	}
+	if out.Len() != 0 || stderr.String() != "gproxy update --check\ngproxy update --confirm\n" {
+		t.Fatalf("guidance: stdout=%q stderr=%q", out.String(), stderr.String())
+	}
+	for _, args := range [][]string{{"update", "--check", "--confirm"}, {"update", "--confirm", "--version", "v0.3.5"}} {
+		var out, stderr bytes.Buffer
+		r := guidanceRunner(t, &out, &stderr)
+		if code := r.Run(context.Background(), args); code != 2 {
+			t.Fatalf("%v: exit %d, want 2; stderr=%s", args, code, stderr.String())
+		}
+		if r.executed {
+			t.Fatalf("%v ran the update", args)
+		}
+	}
+}
+
+// core check takes no component: it always scans every core.
+func TestCoreCheckTakesNoComponent(t *testing.T) {
+	for _, args := range [][]string{{"core", "check", "sing-box"}, {"core", "version"}} {
+		var out, stderr bytes.Buffer
+		r := guidanceRunner(t, &out, &stderr)
+		if code := r.Run(context.Background(), args); code != 2 {
+			t.Fatalf("%v: exit %d, want 2; stderr=%s", args, code, stderr.String())
+		}
+		if r.executed {
+			t.Fatalf("%v ran", args)
+		}
 	}
 }
 

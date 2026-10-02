@@ -36,6 +36,7 @@ const (
 	ansiOK    = "\x1b[38;2;152;195;121m" // running, ready
 	ansiBad   = "\x1b[38;2;224;108;117m" // stopped, failing; an error in a log
 	ansiWarn  = "\x1b[38;2;229;192;123m" // a warning in a log
+	ansiInfo  = "\x1b[38;2;97;175;239m"  // an info level in a log
 	// Darker variants for the service row, where many names sit side by side and
 	// the brighter pair above reads as alarming rather than informative.
 	ansiRunning = "\x1b[38;2;34;120;54m"   // running
@@ -104,6 +105,7 @@ func (p palette) ok(text string) string       { return p.wrap(ansiOK, text) }
 func (p palette) bad(text string) string      { return p.wrap(ansiBad, text) }
 func (p palette) sys(text string) string      { return p.wrap(ansiSys, text) }
 func (p palette) warn(text string) string     { return p.wrap(ansiWarn, text) }
+func (p palette) info(text string) string     { return p.wrap(ansiInfo, text) }
 func (p palette) count(text string) string    { return p.wrap(ansiCount, text) }
 func (p palette) label(text string) string    { return p.wrap(ansiLabel, text) }
 func (p palette) hint(text string) string     { return p.wrap(ansiHint, text) }
@@ -294,7 +296,7 @@ func render(w io.Writer, p palette, command string, data any) bool {
 	fields, _ := data.(map[string]any)
 	if fields == nil {
 		switch command {
-		case "gproxy core version", "gproxy core check", "gproxy network fail2ban status", "gproxy network firewall status",
+		case "gproxy core check", "gproxy network fail2ban status", "gproxy network firewall status",
 			"gproxy network firewall apply", "gproxy network fail2ban enable", "gproxy network fail2ban disable",
 			"gproxy server start", "gproxy server stop", "gproxy server restart",
 			"gproxy cert status", "gproxy cert ensure", "gproxy update",
@@ -312,7 +314,7 @@ func render(w io.Writer, p palette, command string, data any) bool {
 		return renderUsers(w, p, fields)
 	case "gproxy protocol list":
 		return renderCatalogue(w, p, fields)
-	case "gproxy core version", "gproxy core check":
+	case "gproxy core check":
 		return renderCores(w, p, data)
 	case "gproxy route rule list":
 		return renderRules(w, p, fields)
@@ -669,12 +671,7 @@ func renderSelfUpdate(w io.Writer, p palette, data any) bool {
 	case check.Updated:
 		line += p.hint(current) + " -> " + p.running(latest) + " " + note(p, "updated")
 	case check.UpdateAvail:
-		remarkText := "updates available"
-		// --version can name an older release: moving to it is a downgrade.
-		if semver.IsValid(current) && semver.Compare(latest, current) < 0 {
-			remarkText = "downgrade available"
-		}
-		line += p.hint(current) + " -> " + p.sys(latest) + " " + note(p, remarkText)
+		line += p.hint(current) + " -> " + p.sys(latest) + " " + note(p, "updates available")
 	case !semver.IsValid(current):
 		// A development build has no place in the release order to compare.
 		line += p.sys(current) + " " + note(p, "development build; latest "+latest)
@@ -1175,16 +1172,6 @@ func nodeRow(p palette, node application.ProtocolNode, portWidth, securityWidth 
 
 func renderCores(w io.Writer, p palette, data any) bool {
 	switch items := data.(type) {
-	case []core.VersionInfo:
-		rows := make([]row, 0, len(items))
-		for _, item := range items {
-			detail := p.unknown("not installed")
-			if item.Installed {
-				detail = p.running(clean(item.Version))
-			}
-			rows = append(rows, row{clean(string(item.Component)), detail})
-		}
-		return writeAligned(w, p, rows)
 	case []*core.UpdateCheck:
 		rows := make([]row, 0, len(items))
 		for _, item := range items {
@@ -1635,9 +1622,9 @@ func renderLog(w io.Writer, p palette, fields map[string]any) bool {
 	if !ok {
 		return false
 	}
-	// The selector, not the shortened display name: it sits beside the source
-	// path, which carries the same unit name, and it is what `gproxy log` takes.
-	header := p.label(clean(text(fields["service"])))
+	// The name `gproxy log` offers, so the header repeats what was typed; the
+	// source path beside it carries the unit name.
+	header := p.label(clean(application.LogServiceName(text(fields["service"]))))
 	if source := clean(text(fields["source"])); source != "" {
 		header += " " + p.hint(source)
 	}
@@ -1679,15 +1666,19 @@ func logLine(p palette, line string) string {
 	}
 	word := line[start:end]
 	paint := p.bad
-	if strings.HasPrefix(strings.ToUpper(word), "WARN") {
+	switch level := strings.ToUpper(word); {
+	case strings.HasPrefix(level, "WARN"):
 		paint = p.warn
+	case level == "INFO" || level == "NOTIFY":
+		paint = p.info
 	}
 	return line[:start] + paint(word) + line[end:]
 }
 
-// logLevel finds the first warning or error level in a line: a bare level
-// word, Caddy's JSON level, or a leading "error:".
-var logLevel = regexp.MustCompile(`\b(FATAL|PANIC|ERROR|WARNING|WARN)\b|"level":"(fatal|panic|error|warn)"|^(error):`)
+// logLevel finds the first info, warning or error level in a line: a bare
+// level word, Caddy's JSON level, or a leading "error:" from the watchdog.
+// NOTIFY is Snell's informational level, the one it logs at by default.
+var logLevel = regexp.MustCompile(`\b(FATAL|PANIC|ERROR|WARNING|WARN|INFO|NOTIFY)\b|"level":"(fatal|panic|error|warn|info)"|^(error):`)
 
 // collapseSpaces reduces each run of spaces between words to one, which is
 // only display: loggers pad a level to a fixed width ("Z  INFO"), and the

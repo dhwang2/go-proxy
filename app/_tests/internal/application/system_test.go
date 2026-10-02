@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"go-proxy/internal/config"
-	"go-proxy/internal/core"
 	"go-proxy/internal/network"
 )
 
@@ -91,55 +90,6 @@ func TestUninstallPreviewOwnsTheCompletionScripts(t *testing.T) {
 	}
 }
 
-// One installed core, one version. `core version` read the executable while
-// `core check` read the receipt beside it, so the two commands disagreed about
-// the same snell install. The helper was not enough: this asserts the commands.
-func TestCoreVersionAndCheckAgreeOnAnInstalledCore(t *testing.T) {
-	dir := t.TempDir()
-	saved := config.SnellBin
-	config.SnellBin = filepath.Join(dir, "snell-server")
-	t.Cleanup(func() { config.SnellBin = saved })
-	if err := os.WriteFile(config.SnellBin, []byte("#!/bin/sh\nprintf '%s\\n' 'snell-server v6.0.0' >&2\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(config.SnellBin+".version", []byte(core.SnellVersion+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	a := New(nil)
-	a.RequireRoot = false
-	ctx := context.Background()
-
-	versions, err := a.CoreVersions(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reported := ""
-	infos, _ := versions.Data.([]core.VersionInfo)
-	for _, info := range infos {
-		if info.Component == core.CompSnell {
-			reported = info.Version
-		}
-	}
-	if reported != core.SnellVersion {
-		t.Fatalf("core version reported %q, want the archive version %q", reported, core.SnellVersion)
-	}
-
-	checked, err := a.CoreCheck(ctx, "snell")
-	if err != nil {
-		t.Fatal(err)
-	}
-	checks, _ := checked.Data.([]*core.UpdateCheck)
-	if len(checks) != 1 {
-		t.Fatalf("core check returned %d results", len(checks))
-	}
-	if checks[0].CurrentVersion != reported {
-		t.Fatalf("core check reports %q where core version reports %q", checks[0].CurrentVersion, reported)
-	}
-	if checks[0].UpdateAvail {
-		t.Fatalf("the installed archive was reported as updatable: %+v", checks[0])
-	}
-}
-
 // Uninstall takes the installer's completion block out of /etc/bash.bashrc and
 // leaves every other line as it was; a file without the block, a half block, or
 // no file at all is left alone.
@@ -210,5 +160,18 @@ func TestDefaultBBRReportsWhatTheKernelRuns(t *testing.T) {
 		if got := a.defaultBBR(context.Background()); !strings.HasPrefix(got, c.want) {
 			t.Fatalf("kernel %s: got %q, want %q", c.kernel, got, c.want)
 		}
+	}
+}
+
+// systemd stops the watchdog by cancelling it. That is its normal end: an
+// error here was logged as "error: operation cancelled" on every stop and
+// recorded the unit as failed.
+func TestWatchdogStopsCleanlyWhenCancelled(t *testing.T) {
+	a := New(nil)
+	a.RequireRoot = false
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := a.Watchdog(ctx); err != nil {
+		t.Fatalf("a cancelled watchdog returned %v, want a clean stop", err)
 	}
 }

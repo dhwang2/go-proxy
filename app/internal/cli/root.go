@@ -166,11 +166,13 @@ func (r *Runner) leaf(use, short string, args cobra.PositionalArgs, fn func(cont
 		if err != nil {
 			return err
 		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
+		// A silent result writes nothing, so a cancellation has nothing left to
+		// cut short: the watchdog ends on systemd's stop and that end is clean.
 		if result.Silent {
 			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 		if result.Raw != nil {
 			r.wroteResult = true
@@ -238,7 +240,11 @@ func (r *Runner) Root() *cobra.Command {
 	root.PersistentFlags().DurationVar(&r.Timeout, "timeout", 0, "override the operation deadline, such as 30s")
 	root.PersistentFlags().BoolVar(&r.NoColor, "no-color", false, "disable colour in human-readable output")
 	root.RunE = func(cmd *cobra.Command, args []string) error { return cmd.Help() }
-	root.AddCommand(r.leaf("version", "show the build version", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
+	// version is hidden, not removed: `update --check` answers the reader, but
+	// every installed gproxy validates a downloaded release by running
+	// `<staged> version` and matching the tag, so a release without it could
+	// never be installed by `gproxy update`.
+	version := r.leaf("version", "show the build version", cobra.NoArgs, func(ctx context.Context, c *cobra.Command, args []string) (application.Result, error) {
 		if !r.JSON {
 			return application.Result{Raw: []byte("go-proxy " + r.Version + "\n")}, nil
 		}
@@ -253,7 +259,9 @@ func (r *Runner) Root() *cobra.Command {
 			}
 		}
 		return application.Result{Data: map[string]any{"name": "go-proxy", "command": "gproxy", "version": r.Version, "revision": revision}}, nil
-	}))
+	})
+	version.Hidden = true
+	root.AddCommand(version)
 	registerProtocol(r, root)
 	registerUser(r, root)
 	registerSub(r, root)

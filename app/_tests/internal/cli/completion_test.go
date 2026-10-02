@@ -52,7 +52,7 @@ func TestClosedValueSetsComplete(t *testing.T) {
 		{[]string{"protocol", "add", ""}, []string{"vless", "tuic", "anytls", "snell"}},
 		{[]string{"config", "view", ""}, application.ConfigKinds()},
 		{[]string{"server", "restart", ""}, application.ManagedServiceNames()},
-		{[]string{"log", ""}, application.ManagedServiceNames()},
+		{[]string{"log", ""}, []string{"sing-box", "snell-v6", "shadow-tls", "caddy", "watchdog"}},
 		{[]string{"route", "direct", "set", ""}, application.DirectStrategies()},
 		{[]string{"network", "firewall", "add", "8443"}, []string{"8443/tcp", "8443/udp", "8443/both"}},
 		{[]string{"network", "firewall", "remove", "8443/"}, []string{"8443/tcp", "8443/udp", "8443/both"}},

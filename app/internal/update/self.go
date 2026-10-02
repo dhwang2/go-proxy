@@ -27,22 +27,15 @@ type SelfUpdateCheck struct {
 	Digest      string `json:"-"`
 }
 
-func ResolveSelfUpdate(ctx context.Context, currentVersion, version string) (*SelfUpdateCheck, error) {
-	var release *github.Release
-	var err error
-	if version == "" {
-		release, err = github.LatestRelease(ctx, selfRepo)
-	} else {
-		release, err = github.ReleaseByTag(ctx, selfRepo, "v"+strings.TrimPrefix(version, "v"))
-	}
+// ResolveSelfUpdate compares this build with the latest release. It never
+// offers an older release: a newer or development build stays as it is.
+func ResolveSelfUpdate(ctx context.Context, currentVersion string) (*SelfUpdateCheck, error) {
+	release, err := github.LatestRelease(ctx, selfRepo)
 	if err != nil {
 		return nil, err
 	}
 	current := "v" + strings.TrimPrefix(currentVersion, "v")
-	available := current != release.TagName
-	if version == "" {
-		available = semver.IsValid(current) && semver.IsValid(release.TagName) && semver.Compare(release.TagName, current) > 0
-	}
+	available := semver.IsValid(current) && semver.IsValid(release.TagName) && semver.Compare(release.TagName, current) > 0
 	check := &SelfUpdateCheck{CurrentVersion: currentVersion, LatestVersion: release.TagName, UpdateAvail: available}
 	assetName := "gproxy-linux-" + sysutil.Arch()
 	for _, asset := range release.Assets {

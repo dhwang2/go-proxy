@@ -69,10 +69,9 @@ func TestEnsureSnellOnlyReusesKnownV6Runtime(t *testing.T) {
 	}
 }
 
-// `core version` and `core check` report one installation, so they have to read
-// the same version of it. Snell RC2 identifies itself as v6.0.0 and the receipt
-// beside the binary records which archive that was; reading the receipt in one
-// command and not the other made the two commands contradict each other.
+// `core check` and `core update` compare the installed archive, not what the
+// binary says. Snell RC2 identifies itself as v6.0.0 and the receipt beside the
+// binary records which archive that was.
 func TestInstalledVersionReadsTheSnellReceipt(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "snell-server")
 	script := "#!/bin/sh\nprintf '%s\\n' 'snell-server v6.0.0' >&2\n"

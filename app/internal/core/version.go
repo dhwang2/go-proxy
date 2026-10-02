@@ -78,8 +78,8 @@ func DetectVersion(ctx context.Context, binPath string, component Component) Ver
 
 // InstalledVersion is DetectVersion plus what the binary cannot say about
 // itself. The verified snell archive is 6.0.0rc2 while its executable reports
-// v6.0.0, so `core version` and `core check` gave two answers about one
-// installation until both read the receipt written beside the binary.
+// v6.0.0, so `core check` and `core update` read the receipt written beside the
+// binary to know which archive is installed.
 //
 // The receipt only refines the version the executable reports; a receipt left
 // behind by an unrelated build never replaces a version that disagrees with it.

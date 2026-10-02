@@ -31,17 +31,17 @@ func TestLatestUpdateNeverDowngradesDevelopmentBuild(t *testing.T) {
 	http.DefaultClient = &http.Client{Transport: redirectedTransport{target: target}}
 	t.Cleanup(func() { http.DefaultClient = previous })
 	for _, test := range []struct {
-		current, requested string
-		available          bool
+		current   string
+		available bool
 	}{
-		{"v0.1.58", "", true}, {"v0.1.59", "", false}, {"v0.2.0-dev", "", false}, {"dev", "", false}, {"v0.2.0-dev", "0.1.59", true},
+		{"v0.1.58", true}, {"v0.1.59", false}, {"v0.2.0-dev", false}, {"dev", false}, {"v0.1.58+abc1234", true},
 	} {
-		result, err := ResolveSelfUpdate(context.Background(), test.current, test.requested)
+		result, err := ResolveSelfUpdate(context.Background(), test.current)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if result.UpdateAvail != test.available {
-			t.Fatalf("current=%s requested=%s availability=%t", test.current, test.requested, result.UpdateAvail)
+			t.Fatalf("current=%s availability=%t", test.current, result.UpdateAvail)
 		}
 	}
 }
