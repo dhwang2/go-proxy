@@ -67,7 +67,6 @@ const (
 	ansiPresetPlatform = "\x1b[34;1m"
 	ansiPresetSocial   = "\x1b[33;1m"
 	ansiPresetBlock    = "\x1b[31;1m"
-	ansiPresetCustom   = "\x1b[37;1m"
 	ansiChainTag       = "\x1b[36;1m"
 	ansiChainAddress   = "\x1b[33;1m"
 	ansiDirect         = "\x1b[32;1m"
@@ -79,17 +78,13 @@ const (
 // presetColour is shell-proxy's routing_preset_label_colored: AI services,
 // platforms, social networks, and blocking each have a colour.
 func presetColour(name string) string {
-	switch name {
-	case "openai", "anthropic", "xai", "ai-intl":
-		return ansiPresetAI
-	case "google", "youtube", "github", "netflix", "disney", "mytvsuper", "spotify", "tiktok", "microsoft", "paypal":
-		return ansiPresetPlatform
-	case "telegram", "twitter", "whatsapp", "facebook", "discord", "instagram", "reddit", "linkedin", "meta", "messenger":
-		return ansiPresetSocial
-	case "ads":
-		return ansiPresetBlock
-	}
-	return ansiPresetCustom
+	preset, _ := routing.FindPreset(name)
+	return [...]string{
+		routing.KindAI:       ansiPresetAI,
+		routing.KindPlatform: ansiPresetPlatform,
+		routing.KindSocial:   ansiPresetSocial,
+		routing.KindBlock:    ansiPresetBlock,
+	}[preset.Kind]
 }
 
 type palette struct{ on bool }
@@ -1266,10 +1261,7 @@ func writeRuleList(w io.Writer, p palette, entries, removed []application.RouteE
 		for _, item := range lines {
 			entry := item.entry
 			mark := entry.Selector
-			if mark == "" {
-				mark = strconv.Itoa(entry.Index)
-			}
-			if item.removed || already[entry.Preset] && entry.Preset != "" {
+			if item.removed || already[entry.Preset] {
 				label, target := clean(entry.Label), ruleTarget(palette{}, entry.Outbound, entry.Address)
 				note := "(removed)"
 				if !item.removed {

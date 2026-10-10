@@ -83,7 +83,7 @@ gproxy completion bash|zsh|fish|powershell
 
 ### Routing
 
-Rules are numbered with the preset menu that `gproxy route rule add` prints on its own: `1`–`9` and `g`–`o` for services (OpenAI, Anthropic, Google, YouTube, Telegram, GitHub, Discord, …), `a` for international AI, `b` Netflix, `d` Disney+, `s` Spotify, `t` TikTok, `r` ads. The same numbers select rules in `route rule list`, `modify` and `remove`, several at a time.
+Rules are numbered with the preset menu that `gproxy route rule add` prints on its own: `1`–`9` and `g`–`o` for services (OpenAI, Anthropic, Google, YouTube, Telegram, GitHub, Discord, …), `a` for international AI, `b` Netflix, `d` Disney+, `s` Spotify, `t` TikTok, `x` SpaceX/Starlink, `r` ads. The same numbers select rules in `route rule list`, `modify` and `remove`, several at a time.
 
 ```bash
 gproxy route chain add res1 --parameter 198.51.100.7:1080:user:secret
@@ -122,7 +122,7 @@ gproxy network fail2ban status
 
 ```bash
 cd app
-make build VERSION=v0.3.6-dev
+make build VERSION=v0.3.7-dev
 make test
 ./gproxy --help
 ```

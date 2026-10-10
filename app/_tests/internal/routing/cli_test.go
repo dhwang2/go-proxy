@@ -10,34 +10,6 @@ import (
 	"go-proxy/internal/store"
 )
 
-func TestClearUserRemovesMembershipFromSharedRule(t *testing.T) {
-	s := setupRoutingStore(t)
-	s.UserRoutes = []store.UserRouteRule{{AuthUser: []string{"alice", "bob"}, Outbound: "direct", DomainSuffix: []string{"example.com"}}}
-	if got := ClearUser(s, "alice"); got != 1 {
-		t.Fatalf("removed %d memberships, want 1", got)
-	}
-	if len(s.UserRoutes) != 1 || len(s.UserRoutes[0].AuthUser) != 1 || s.UserRoutes[0].AuthUser[0] != "bob" {
-		t.Fatalf("other user rule changed: %#v", s.UserRoutes)
-	}
-	if !s.IsDirtyFile(store.FileUserRoutes) {
-		t.Fatal("membership removal was not marked for persistence")
-	}
-}
-
-func TestRepeatedRouteSetPreservesSharedRule(t *testing.T) {
-	s := setupRoutingStore(t)
-	preset, _ := FindPreset("openai")
-	rule := PresetToRule(preset, "alice", "direct")
-	rule.AuthUser = append(rule.AuthUser, "bob")
-	s.UserRoutes = []store.UserRouteRule{rule}
-	if err := SetRule(s, "alice", PresetToRule(preset, "alice", "direct")); err != nil {
-		t.Fatal(err)
-	}
-	if s.IsDirty() || len(s.UserRoutes) != 1 || len(s.UserRoutes[0].AuthUser) != 2 {
-		t.Fatal("repeated route request must preserve shared membership")
-	}
-}
-
 // A chain resolves for the families its own endpoint has, so the global
 // strategy governs direct rules and the chain governs its own. The global one
 // must survive either way.
@@ -50,9 +22,7 @@ func TestNamedChainSyncPreservesStrategyAndRemovesOwnedDNS(t *testing.T) {
 				t.Fatal(err)
 			}
 			preset, _ := FindPreset("openai")
-			if err := SetRule(s, "alice", PresetToRule(preset, "alice", "relay-a")); err != nil {
-				t.Fatal(err)
-			}
+			AddUserPreset(s, "alice", preset, "relay-a")
 			Sync(s)
 			if s.SingBox.DNS.Strategy != strategy {
 				t.Fatal("global strategy changed")
@@ -143,13 +113,9 @@ func TestChainDNSStrategyFollowsTheEndpointFamily(t *testing.T) {
 		t.Fatal(err)
 	}
 	preset, _ := FindPreset("openai")
-	if err := SetRule(s, "alice", PresetToRule(preset, "alice", "v4-chain")); err != nil {
-		t.Fatal(err)
-	}
+	AddUserPreset(s, "alice", preset, "v4-chain")
 	netflix, _ := FindPreset("netflix")
-	if err := SetRule(s, "alice", PresetToRule(netflix, "alice", "direct")); err != nil {
-		t.Fatal(err)
-	}
+	AddUserPreset(s, "alice", netflix, "direct")
 	Sync(s)
 	drops := familyDrops(s.SingBox.DNS.Rules)
 	if got := drops[ChainDNSTag("v4-chain")]; got != "AAAA" {

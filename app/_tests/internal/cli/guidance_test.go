@@ -211,12 +211,12 @@ func TestPresetGuidanceNumbersEveryPresetFlushLeft(t *testing.T) {
 	if lines[0] != "gproxy route rule add --user <name> --rules <indexes> --out <direct|chain tag>" {
 		t.Fatalf("first line is not the command's form: %q", lines[0])
 	}
-	menu := routing.PresetMenu()
+	menu := routing.Presets()
 	if len(lines) != 1+len(menu) {
 		t.Fatalf("got %d lines, want %d:\n%s", len(lines), 1+len(menu), stderr.String())
 	}
-	for index, choice := range menu {
-		if want := choice.Symbol + "." + choice.Preset.Label; lines[1+index] != want {
+	for index, preset := range menu {
+		if want := preset.Symbol + "." + preset.Label; lines[1+index] != want {
 			t.Fatalf("menu line %d = %q, want %q", index+1, lines[1+index], want)
 		}
 	}
@@ -227,20 +227,19 @@ func TestPresetGuidanceNumbersEveryPresetFlushLeft(t *testing.T) {
 func TestPresetMenuCoversEveryPresetOnce(t *testing.T) {
 	seen := map[string]bool{}
 	symbols := map[string]bool{}
-	for _, choice := range routing.PresetMenu() {
-		if seen[choice.Preset.Name] || symbols[choice.Symbol] {
-			t.Fatalf("duplicate menu entry %+v", choice)
+	ruleSets := map[string]bool{}
+	for _, preset := range routing.Presets() {
+		key := strings.Join(preset.RuleSets, ",")
+		if seen[preset.Name] || symbols[preset.Symbol] || ruleSets[key] || preset.Symbol == "" {
+			t.Fatalf("duplicate or unnumbered menu entry %+v", preset)
 		}
-		seen[choice.Preset.Name], symbols[choice.Symbol] = true, true
+		// A stored rule is recognised by its rule sets, so two presets may
+		// not share them.
+		seen[preset.Name], symbols[preset.Symbol], ruleSets[key] = true, true, true
 	}
-	for _, preset := range routing.BuiltinPresets() {
-		if preset.Name != "custom" && !seen[preset.Name] {
-			t.Fatalf("preset %q has no index", preset.Name)
-		}
-	}
-	for selector, want := range map[string]string{"1": "openai", "9": "github", "g": "discord", "A": "ai-intl", "r": "ads", " t ": "tiktok"} {
-		if got, ok := routing.ResolvePresetSelector(selector); !ok || got != want {
-			t.Fatalf("selector %q = %q %v, want %q", selector, got, ok, want)
+	for selector, want := range map[string]string{"1": "openai", "9": "github", "g": "discord", "A": "ai-intl", "r": "ads", " t ": "tiktok", "x": "spacex", "X": "spacex"} {
+		if got, ok := routing.ResolvePresetSelector(selector); !ok || got.Name != want {
+			t.Fatalf("selector %q = %q %v, want %q", selector, got.Name, ok, want)
 		}
 	}
 	// Names are not selectors: one numbering is used everywhere.

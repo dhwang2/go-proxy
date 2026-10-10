@@ -8,17 +8,6 @@ import (
 	"go-proxy/internal/store"
 )
 
-func TestUserRouteLabelUsesPresetLabel(t *testing.T) {
-	preset, ok := FindPreset("openai")
-	if !ok {
-		t.Fatal("FindPreset(openai) = false")
-	}
-	rule := PresetToRule(preset, "alice", store.DirectTag)
-	if got := UserRouteLabel(rule); got != preset.Label {
-		t.Fatalf("UserRouteLabel() = %q, want %q", got, preset.Label)
-	}
-}
-
 func TestCompiledUserRouteRulesKeepGeositeAndGeoIPGrouped(t *testing.T) {
 	s := setupRoutingStore(t)
 	preset, ok := FindPreset("google")
@@ -38,9 +27,6 @@ func TestCompiledUserRouteRulesKeepGeositeAndGeoIPGrouped(t *testing.T) {
 	}
 	if got := rules[1].RuleSet; len(got) != 1 || got[0] != "geoip-google" {
 		t.Fatalf("rules[1].RuleSet = %#v", got)
-	}
-	if len(rules[0].DomainSuffix) != 0 || len(rules[1].DomainSuffix) != 0 {
-		t.Fatalf("compiled preset rules should not keep fallback domain_suffix when rulesets exist")
 	}
 }
 
@@ -75,13 +61,13 @@ func TestPartialRuleSetIsNotItsPreset(t *testing.T) {
 		t.Fatal("FindPreset(ai-intl) = false")
 	}
 	full := PresetToRule(preset, "alice", "proxy-a")
-	if UserRouteLabel(full) != preset.Label {
-		t.Fatalf("a rule built from the preset did not match it: %q", UserRouteLabel(full))
+	if got, ok := PresetOf(full); !ok || got.Name != preset.Name {
+		t.Fatalf("a rule built from the preset did not match it: %v %v", got.Name, ok)
 	}
 	partial := full
 	partial.RuleSet = []string{"geosite-category-ai-!cn"}
-	if got := UserRouteLabel(partial); got == preset.Label {
-		t.Fatalf("a partial rule claimed the preset label %q", got)
+	if got, ok := PresetOf(partial); ok {
+		t.Fatalf("a partial rule claimed preset %q", got.Name)
 	}
 }
 
@@ -115,9 +101,7 @@ func TestEvaluateReportsTheResolverBesideTheOutbound(t *testing.T) {
 		if !ok {
 			t.Fatalf("FindPreset(%s) = false", name)
 		}
-		if err := SetRule(s, "alice", PresetToRule(preset, "alice", outbound)); err != nil {
-			t.Fatal(err)
-		}
+		AddUserPreset(s, "alice", preset, outbound)
 	}
 	Sync(s)
 	holds := map[string][]string{"geosite-openai": {"chat.openai.com"}, "geosite-netflix": {"www.netflix.com"}}
@@ -206,28 +190,6 @@ func TestEvaluateFollowsTheCompiledRuleOrder(t *testing.T) {
 	}
 }
 
-// A preset whose rule set is available compiles without its fallback
-// domains, so a name only the fallback list carries is not taken by it.
-func TestEvaluateIgnoresFallbackDomainsSingBoxNeverSees(t *testing.T) {
-	s := setupRoutingStore(t)
-	preset, ok := FindPreset("openai")
-	if !ok {
-		t.Fatal("FindPreset(openai) = false")
-	}
-	if err := SetRule(s, "alice", PresetToRule(preset, "alice", store.DirectTag)); err != nil {
-		t.Fatal(err)
-	}
-	Sync(s)
-	var asked []string
-	result, err := Evaluate(s, "alice", preset.FallbackDomains[0], matchSets(nil, "", &asked))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Decision.MatchBy != "final" {
-		t.Fatalf("a fallback domain decided: %#v", result.Decision)
-	}
-}
-
 // Each rule takes its sing-box 1.14 form: no strategy on any rule; a single-
 // family chain answers the other family's queries for its domains with an
 // empty answer and evaluates only its own family's queries for its address
@@ -263,9 +225,7 @@ func TestGstaticLeavesDirectlyAheadOfAChainedGoogleRule(t *testing.T) {
 	if !ok {
 		t.Fatal("FindPreset(google) = false")
 	}
-	if err := SetRule(s, "alice", PresetToRule(preset, "alice", "res-a")); err != nil {
-		t.Fatal(err)
-	}
+	AddUserPreset(s, "alice", preset, "res-a")
 	Sync(s)
 	s.SingBox.Normalize()
 	holds := map[string][]string{"geosite-google": {"www.gstatic.com", "www.google.com"}}

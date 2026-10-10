@@ -116,9 +116,9 @@ func TestPresetIndexesResolveBeforeTheOperation(t *testing.T) {
 	var out, stderr bytes.Buffer
 	r := New("test", "test", strings.NewReader(""), &out, &stderr)
 	r.App.LockDir = filepath.Join(t.TempDir(), "uninitialized")
-	code := r.Run(context.Background(), []string{"route", "rule", "add", "--user", "alice", "--rules", "1,x,a", "--out", "direct"})
+	code := r.Run(context.Background(), []string{"route", "rule", "add", "--user", "alice", "--rules", "1,z,a", "--out", "direct"})
 	// An error with no commands to show after it keeps its error line.
-	if code != 2 || r.executed || !strings.HasPrefix(stderr.String(), "error: unknown preset x") {
+	if code != 2 || r.executed || !strings.HasPrefix(stderr.String(), "error: unknown preset z") {
 		t.Fatalf("exit %d:\n%s", code, stderr.String())
 	}
 }

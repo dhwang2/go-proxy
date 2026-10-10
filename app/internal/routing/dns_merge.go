@@ -2,53 +2,43 @@ package routing
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"go-proxy/internal/store"
 )
 
+// mergeDNSRulesByServer folds rules that send the same users' lookups to the
+// same server with the same strategy into one per family, domain sets ahead of
+// address sets. Compiled rules each carry one family, so a rule's first set
+// names its family.
 func mergeDNSRulesByServer(rules []dnsRoute) []dnsRoute {
 	type key struct {
-		server   string
-		strategy string
-		users    string
-		class    int
+		server, strategy, users string
+		geoip                   bool
 	}
-
 	index := make(map[key]int)
-	merged := make([]dnsRoute, 0, len(rules))
-
+	var families [2][]dnsRoute
 	for _, r := range rules {
-		cls := dnsRuleClass(r.rule)
-		if (cls != 1 && cls != 2) || !isPureRuleSetDNSRule(r.rule) {
-			merged = append(merged, r)
+		geoip := isGeoIP(r.rule.RuleSet[0])
+		family := 0
+		if geoip {
+			family = 1
+		}
+		k := key{r.rule.Server, r.strategy, strings.Join(r.rule.AuthUser, ","), geoip}
+		if at, ok := index[k]; ok {
+			merged := &families[family][at]
+			for _, set := range r.rule.RuleSet {
+				if !slices.Contains(merged.rule.RuleSet, set) {
+					merged.rule.RuleSet = append(merged.rule.RuleSet, set)
+				}
+			}
 			continue
 		}
-		k := key{
-			server:   r.rule.Server,
-			strategy: r.strategy,
-			users:    authUserKey(r.rule.AuthUser),
-			class:    cls,
-		}
-		if pos, exists := index[k]; exists {
-			merged[pos].rule.RuleSet = uniqueStrings(append(merged[pos].rule.RuleSet, r.rule.RuleSet...))
-			continue
-		}
-		index[k] = len(merged)
-		cp := r
-		cp.rule.RuleSet = append([]string(nil), r.rule.RuleSet...)
-		merged = append(merged, cp)
+		index[k] = len(families[family])
+		families[family] = append(families[family], r)
 	}
-
-	var buckets [4][]dnsRoute
-	for _, r := range merged {
-		buckets[dnsRuleClass(r.rule)] = append(buckets[dnsRuleClass(r.rule)], r)
-	}
-	out := make([]dnsRoute, 0, len(merged))
-	for _, bucket := range buckets {
-		out = append(out, bucket...)
-	}
-	return out
+	return append(families[0], families[1]...)
 }
 
 // dnsRulesFor gives each rule its sing-box 1.14 form. A rule on address sets
@@ -64,7 +54,7 @@ func dnsRulesFor(routes []dnsRoute) []store.DNSRule {
 		keep, drop := queryTypes(route.strategy)
 		var names, addresses []string
 		for _, set := range route.rule.RuleSet {
-			if strings.HasPrefix(set, "geoip-") {
+			if isGeoIP(set) {
 				addresses = append(addresses, set)
 			} else {
 				names = append(names, set)
@@ -80,7 +70,7 @@ func dnsRulesFor(routes []dnsRoute) []store.DNSRule {
 		}
 		rule := route.rule
 		rule.RuleSet = names
-		if len(rule.RuleSet) == 0 && len(rule.Domain) == 0 && len(rule.DomainSuffix) == 0 && len(rule.DomainKeyword) == 0 && len(rule.DomainRegex) == 0 {
+		if len(rule.RuleSet) == 0 {
 			continue
 		}
 		if drop != "" {
@@ -103,28 +93,4 @@ func queryTypes(strategy string) (keep, drop string) {
 		return "AAAA", "A"
 	}
 	return "", ""
-}
-
-func dnsRuleClass(r store.DNSRule) int {
-	if len(r.RuleSet) == 0 {
-		if len(r.Domain) > 0 || len(r.DomainSuffix) > 0 || len(r.DomainKeyword) > 0 || len(r.DomainRegex) > 0 {
-			return 0
-		}
-		return 3
-	}
-	if isGeositeRuleSet(r.RuleSet) {
-		return 1
-	}
-	if isGeoIPRuleSet(r.RuleSet) {
-		return 2
-	}
-	return 3
-}
-
-func isPureRuleSetDNSRule(r store.DNSRule) bool {
-	return len(r.RuleSet) > 0 &&
-		len(r.Domain) == 0 &&
-		len(r.DomainSuffix) == 0 &&
-		len(r.DomainKeyword) == 0 &&
-		len(r.DomainRegex) == 0
 }

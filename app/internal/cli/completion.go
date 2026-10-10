@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"bytes"
+	"strings"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
@@ -21,12 +24,46 @@ import (
 // Everything here is answered from the in-memory command tree, so a completion
 // request costs what `--help` costs.
 
+// bashCompletionScript is cobra's bash script registered without -o default.
+// Cobra registers gproxy with `complete -o default` and turns the file fallback
+// off per request with `compopt +o default`. After `sudo`, bash-completion's
+// _command_offset completes gproxy and then re-applies every -o of that
+// registration, so the fallback came back and `sudo gproxy ... <Tab>` offered
+// files. Nothing gproxy takes is a file, so the registration drops it.
+func bashCompletionScript(root *cobra.Command) ([]byte, error) {
+	var script bytes.Buffer
+	if err := root.GenBashCompletionV2(&script, false); err != nil {
+		return nil, err
+	}
+	name := root.Name()
+	return []byte(strings.NewReplacer(
+		"complete -o default -o nospace -F __start_"+name+" "+name, "complete -o nospace -F __start_"+name+" "+name,
+		"complete -o default -F __start_"+name+" "+name, "complete -F __start_"+name+" "+name,
+	).Replace(script.String())), nil
+}
+
+// useBashCompletionScript makes `gproxy completion bash` print that script.
+func useBashCompletionScript(root *cobra.Command) {
+	bash, _, err := root.Find([]string{"completion", "bash"})
+	if err != nil || bash.Name() != "bash" {
+		return
+	}
+	bash.Run = nil
+	bash.RunE = func(cmd *cobra.Command, args []string) error {
+		script, err := bashCompletionScript(cmd.Root())
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(script)
+		return err
+	}
+}
+
 // presetIndexes offers what rule add --rules takes: the menu indexes.
 func presetIndexes() []string {
-	menu := routing.PresetMenu()
-	indexes := make([]string, 0, len(menu))
-	for _, choice := range menu {
-		indexes = append(indexes, choice.Symbol)
+	indexes := []string{}
+	for _, preset := range routing.Presets() {
+		indexes = append(indexes, preset.Symbol)
 	}
 	return indexes
 }

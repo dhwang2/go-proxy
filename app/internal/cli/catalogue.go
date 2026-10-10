@@ -175,15 +175,13 @@ func installGuidance(entry protocolEntry, missing []string) error {
 // then the menu in shell-proxy's numbering, whose indexes the command takes,
 // several at once.
 func presetGuidance(missing []string) error {
-	menu := routing.PresetMenu()
-	hint := make([]string, 0, len(menu)+1)
-	hint = append(hint, "gproxy route rule add --user <name> --rules <indexes> --out <direct|chain tag>")
-	names := make([]string, 0, len(menu))
-	indexes := make(map[string]string, len(menu))
-	for _, choice := range menu {
-		hint = append(hint, choice.Symbol+"."+choice.Preset.Label)
-		names = append(names, choice.Preset.Name)
-		indexes[choice.Symbol] = choice.Preset.Name
+	hint := []string{"gproxy route rule add --user <name> --rules <indexes> --out <direct|chain tag>"}
+	names := []string{}
+	indexes := map[string]string{}
+	for _, preset := range routing.Presets() {
+		hint = append(hint, preset.Symbol+"."+preset.Label)
+		names = append(names, preset.Name)
+		indexes[preset.Symbol] = preset.Name
 	}
 	return guidance(joinList(annotateIndexed(missing, "--rules"))+" required for gproxy route rule add",
 		hint, map[string]any{"missing": missing, "presets": names, "indexes": indexes})

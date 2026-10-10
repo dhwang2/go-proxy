@@ -508,6 +508,16 @@ func (a *App) SelfUpdate(ctx context.Context, current string, checkOnly bool) (R
 		if err := update.SelfUpdate(ctx, check); err != nil {
 			return Result{}, err
 		}
+		// The executable is already replaced, so a script that cannot be
+		// regenerated is reported, not a failed update.
+		if executable, err := os.Executable(); err == nil {
+			if executable, err = filepath.EvalSymlinks(executable); err == nil {
+				err = update.RefreshCompletions(ctx, executable, config.BashCompletionPath, config.ZshCompletionPath)
+			}
+			if err != nil {
+				a.Progress("warning: shell completion not refreshed: " + err.Error())
+			}
+		}
 		check.Updated = true
 		return Result{Changed: true, Data: check}, nil
 	})

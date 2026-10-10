@@ -6,7 +6,6 @@ import (
 	"net"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -17,73 +16,56 @@ import (
 	"go-proxy/internal/store"
 )
 
+// RouteEntry is one user's preset rule as route rule list shows it.
 type RouteEntry struct {
 	User  string `json:"user"`
-	Index int    `json:"index"`
 	Label string `json:"label"`
-	// Preset is the preset the rule was made from, "" for a custom rule.
-	Preset string `json:"preset,omitempty"`
-	// Selector is what `route rule modify|remove --rules` takes for this rule:
-	// the preset's menu index, or cN for the Nth rule no preset made.
+	// Preset is the preset the rule was made from, and Selector its menu
+	// index, which `route rule modify|remove --rules` takes.
+	Preset   string `json:"preset"`
 	Selector string `json:"selector"`
-	// Outbound is the normalised tag the rule sends traffic to and Address the
-	// server behind it. A tag on its own does not say where traffic goes, so a
-	// reader would have to run route chain list to finish reading one rule.
-	Outbound string `json:"outbound"`
-	Address  string `json:"address,omitempty"`
-	// Rule is the stored rule, with its outbound named the way the caller named
-	// it. Everything else is verbatim; only the decorated internal spelling of
-	// direct is translated, because nothing outside sing-box should have to
-	// recognise it.
-	Rule store.UserRouteRule `json:"rule"`
+	// Outbound is the tag the rule sends traffic to and Address the server
+	// behind it. A tag on its own does not say where traffic goes, so a reader
+	// would have to run route chain list to finish reading one rule.
+	Outbound string              `json:"outbound"`
+	Address  string              `json:"address,omitempty"`
+	Rule     store.UserRouteRule `json:"rule"`
 }
 
-// routeEntries numbers each user's rules from one, which is the numbering
-// `route rule remove --rules` expects. One continuous numbering across users
-// would print indexes that command rejects.
+// routeEntries lists the rules of one user, or of every user when only is
+// empty, each user's in menu order. A stored rule no preset made is not one
+// gproxy wrote and is left out, as the compiler leaves it out.
 func routeEntries(s *store.Store, only string) []RouteEntry {
 	addresses := map[string]string{}
 	for _, chain := range routing.ListChains(s) {
 		addresses[chain.Tag] = chainAddress(chain)
 	}
 	entries := []RouteEntry{}
-	counts := map[string]int{}
-	customs := map[string]int{}
 	for _, rule := range s.UserRoutes {
+		preset, ok := routing.PresetOf(rule)
+		if !ok {
+			continue
+		}
 		for _, user := range rule.AuthUser {
 			if only != "" && user != only {
 				continue
 			}
-			counts[user]++
-			// rule is this loop's copy, so naming its outbound here leaves the
-			// stored rule alone.
-			shown := rule
-			shown.Outbound = rule.Outbound
-			preset := routing.UserRoutePreset(rule)
-			selector := routing.PresetSymbol(preset)
-			if selector == "" {
-				customs[user]++
-				selector = "c" + strconv.Itoa(customs[user])
-			}
 			entries = append(entries, RouteEntry{
 				User:     user,
-				Index:    counts[user],
-				Label:    routing.UserRouteLabel(rule),
-				Preset:   preset,
-				Selector: selector,
-				Outbound: shown.Outbound,
+				Label:    preset.Label,
+				Preset:   preset.Name,
+				Selector: preset.Symbol,
+				Outbound: rule.Outbound,
 				Address:  addresses[rule.Outbound],
-				Rule:     shown,
+				Rule:     rule,
 			})
 		}
 	}
-	// Each user's rules read in menu order, as the menu and shell-proxy's
-	// listing do; rules no preset made follow, in the order they were added.
-	sort.SliceStable(entries, func(i, j int) bool {
-		if entries[i].User != entries[j].User {
-			return false
+	slices.SortStableFunc(entries, func(a, b RouteEntry) int {
+		if a.User != b.User {
+			return strings.Compare(a.User, b.User)
 		}
-		return routing.PresetRank(entries[i].Preset) < routing.PresetRank(entries[j].Preset)
+		return routing.PresetRank(a.Preset) - routing.PresetRank(b.Preset)
 	})
 	return entries
 }
@@ -170,7 +152,7 @@ func (a *App) RoutingSet(ctx context.Context, name string, presets []string, out
 	selected := make([]routing.Preset, 0, len(presets))
 	for _, name := range presets {
 		preset, ok := routing.FindPreset(name)
-		if !ok || name == "custom" {
+		if !ok {
 			return Result{}, Invalid("unknown preset " + name)
 		}
 		selected = append(selected, preset)
@@ -185,24 +167,14 @@ func (a *App) RoutingSet(ctx context.Context, name string, presets []string, out
 		}
 		// add only creates. A preset the user already has a rule for is left
 		// as it is, whatever outbound it uses: changing where it goes is what
-		// modify is for, and add quietly repointing it was an edit by another
-		// name.
-		have := map[string]bool{}
-		for _, entry := range routeEntries(s, name) {
-			if entry.Preset != "" {
-				have[entry.Preset] = true
-			}
-		}
+		// modify is for.
 		added, already := []string{}, []string{}
 		for _, preset := range selected {
-			if have[preset.Name] {
+			if routing.AddUserPreset(s, name, preset, target) {
+				added = append(added, preset.Name)
+			} else {
 				already = append(already, preset.Name)
-				continue
 			}
-			if err := routing.SetRule(s, name, routing.PresetToRule(preset, name, target)); err != nil {
-				return nil, err
-			}
-			added = append(added, preset.Name)
 		}
 		// The user's rules after the change, so the reader sees where every
 		// one of them now goes rather than only the ones just added.
@@ -211,63 +183,43 @@ func (a *App) RoutingSet(ctx context.Context, name string, presets []string, out
 }
 
 // RoutingRules changes the rules --rules selects for one user. A selector is
-// what `route rule list` prints beside a rule: a preset's menu index, or cN
-// for the Nth rule no preset made. Every selector must name a rule
-// the user has, or nothing changes.
+// a preset's menu index, which `route rule list` prints beside each rule.
+// Every selector must name a rule the user has, or nothing changes.
 func (a *App) RoutingRules(ctx context.Context, name string, selectors []string, outbound string, remove bool) (Result, error) {
 	if len(selectors) == 0 {
 		return Result{}, Invalid("at least one rule is required")
 	}
+	chosen := make([]string, 0, len(selectors))
 	for _, selector := range selectors {
-		if !routing.ValidRuleSelector(selector) {
+		preset, ok := routing.ResolvePresetSelector(selector)
+		if !ok {
 			return Result{}, Invalid("unknown rule " + strings.TrimSpace(selector) + "; run gproxy route rule list")
 		}
+		chosen = append(chosen, preset.Name)
 	}
 	return a.routingChange(ctx, func(s *store.Store) (any, error) {
 		if err := routingUserExists(s, name); err != nil {
 			return nil, err
 		}
 		before := routeEntries(s, name)
-		positions := map[string]int{}
-		for _, entry := range before {
-			positions[entry.Selector] = entry.Index
-		}
-		chosen := map[string]bool{}
-		indexes := make([]int, 0, len(selectors))
-		for _, selector := range selectors {
-			key := strings.ToLower(strings.TrimSpace(selector))
-			if preset, ok := routing.ResolvePresetSelector(key); ok {
-				key = routing.PresetSymbol(preset)
+		for index, preset := range chosen {
+			if !slices.ContainsFunc(before, func(entry RouteEntry) bool { return entry.Preset == preset }) {
+				return nil, Invalid(name + " has no rule " + strings.TrimSpace(selectors[index]) + "; run gproxy route rule list --user " + name)
 			}
-			position, ok := positions[key]
-			if !ok {
-				return nil, Invalid(name + " has no rule " + strings.TrimSpace(selector) + "; run gproxy route rule list --user " + name)
-			}
-			indexes = append(indexes, position)
-			chosen[key] = true
 		}
-		var count int
-		var err error
+		data := map[string]any{"user": name}
 		if remove {
-			count, err = routing.DeleteUserRulesByIndex(s, name, indexes)
+			data["affected_rules"] = routing.RemoveUserPresets(s, name, chosen)
+			data["removed"] = slices.DeleteFunc(before, func(entry RouteEntry) bool { return !slices.Contains(chosen, entry.Preset) })
 		} else {
-			target, targetErr := routeOutbound(s, outbound)
-			if targetErr != nil {
-				return nil, targetErr
+			target, err := routeOutbound(s, outbound)
+			if err != nil {
+				return nil, err
 			}
-			count, err = routing.ReplaceUserRuleOutbounds(s, name, indexes, target)
+			data["affected_rules"] = routing.SetUserPresetsOutbound(s, name, chosen, target)
 		}
-		data := map[string]any{"user": name, "affected_rules": count, "strategy": routeStrategy(s), "rules": routeEntries(s, name)}
-		if remove {
-			removed := []RouteEntry{}
-			for _, entry := range before {
-				if chosen[entry.Selector] {
-					removed = append(removed, entry)
-				}
-			}
-			data["removed"] = removed
-		}
-		return data, err
+		data["strategy"], data["rules"] = routeStrategy(s), routeEntries(s, name)
+		return data, nil
 	})
 }
 
@@ -768,40 +720,15 @@ func (a *App) RoutingTest(ctx context.Context, name, domain string) (Result, err
 	return Result{Data: data}, nil
 }
 
-// decidingRule is the user's own rule behind the compiled one that decided,
-// numbered as route rule list numbers it. Compiled rules are merged across
-// users, so the match is by what matched: a preset holding that rule set, or
-// a rule carrying that domain or address.
+// decidingRule is the user's own rule behind the compiled one that decided.
+// Compiled rules are merged across users, so the match is by what matched: the
+// user's rule sending that rule set to that outbound.
 func decidingRule(s *store.Store, name string, decision routing.Decision) (RouteEntry, bool) {
-	if decision.Rule < 0 {
+	if decision.Rule < 0 || decision.MatchBy != "rule_set" {
 		return RouteEntry{}, false
 	}
 	for _, entry := range routeEntries(s, name) {
-		if entry.Outbound != decision.Outbound {
-			continue
-		}
-		rule := entry.Rule
-		var items []string
-		switch decision.MatchBy {
-		case "rule_set":
-			items = rule.RuleSet
-			if preset, ok := routing.FindPreset(entry.Preset); ok {
-				items = append(slices.Clone(items), preset.RuleSets...)
-			}
-		case "domain":
-			items = rule.Domain
-		case "domain_suffix":
-			items = rule.DomainSuffix
-		case "domain_keyword":
-			items = rule.DomainKeyword
-		case "domain_regex":
-			items = rule.DomainRegex
-		case "ip_cidr":
-			items = rule.IPCIDR
-		case "auth_user":
-			return entry, true
-		}
-		if slices.Contains(items, decision.Value) {
+		if entry.Outbound == decision.Outbound && slices.Contains(entry.Rule.RuleSet, decision.Value) {
 			return entry, true
 		}
 	}

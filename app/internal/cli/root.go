@@ -299,6 +299,7 @@ func (r *Runner) Root() *cobra.Command {
 	// does is --help's to say.
 	root.CompletionOptions.DisableDescriptions = true
 	root.InitDefaultCompletionCmd()
+	useBashCompletionScript(root)
 	groups(root)
 	registerCompletions(root)
 	root.SetHelpFunc(r.help)

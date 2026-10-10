@@ -9,66 +9,68 @@ import (
 	"go-proxy/internal/store"
 )
 
+// CompiledUserRouteRules is the users' rules in sing-box's form, as few as
+// their choices allow: users sending one rule set to one outbound share a
+// rule, and that rule carries every rule set of its family (domain sets, then
+// address sets) those users send there. Rules are sorted by family, outbound,
+// users and rule sets, so the same choices always compile to the same file.
 func CompiledUserRouteRules(s *store.Store) []store.RouteRule {
-	// Resolve presets once for all rules.
-	presets := resolvePresets(s.UserRoutes)
 	ensureRequiredRuleSetCatalog(s)
 	available := availableRuleSetTags(s)
-	rules := make([]store.RouteRule, 0, len(s.UserRoutes))
-	for i, rule := range s.UserRoutes {
-		if presets[i] != nil {
-			rules = append(rules, compilePresetRule(rule, *presets[i], available)...)
-		} else {
-			rules = append(rules, compileGenericRule(rule)...)
-		}
-	}
-	return mergeRouteRulesByOutbound(mergeRulesAcrossUsers(rules))
-}
 
-// resolvePresets maps each UserRouteRule to its matching preset (or nil).
-func resolvePresets(rules []store.UserRouteRule) []*Preset {
-	result := make([]*Preset, len(rules))
-	for i, rule := range rules {
-		if p, ok := presetForRule(rule); ok {
-			result[i] = &p
-		}
-	}
-	return result
-}
-
-func UserRouteLabel(rule store.UserRouteRule) string {
-	if preset, ok := presetForRule(rule); ok {
-		return preset.Label
-	}
-	for _, values := range [][]string{rule.Domain, rule.DomainSuffix, rule.DomainKeyword, rule.DomainRegex, rule.IPCIDR, rule.RuleSet} {
-		if len(values) > 0 {
-			return strings.Join(values, ",")
-		}
-	}
-	return "custom"
-}
-
-func presetForRule(rule store.UserRouteRule) (Preset, bool) {
-	if len(rule.Domain) > 0 || len(rule.DomainKeyword) > 0 || len(rule.DomainRegex) > 0 || len(rule.IPCIDR) > 0 {
-		return Preset{}, false
-	}
-	for _, preset := range BuiltinPresets() {
-		if preset.Name == "custom" {
+	type sent struct{ outbound, tag string }
+	usersOf := map[sent][]string{}
+	for _, rule := range s.UserRoutes {
+		preset, ok := PresetOf(rule)
+		if !ok {
 			continue
 		}
-		if ruleMatchesPreset(rule, preset) {
-			return preset, true
+		for _, tag := range preset.RuleSets {
+			if available[tag] {
+				key := sent{rule.Outbound, tag}
+				usersOf[key] = append(usersOf[key], rule.AuthUser...)
+			}
 		}
 	}
-	return Preset{}, false
+
+	type group struct {
+		outbound, users string
+		geoip           bool
+	}
+	grouped := map[group]*store.RouteRule{}
+	for key, users := range usersOf {
+		users = sortedUnique(users)
+		at := group{key.outbound, strings.Join(users, ","), isGeoIP(key.tag)}
+		if grouped[at] == nil {
+			grouped[at] = &store.RouteRule{Action: "route", Outbound: key.outbound, AuthUser: users}
+		}
+		grouped[at].RuleSet = append(grouped[at].RuleSet, key.tag)
+	}
+	rules := make([]store.RouteRule, 0, len(grouped))
+	for _, rule := range grouped {
+		slices.Sort(rule.RuleSet)
+		rules = append(rules, *rule)
+	}
+	slices.SortFunc(rules, func(a, b store.RouteRule) int {
+		if ga, gb := isGeoIP(a.RuleSet[0]), isGeoIP(b.RuleSet[0]); ga != gb {
+			if ga {
+				return 1
+			}
+			return -1
+		}
+		return strings.Compare(
+			a.Outbound+"\x00"+strings.Join(a.AuthUser, ",")+"\x00"+strings.Join(a.RuleSet, ","),
+			b.Outbound+"\x00"+strings.Join(b.AuthUser, ",")+"\x00"+strings.Join(b.RuleSet, ","))
+	})
+	return rules
 }
 
-// ruleMatchesPreset is an equality test: PresetToRule stores the preset's own
-// rule sets and fallback domains, so a rule that came from a preset carries
-// exactly those. Matching a subset would let one preset claim another's rule.
-func ruleMatchesPreset(rule store.UserRouteRule, preset Preset) bool {
-	return slices.Equal(rule.RuleSet, preset.RuleSets) &&
-		slices.Equal(rule.DomainSuffix, preset.FallbackDomains)
+func isGeoIP(tag string) bool { return strings.HasPrefix(tag, "geoip-") }
+
+func sortedUnique(values []string) []string {
+	out := slices.Clone(values)
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 func availableRuleSetTags(s *store.Store) map[string]bool {
@@ -87,6 +89,9 @@ func availableRuleSetTags(s *store.Store) map[string]bool {
 	return tags
 }
 
+// ensureRequiredRuleSetCatalog adds the catalogue entry of every rule set a
+// stored rule needs and the configuration lacks, domain sets ahead of address
+// sets.
 func ensureRequiredRuleSetCatalog(s *store.Store) {
 	if s == nil || s.SingBox == nil {
 		return
@@ -94,161 +99,43 @@ func ensureRequiredRuleSetCatalog(s *store.Store) {
 	if s.SingBox.Route == nil {
 		s.SingBox.Route = &store.RouteConfig{}
 	}
-
-	type entry struct {
-		tag string
-		raw json.RawMessage
+	present := availableRuleSetTags(s)
+	catalog := make(map[string]json.RawMessage)
+	for _, item := range config.DefaultRuleSetCatalog() {
+		tag, _ := item["tag"].(string)
+		if raw, err := json.Marshal(item); err == nil && tag != "" {
+			catalog[tag] = raw
+		}
 	}
-
-	current := make([]entry, 0, len(s.SingBox.Route.RuleSet))
-	seen := make(map[string]bool, len(s.SingBox.Route.RuleSet))
+	added := false
+	for _, rule := range s.UserRoutes {
+		preset, ok := PresetOf(rule)
+		if !ok {
+			continue
+		}
+		for _, tag := range preset.RuleSets {
+			if raw, known := catalog[tag]; known && !present[tag] {
+				s.SingBox.Route.RuleSet = append(s.SingBox.Route.RuleSet, raw)
+				present[tag] = true
+				added = true
+			}
+		}
+	}
+	if !added {
+		return
+	}
+	var domains, addresses []json.RawMessage
 	for _, raw := range s.SingBox.Route.RuleSet {
 		var item struct {
 			Tag string `json:"tag"`
 		}
-		if err := json.Unmarshal(raw, &item); err != nil {
-			current = append(current, entry{raw: append(json.RawMessage(nil), raw...)})
-			continue
-		}
-		current = append(current, entry{tag: item.Tag, raw: append(json.RawMessage(nil), raw...)})
-		if item.Tag != "" {
-			seen[item.Tag] = true
+		if json.Unmarshal(raw, &item) == nil && isGeoIP(item.Tag) {
+			addresses = append(addresses, raw)
+		} else {
+			domains = append(domains, raw)
 		}
 	}
-
-	catalog := make(map[string]json.RawMessage)
-	for _, item := range config.DefaultRuleSetCatalog() {
-		tag, _ := item["tag"].(string)
-		if tag == "" {
-			continue
-		}
-		raw, err := json.Marshal(item)
-		if err != nil {
-			continue
-		}
-		catalog[tag] = raw
-	}
-
-	changed := false
-	for _, tag := range requiredRuleSetTags(s.UserRoutes) {
-		if seen[tag] {
-			continue
-		}
-		raw, ok := catalog[tag]
-		if !ok {
-			continue
-		}
-		current = append(current, entry{tag: tag, raw: raw})
-		seen[tag] = true
-		changed = true
-	}
-	if !changed {
-		return
-	}
-
-	var geosite, other, geoip []json.RawMessage
-	for _, item := range current {
-		switch {
-		case strings.HasPrefix(item.tag, "geosite-"):
-			geosite = append(geosite, item.raw)
-		case strings.HasPrefix(item.tag, "geoip-"):
-			geoip = append(geoip, item.raw)
-		default:
-			other = append(other, item.raw)
-		}
-	}
-	s.SingBox.Route.RuleSet = append(append(geosite, other...), geoip...)
-}
-
-func requiredRuleSetTags(rules []store.UserRouteRule) []string {
-	var tags []string
-	for _, rule := range rules {
-		if preset, ok := presetForRule(rule); ok {
-			tags = append(tags, preset.RuleSets...)
-			continue
-		}
-		tags = append(tags, rule.RuleSet...)
-	}
-	return uniqueStrings(tags)
-}
-
-func compilePresetRule(rule store.UserRouteRule, preset Preset, available map[string]bool) []store.RouteRule {
-	base := userRouteToRouteRule(rule)
-	var compiled []store.RouteRule
-	var geosite, geoip []string
-	for _, tag := range preset.RuleSets {
-		switch {
-		case strings.HasPrefix(tag, "geosite-") && available[tag]:
-			geosite = append(geosite, tag)
-		case strings.HasPrefix(tag, "geoip-") && available[tag]:
-			geoip = append(geoip, tag)
-		}
-	}
-	if len(geosite) > 0 {
-		rr := base
-		rr.RuleSet = append([]string(nil), geosite...)
-		rr.DomainSuffix = nil
-		compiled = append(compiled, rr)
-	}
-	if len(geoip) > 0 {
-		rr := base
-		rr.RuleSet = append([]string(nil), geoip...)
-		rr.DomainSuffix = nil
-		compiled = append(compiled, rr)
-	}
-	if len(compiled) == 0 && len(preset.FallbackDomains) > 0 {
-		rr := base
-		rr.RuleSet = nil
-		rr.DomainSuffix = append([]string(nil), preset.FallbackDomains...)
-		compiled = append(compiled, rr)
-	}
-	return compiled
-}
-
-func compileGenericRule(rule store.UserRouteRule) []store.RouteRule {
-	if len(rule.RuleSet) == 0 {
-		return []store.RouteRule{userRouteToRouteRule(rule)}
-	}
-	var geosite, geoip, other []string
-	for _, tag := range rule.RuleSet {
-		switch {
-		case strings.HasPrefix(tag, "geosite-"):
-			geosite = append(geosite, tag)
-		case strings.HasPrefix(tag, "geoip-"):
-			geoip = append(geoip, tag)
-		default:
-			other = append(other, tag)
-		}
-	}
-	base := userRouteToRouteRule(rule)
-	var compiled []store.RouteRule
-	for _, ruleSet := range [][]string{geosite, geoip, other} {
-		if len(ruleSet) == 0 {
-			continue
-		}
-		rr := base
-		rr.RuleSet = append([]string(nil), ruleSet...)
-		compiled = append(compiled, rr)
-	}
-	return compiled
-}
-
-func userRouteToRouteRule(rule store.UserRouteRule) store.RouteRule {
-	action := rule.Action
-	if action == "" {
-		action = "route"
-	}
-	return store.RouteRule{
-		Action:        action,
-		Outbound:      rule.Outbound,
-		AuthUser:      append([]string(nil), rule.AuthUser...),
-		RuleSet:       append([]string(nil), rule.RuleSet...),
-		Domain:        append([]string(nil), rule.Domain...),
-		DomainSuffix:  append([]string(nil), rule.DomainSuffix...),
-		DomainKeyword: append([]string(nil), rule.DomainKeyword...),
-		DomainRegex:   append([]string(nil), rule.DomainRegex...),
-		IPCIDR:        append([]string(nil), rule.IPCIDR...),
-	}
+	s.SingBox.Route.RuleSet = append(domains, addresses...)
 }
 
 // dnsRoute is a DNS rule before it takes its sing-box form: where its queries
@@ -258,40 +145,27 @@ type dnsRoute struct {
 	strategy string
 }
 
+// dnsRulesFromRouteRules sends each compiled rule's lookups where its traffic
+// goes: the DNS server of its outbound, asking for what that server is
+// configured to resolve. Only a chain carries its own strategy; direct keeps
+// the configured one.
 func dnsRulesFromRouteRules(routeRules []store.RouteRule, outboundToDNS map[string]string, serverStrategy map[string]string, defaultStrategy string) []dnsRoute {
 	rules := make([]dnsRoute, 0, len(routeRules))
 	for _, rule := range routeRules {
-		if len(rule.AuthUser) == 0 {
-			continue
-		}
 		server, ok := outboundToDNS[rule.Outbound]
-		if !ok {
+		if !ok || len(rule.AuthUser) == 0 || len(rule.RuleSet) == 0 {
 			continue
 		}
-		// The rule asks for what its server is configured to resolve. Only a
-		// chain carries its own strategy; direct keeps the configured one.
 		strategy := defaultStrategy
 		if perServer, ok := serverStrategy[server]; ok {
 			strategy = perServer
 		}
-		dnsRule := store.DNSRule{
-			Action:        "route",
-			Server:        server,
-			AuthUser:      append([]string(nil), rule.AuthUser...),
-			RuleSet:       append([]string(nil), rule.RuleSet...),
-			Domain:        append([]string(nil), rule.Domain...),
-			DomainSuffix:  append([]string(nil), rule.DomainSuffix...),
-			DomainKeyword: append([]string(nil), rule.DomainKeyword...),
-			DomainRegex:   append([]string(nil), rule.DomainRegex...),
-		}
-		if len(dnsRule.RuleSet) == 0 &&
-			len(dnsRule.Domain) == 0 &&
-			len(dnsRule.DomainSuffix) == 0 &&
-			len(dnsRule.DomainKeyword) == 0 &&
-			len(dnsRule.DomainRegex) == 0 {
-			continue
-		}
-		rules = append(rules, dnsRoute{rule: dnsRule, strategy: strategy})
+		rules = append(rules, dnsRoute{rule: store.DNSRule{
+			Action:   "route",
+			Server:   server,
+			AuthUser: slices.Clone(rule.AuthUser),
+			RuleSet:  slices.Clone(rule.RuleSet),
+		}, strategy: strategy})
 	}
 	return rules
 }

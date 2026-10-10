@@ -467,9 +467,7 @@ func TestUserRemovalReportsWhatItCascadedInto(t *testing.T) {
 		if !ok {
 			t.Fatalf("preset %q is gone", name)
 		}
-		if err := routing.SetRule(snapshot.Store, "alice", routing.PresetToRule(preset, "alice", "direct")); err != nil {
-			t.Fatal(err)
-		}
+		routing.AddUserPreset(snapshot.Store, "alice", preset, "direct")
 	}
 	if err := snapshot.Store.Save(); err != nil {
 		t.Fatal(err)

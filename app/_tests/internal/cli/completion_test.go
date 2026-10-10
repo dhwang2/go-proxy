@@ -80,8 +80,8 @@ func TestPresetCompletionOffersTheMenuIndexes(t *testing.T) {
 		t.Fatalf("directive %q, want %q", directive, noFileComp)
 	}
 	want := []string{}
-	for _, choice := range routing.PresetMenu() {
-		want = append(want, choice.Symbol)
+	for _, preset := range routing.Presets() {
+		want = append(want, preset.Symbol)
 	}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("offered %v, want the menu indexes %v", got, want)
@@ -230,5 +230,31 @@ func TestSubTargetCompletesItsTwoModes(t *testing.T) {
 	candidates, directive, _ := complete(t, "sub", "--target", "")
 	if directive != noFileComp || strings.Join(candidates, ",") != "domain,ip" {
 		t.Fatalf("offered %v (%q), want domain and ip", candidates, directive)
+	}
+}
+
+// After `sudo`, bash-completion's _command_offset re-applies every -o of the
+// command's registration once its function returns. Registered with
+// -o default, gproxy's own "no files" answer was undone and `sudo gproxy route
+// rule list .<Tab>` listed the directory. The script registers without it.
+func TestBashScriptRegistersWithoutFileFallback(t *testing.T) {
+	var out, stderr bytes.Buffer
+	r := New("test", "test", strings.NewReader(""), &out, &stderr)
+	if code := r.Run(context.Background(), []string{"completion", "bash"}); code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	registrations := 0
+	for _, line := range strings.Split(out.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "complete ") {
+			continue
+		}
+		registrations++
+		if strings.Contains(line, "-o default") || !strings.HasSuffix(line, "-F __start_gproxy gproxy") {
+			t.Fatalf("registration %q", line)
+		}
+	}
+	if registrations != 2 || !strings.Contains(out.String(), "__gproxy_get_completion_results") {
+		t.Fatalf("not cobra's script with its two registrations:\n%s", out.String())
 	}
 }

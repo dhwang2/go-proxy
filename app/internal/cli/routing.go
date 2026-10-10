@@ -90,12 +90,12 @@ func registerRouting(r *Runner, root *cobra.Command) {
 		// added once.
 		resolved := make([]string, 0, len(addPresets))
 		for _, selector := range addPresets {
-			name, ok := routing.ResolvePresetSelector(selector)
+			preset, ok := routing.ResolvePresetSelector(selector)
 			if !ok {
 				return application.Invalid("unknown preset " + strings.TrimSpace(selector) + "; run gproxy route rule add to list them")
 			}
-			if !slices.Contains(resolved, name) {
-				resolved = append(resolved, name)
+			if !slices.Contains(resolved, preset.Name) {
+				resolved = append(resolved, preset.Name)
 			}
 		}
 		addPresets = resolved
@@ -133,7 +133,7 @@ func registerRouting(r *Runner, root *cobra.Command) {
 			// Checked with the other arguments, so a value no rule can have is
 			// refused before the operation starts.
 			for _, selector := range indexes {
-				if !routing.ValidRuleSelector(selector) {
+				if _, ok := routing.ResolvePresetSelector(selector); !ok {
 					return application.Invalid("unknown rule " + strings.TrimSpace(selector) + "; run gproxy route rule list")
 				}
 			}

@@ -235,8 +235,8 @@ func TestRuleAndChainListingsAgreeOnWhoUsesWhat(t *testing.T) {
 	}
 	byUser := map[string]RouteEntry{}
 	for _, entry := range entries {
-		if entry.Index != 1 {
-			t.Fatalf("index %d for the first rule of %s", entry.Index, entry.User)
+		if entry.Selector != map[string]string{"alice": "1", "bob": "3"}[entry.User] {
+			t.Fatalf("selector %q for %s's rule", entry.Selector, entry.User)
 		}
 		byUser[entry.User] = entry
 	}
@@ -976,4 +976,52 @@ func TestCompiledRulesFollowRenameAndDelete(t *testing.T) {
 	if got := compiled(); strings.Contains(got, `"carol"`) {
 		t.Fatalf("deletion left the user in the compiled rules: %s", got)
 	}
+}
+
+// The SpaceX/Starlink preset is selected by its menu index and compiles to a
+// route rule on geosite-spacex, with that remote rule-set in the catalogue so
+// sing-box can download it.
+func TestSpaceXPresetCompilesToItsRuleSet(t *testing.T) {
+	a := routingApplicationFixture(t)
+	ctx := context.Background()
+	if _, err := a.RoutingChainAdd(ctx, "res1", "192.0.2.10", 1080, "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.RoutingSet(ctx, "alice", []string{"spacex"}, "res1"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(config.SingBoxConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compiled struct {
+		Route struct {
+			Rules []struct {
+				RuleSet  []string `json:"rule_set"`
+				Outbound string   `json:"outbound"`
+			} `json:"rules"`
+			RuleSet []struct {
+				Tag string `json:"tag"`
+				URL string `json:"url"`
+			} `json:"rule_set"`
+		} `json:"route"`
+	}
+	if err := json.Unmarshal(data, &compiled); err != nil {
+		t.Fatal(err)
+	}
+	routed := false
+	for _, rule := range compiled.Route.Rules {
+		if slices.Contains(rule.RuleSet, "geosite-spacex") && rule.Outbound == "res1" {
+			routed = true
+		}
+	}
+	if !routed {
+		t.Fatalf("no rule sends geosite-spacex to res1: %s", data)
+	}
+	for _, set := range compiled.Route.RuleSet {
+		if set.Tag == "geosite-spacex" && strings.HasSuffix(set.URL, "/geo/geosite/spacex.srs") {
+			return
+		}
+	}
+	t.Fatalf("geosite-spacex is not in the rule-set catalogue: %s", data)
 }

@@ -11,6 +11,7 @@ import (
 	"golang.org/x/mod/semver"
 
 	"go-proxy/internal/core"
+	"go-proxy/pkg/fileutil"
 	"go-proxy/pkg/github"
 	"go-proxy/pkg/sysutil"
 )
@@ -52,6 +53,29 @@ func ResolveSelfUpdate(ctx context.Context, currentVersion string) (*SelfUpdateC
 		return nil, fmt.Errorf("release has no sha256 digest")
 	}
 	return check, nil
+}
+
+// RefreshCompletions rewrites the installed shell completion scripts with the
+// ones executable generates, so a fix to a script reaches a host that updates
+// rather than reinstalls. A script that is absent stays absent: the CLI was
+// built from source, or that shell's completion directory does not exist.
+func RefreshCompletions(ctx context.Context, executable, bashPath, zshPath string) error {
+	for _, item := range []struct{ shell, path string }{{"bash", bashPath}, {"zsh", zshPath}} {
+		if _, err := os.Stat(item.path); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return err
+		}
+		script, err := exec.CommandContext(ctx, executable, "completion", item.shell).Output()
+		if err != nil || len(script) == 0 {
+			return fmt.Errorf("%s completion could not be generated", item.shell)
+		}
+		if err := fileutil.AtomicWriteMode(item.path, script, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func SelfUpdate(ctx context.Context, check *SelfUpdateCheck) error {

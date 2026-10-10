@@ -143,9 +143,9 @@ func Snapshot(ctx context.Context, names ...Name) ([]Status, error) {
 	args = append(args, units...)
 	output, commandErr := systemctlOutput(ctx, args...)
 	parsed := make(map[string]Status)
-	for _, block := range strings.Split(strings.TrimSpace(output), "\n\n") {
+	for block := range strings.SplitSeq(strings.TrimSpace(output), "\n\n") {
 		fields := make(map[string]string)
-		for _, line := range strings.Split(block, "\n") {
+		for line := range strings.SplitSeq(block, "\n") {
 			key, value, ok := strings.Cut(line, "=")
 			if ok {
 				fields[key] = value

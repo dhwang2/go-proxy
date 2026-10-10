@@ -4,51 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"go-proxy/internal/store"
 )
-
-func TestSyncRouteRulesPreservesMatchersAcrossRuleSetSplits(t *testing.T) {
-	s := setupRoutingStore(t)
-	s.SingBox.Route = &store.RouteConfig{}
-	s.UserRoutes = []store.UserRouteRule{
-		{
-			Action:        "route",
-			Outbound:      "proxy-a",
-			AuthUser:      []string{"alice"},
-			RuleSet:       []string{"geosite-openai", "geoip-openai", "custom-rs"},
-			Domain:        []string{"api.openai.com"},
-			DomainSuffix:  []string{"openai.com"},
-			DomainKeyword: []string{"chatgpt"},
-			DomainRegex:   []string{".*\\.claude\\.ai$"},
-			IPCIDR:        []string{"1.1.1.0/24"},
-		},
-	}
-
-	syncRouteRules(s, CompiledUserRouteRules(s))
-
-	if len(s.SingBox.Route.Rules) != 3 {
-		t.Fatalf("len(Route.Rules) = %d, want 3", len(s.SingBox.Route.Rules))
-	}
-
-	for i, rule := range s.SingBox.Route.Rules {
-		if got := rule.Domain; len(got) != 1 || got[0] != "api.openai.com" {
-			t.Fatalf("rule %d Domain = %#v", i, got)
-		}
-		if got := rule.DomainSuffix; len(got) != 1 || got[0] != "openai.com" {
-			t.Fatalf("rule %d DomainSuffix = %#v", i, got)
-		}
-		if got := rule.DomainKeyword; len(got) != 1 || got[0] != "chatgpt" {
-			t.Fatalf("rule %d DomainKeyword = %#v", i, got)
-		}
-		if got := rule.DomainRegex; len(got) != 1 || got[0] != ".*\\.claude\\.ai$" {
-			t.Fatalf("rule %d DomainRegex = %#v", i, got)
-		}
-		if got := rule.IPCIDR; len(got) != 1 || got[0] != "1.1.1.0/24" {
-			t.Fatalf("rule %d IPCIDR = %#v", i, got)
-		}
-	}
-}
 
 // The direct strategy follows the host: both families prefer IPv4, one family
 // asks for that family alone, and the IPv6-only host resolves through the
@@ -106,9 +62,7 @@ func TestCompiledRulesMergeAcrossUsers(t *testing.T) {
 			if !ok {
 				t.Fatalf("preset %q", name)
 			}
-			if err := SetRule(s, user, PresetToRule(preset, user, out)); err != nil {
-				t.Fatal(err)
-			}
+			AddUserPreset(s, user, preset, out)
 		}
 	}
 	add("dhwang2", []string{"openai", "anthropic", "discord", "meta"}, "res1")
@@ -122,7 +76,7 @@ func TestCompiledRulesMergeAcrossUsers(t *testing.T) {
 	}
 	got := []shape{}
 	for _, rule := range rules {
-		if len(rule.RuleSet) == 0 || !isGeositeRuleSet(rule.RuleSet) {
+		if len(rule.RuleSet) == 0 || isGeoIP(rule.RuleSet[0]) {
 			continue
 		}
 		got = append(got, shape{rule.Outbound, strings.Join(rule.AuthUser, ","), rule.RuleSet})
@@ -168,9 +122,7 @@ func TestMergedRuleSplitsWhenOneUserLeaves(t *testing.T) {
 	s := setupRoutingStore(t)
 	preset, _ := FindPreset("openai")
 	for _, user := range []string{"alice", "bob"} {
-		if err := SetRule(s, user, PresetToRule(preset, user, "res1")); err != nil {
-			t.Fatal(err)
-		}
+		AddUserPreset(s, user, preset, "res1")
 	}
 	if rules := CompiledUserRouteRules(s); len(rules) == 0 || strings.Join(rules[0].AuthUser, ",") != "alice,bob" {
 		t.Fatalf("not merged: %+v", rules)

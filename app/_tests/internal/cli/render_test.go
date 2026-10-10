@@ -289,9 +289,9 @@ func numberedLayoutCases() map[string]any {
 		}},
 		"gproxy protocol list": map[string]any{"protocols": catalogueData()},
 		"gproxy route rule list": map[string]any{"rules": []application.RouteEntry{
-			{User: "alice", Index: 1, Label: "OpenAI/ChatGPT", Outbound: "relay", Address: "198.51.100.10:1080"},
-			{User: "alice", Index: 2, Label: "Google", Outbound: "direct"},
-			{User: "bob", Index: 1, Label: "Netflix", Outbound: "relay", Address: "198.51.100.10:1080"},
+			{User: "alice", Label: "OpenAI/ChatGPT", Preset: "openai", Selector: "1", Outbound: "relay", Address: "198.51.100.10:1080"},
+			{User: "alice", Label: "Anthropic/Claude", Preset: "anthropic", Selector: "2", Outbound: "direct"},
+			{User: "bob", Label: "OpenAI/ChatGPT", Preset: "openai", Selector: "1", Outbound: "relay", Address: "198.51.100.10:1080"},
 		}},
 		"gproxy network fail2ban status": network.Fail2BanInfo{
 			Installed: true, Running: true, SSHJailEnabled: true,
@@ -364,15 +364,14 @@ func TestServiceStateIsRunningOrStopped(t *testing.T) {
 	}
 }
 
-// A rule index is only meaningful inside its user: `route rule remove --user
-// bob --rules 1` means bob's first rule. Numbering the listing straight through
-// would print indexes that command rejects.
+// Each rule is listed under its user with its preset's menu index, which is
+// what `route rule modify|remove --rules` takes.
 func TestRuleListingNumbersWithinEachUser(t *testing.T) {
 	var out bytes.Buffer
 	if !render(&out, palette{}, "gproxy route rule list", map[string]any{"rules": []application.RouteEntry{
-		{User: "alice", Index: 1, Label: "OpenAI/ChatGPT", Outbound: "relay", Address: "198.51.100.10:1080"},
-		{User: "alice", Index: 2, Label: "Google", Outbound: "direct"},
-		{User: "bob", Index: 1, Label: "Netflix", Outbound: "relay", Address: "198.51.100.10:1080"},
+		{User: "alice", Label: "OpenAI/ChatGPT", Preset: "openai", Selector: "1", Outbound: "relay", Address: "198.51.100.10:1080"},
+		{User: "alice", Label: "Anthropic/Claude", Preset: "anthropic", Selector: "2", Outbound: "direct"},
+		{User: "bob", Label: "OpenAI/ChatGPT", Preset: "openai", Selector: "1", Outbound: "relay", Address: "198.51.100.10:1080"},
 	}}) {
 		t.Fatal("rule listing produced no rendering")
 	}
@@ -381,9 +380,9 @@ func TestRuleListingNumbersWithinEachUser(t *testing.T) {
 	for _, want := range []string{
 		"alice:",
 		"1.OpenAI/ChatGPT",
-		"2.Google",
+		"2.Anthropic/Claude",
 		"bob:",
-		"1.Netflix",
+		"1.OpenAI/ChatGPT",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("rule listing is missing %q:\n%s", want, text)
@@ -397,7 +396,7 @@ func TestRuleListingNumbersWithinEachUser(t *testing.T) {
 	// Direct egress has no address to report, and an empty column would read as
 	// a missing value rather than as the absence of one.
 	for _, line := range strings.Split(text, "\n") {
-		if strings.Contains(line, "Google") && strings.TrimRight(line, " ") != line {
+		if strings.Contains(line, "Anthropic") && strings.TrimRight(line, " ") != line {
 			t.Fatalf("direct rule padded to an empty column: %q", line)
 		}
 	}
@@ -1191,11 +1190,11 @@ func TestStatusRowsHaveTheirOwnColours(t *testing.T) {
 // through, or marked "(removed)" without colour.
 func TestRuleChangesListTheUsersRules(t *testing.T) {
 	rules := []application.RouteEntry{
-		{User: "dhwang1", Index: 1, Label: "OpenAI/ChatGPT", Preset: "openai", Selector: "1", Outbound: "res2", Address: "198.51.100.7:12334"},
-		{User: "dhwang1", Index: 2, Label: "WhatsApp", Preset: "whatsapp", Selector: "7", Outbound: "res1", Address: "198.51.100.8:12434"},
+		{User: "dhwang1", Label: "OpenAI/ChatGPT", Preset: "openai", Selector: "1", Outbound: "res2", Address: "198.51.100.7:12334"},
+		{User: "dhwang1", Label: "WhatsApp", Preset: "whatsapp", Selector: "7", Outbound: "res1", Address: "198.51.100.8:12434"},
 	}
 	removed := []application.RouteEntry{
-		{User: "dhwang1", Index: 3, Label: "Google", Preset: "google", Selector: "3", Outbound: "res1", Address: "198.51.100.8:12434"},
+		{User: "dhwang1", Label: "Google", Preset: "google", Selector: "3", Outbound: "res1", Address: "198.51.100.8:12434"},
 	}
 	for _, command := range []string{"gproxy route rule add", "gproxy route rule modify"} {
 		var out bytes.Buffer
@@ -1228,21 +1227,21 @@ func TestRuleChangesListTheUsersRules(t *testing.T) {
 }
 
 // The rule list reads like shell-proxy's: a chain as "tag: host:port", direct
-// on its own, each preset coloured by kind, and row 10 aligned with row 9.
+// on its own, each preset coloured by kind, and every arrow in one column.
 func TestRuleListColoursAndAlignsLikeShellProxy(t *testing.T) {
 	entries := []application.RouteEntry{}
 	presets := []string{"openai", "google", "twitter", "ads", "anthropic", "github", "discord", "xai", "meta", "ai-intl"}
-	for index, name := range presets {
+	for _, name := range presets {
 		preset, _ := routing.FindPreset(name)
-		entries = append(entries, application.RouteEntry{User: "alice", Index: index + 1, Label: preset.Label, Preset: name, Outbound: "res1", Address: "198.51.100.7:1080"})
+		entries = append(entries, application.RouteEntry{User: "alice", Label: preset.Label, Preset: name, Selector: preset.Symbol, Outbound: "res1", Address: "198.51.100.7:1080"})
 	}
-	entries = append(entries, application.RouteEntry{User: "bob", Index: 1, Label: "Netflix", Preset: "netflix", Outbound: "direct"})
+	entries = append(entries, application.RouteEntry{User: "bob", Label: "Netflix", Preset: "netflix", Outbound: "direct"})
 	fields := map[string]any{"rules": entries}
 
 	var plain bytes.Buffer
 	render(&plain, palette{}, "gproxy route rule list", fields)
 	text := plain.String()
-	for _, want := range []string{"-> res1: 198.51.100.7:1080", "-> direct", "10.AI (Intl)"} {
+	for _, want := range []string{"-> res1: 198.51.100.7:1080", "-> direct", "a.AI (Intl)"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("rule list lacks %q:\n%s", want, text)
 		}
@@ -1283,18 +1282,16 @@ func TestRuleListColoursAndAlignsLikeShellProxy(t *testing.T) {
 }
 
 // The rule listing numbers each rule with its preset menu index, which is what
-// --rules takes, and keeps the arrow column aligned across one- and
-// two-character marks.
+// --rules takes, and keeps the arrow column aligned.
 func TestRuleListNumbersRulesByPresetIndex(t *testing.T) {
 	entries := []application.RouteEntry{
-		{User: "alice", Index: 1, Label: "OpenAI/ChatGPT", Preset: "openai", Selector: "1", Outbound: "direct"},
-		{User: "alice", Index: 2, Label: "xAI/Grok", Preset: "xai", Selector: "j", Outbound: "direct"},
-		{User: "alice", Index: 3, Label: "example.com", Selector: "c1", Outbound: "direct"},
+		{User: "alice", Label: "OpenAI/ChatGPT", Preset: "openai", Selector: "1", Outbound: "direct"},
+		{User: "alice", Label: "xAI/Grok", Preset: "xai", Selector: "j", Outbound: "direct"},
 	}
 	var out bytes.Buffer
 	render(&out, palette{}, "gproxy route rule list", map[string]any{"rules": entries})
 	text := out.String()
-	for _, want := range []string{"1.OpenAI/ChatGPT", "j.xAI/Grok", "c1.example.com"} {
+	for _, want := range []string{"1.OpenAI/ChatGPT", "j.xAI/Grok"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("listing lacks %q:\n%s", want, text)
 		}

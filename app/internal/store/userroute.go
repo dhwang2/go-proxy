@@ -1,15 +1,10 @@
 package store
 
-// UserRouteRule is a routing rule from user-route-rules.json.
-// These are the source rules that get compiled into sing-box route/DNS rules.
+// UserRouteRule is one user's preset rule from user-route-rules.json: the
+// preset's rule sets and the outbound they go to. routing compiles these into
+// the sing-box route and DNS rules.
 type UserRouteRule struct {
-	Action        string   `json:"action,omitempty"`
-	Outbound      string   `json:"outbound"`
-	AuthUser      []string `json:"auth_user,omitempty"`
-	RuleSet       []string `json:"rule_set,omitempty"`
-	Domain        []string `json:"domain,omitempty"`
-	DomainSuffix  []string `json:"domain_suffix,omitempty"`
-	DomainKeyword []string `json:"domain_keyword,omitempty"`
-	DomainRegex   []string `json:"domain_regex,omitempty"`
-	IPCIDR        []string `json:"ip_cidr,omitempty"`
+	Outbound string   `json:"outbound"`
+	AuthUser []string `json:"auth_user,omitempty"`
+	RuleSet  []string `json:"rule_set,omitempty"`
 }

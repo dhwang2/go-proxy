@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -172,31 +173,20 @@ func parseShadowTLSBinding(serviceName, servicePath, unit string) (ShadowTLSBind
 		ServicePath:  servicePath,
 		BackendProto: shadowTLSBackendProtoFromServiceName(serviceName),
 	}
-	execStart := ""
-	for _, line := range strings.Split(unit, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "ExecStart=") {
-			execStart = strings.TrimSpace(strings.TrimPrefix(line, "ExecStart="))
+	var fields []string
+	for line := range strings.SplitSeq(unit, "\n") {
+		if execStart, ok := strings.CutPrefix(strings.TrimSpace(line), "ExecStart="); ok {
+			fields = strings.Fields(execStart)
 			break
 		}
 	}
-	if execStart == "" {
-		return ShadowTLSBinding{}, false
-	}
-
-	fields := strings.Fields(execStart)
 	if len(fields) == 0 {
 		return ShadowTLSBinding{}, false
 	}
-
-	if strings.Contains(execStart, " --v3 ") || strings.HasSuffix(execStart, " --v3") || strings.HasPrefix(execStart, "--v3 ") {
+	if slices.Contains(fields, "--v3") {
 		binding.Version = 3
 	}
-
-	for i := 0; i < len(fields); i++ {
-		if i+1 >= len(fields) {
-			continue
-		}
+	for i := range len(fields) - 1 {
 		switch fields[i] {
 		case "--listen":
 			binding.ListenPort = parsePortArg(fields[i+1])
