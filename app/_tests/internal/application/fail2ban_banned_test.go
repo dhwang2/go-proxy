@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"go-proxy/internal/config"
@@ -75,6 +76,11 @@ case "$1 $2 $3" in
 "status sshd ") printf '|- Currently banned:\t2\n|- Total banned:\t5\n` + "`" + `- Banned IP list:\t198.51.100.1 198.51.100.2\n' ;;
 *) echo 5 ;;
 esac`,
+		// The journal backend's module is missing until apt-get installs
+		// python3-systemd, as on a host where fail2ban came without its
+		// recommends.
+		"python3": `[ -f "${0%/*}/python3-systemd" ]`,
+		"apt-get": `echo "$*" >> "${0%/*}/apt.log"; case " $* " in *" python3-systemd "*) : > "${0%/*}/python3-systemd" ;; esac`,
 	}
 	for name, body := range scripts {
 		if err := os.WriteFile(filepath.Join(stubs, name), []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil {
@@ -113,6 +119,21 @@ esac`,
 	}
 	if info := started.Data.(network.Fail2BanInfo); !started.Changed || info.Change != "started" || !info.Running || !info.SSHJailEnabled || !info.Managed {
 		t.Fatalf("enable: changed=%v %#v", started.Changed, info)
+	}
+	// Debian 12 has no auth.log: the jail reads the journal, and the module
+	// that reads it was installed.
+	if jail, _ := os.ReadFile(network.Fail2BanJailPath); !strings.Contains(string(jail), "backend = systemd") {
+		t.Fatalf("jail does not read the journal:\n%s", jail)
+	}
+	if log, _ := os.ReadFile(filepath.Join(stubs, "apt.log")); strings.TrimSpace(string(log)) != "install -y fail2ban python3-systemd" {
+		t.Fatalf("apt-get calls: %q", log)
+	}
+	// With the module present, a second enable installs nothing.
+	if _, err := a.NetworkFail2Ban(ctx, "enable"); err != nil {
+		t.Fatal(err)
+	}
+	if log, _ := os.ReadFile(filepath.Join(stubs, "apt.log")); strings.Count(string(log), "install") != 1 {
+		t.Fatalf("apt-get ran again: %q", log)
 	}
 }
 

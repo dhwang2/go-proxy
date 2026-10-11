@@ -113,6 +113,12 @@ install_completion() {
 enable_bash_completion() {
   local bashrc=/etc/bash.bashrc loader=/usr/share/bash-completion/bash_completion
   [[ -f "${bashrc}" ]] || return 0
+  # Minimal images ship without bash-completion, and without it nothing loads
+  # gproxy's script.
+  if [[ ! -r "${loader}" ]] && command -v apt-get >/dev/null 2>&1; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bash-completion >/dev/null 2>&1 ||
+      yellow "warning: could not install bash-completion"
+  fi
   if [[ ! -r "${loader}" ]]; then
     yellow "bash-completion is not installed; install it (apt install bash-completion) for Tab completion"
     return 0

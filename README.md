@@ -30,7 +30,7 @@ A command that is missing something prints the complete command that would work,
 
 ## Commands
 
-```text
+```shell
 gproxy status                                    dashboard: system, network, protocols, services, certificate
 
 gproxy server status
@@ -122,7 +122,7 @@ gproxy network fail2ban status
 
 ```bash
 cd app
-make build VERSION=v0.3.7-dev
+make build VERSION=v0.3.8-dev
 make test
 ./gproxy --help
 ```

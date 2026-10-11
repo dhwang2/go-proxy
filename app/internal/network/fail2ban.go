@@ -111,10 +111,15 @@ func parseJailStatus(info *Fail2BanInfo, output string) {
 	}
 }
 
+// sshdJailConfig reads sshd's log from the systemd journal. Debian 12 and
+// later install no syslog daemon, so there is no auth.log for fail2ban's
+// default file backend to find, and the jail refuses to start without one.
+// The journal holds sshd's log on every host gproxy runs on.
 const sshdJailConfig = `[sshd]
 enabled = true
 port = ssh
 filter = sshd
+backend = systemd
 maxretry = 5
 bantime = 86400
 findtime = 600
@@ -198,8 +203,11 @@ func sshdEnabled(path string) (enabled, set bool) {
 }
 
 func Fail2BanEnable(ctx context.Context) error {
-	if _, err := exec.LookPath("fail2ban-client"); err != nil {
-		if out, err := runCommand(ctx, "apt-get", "install", "-y", "fail2ban"); err != nil {
+	// The journal backend needs python3-systemd, which fail2ban only
+	// recommends: an install without recommends lacks it.
+	_, missing := exec.LookPath("fail2ban-client")
+	if _, err := runCommand(ctx, "python3", "-c", "import systemd.journal"); missing != nil || err != nil {
+		if out, err := runCommand(ctx, "apt-get", "install", "-y", "fail2ban", "python3-systemd"); err != nil {
 			return fmt.Errorf("install fail2ban: %w: %s", err, strings.TrimSpace(string(out)))
 		}
 	}
