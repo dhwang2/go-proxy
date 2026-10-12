@@ -122,7 +122,7 @@ gproxy network fail2ban status
 
 ```bash
 cd app
-make build VERSION=v0.3.8-dev
+make build VERSION=v0.3.9-dev
 make test
 ./gproxy --help
 ```

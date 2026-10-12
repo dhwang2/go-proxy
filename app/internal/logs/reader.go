@@ -28,8 +28,6 @@ func ServiceLogSource(svc string) (logFile, unit string) {
 		return config.SingBoxLog, svc
 	case "snell-v6":
 		return config.SnellLog, svc
-	case "shadow-tls":
-		return config.ShadowTLSLog, svc
 	case "caddy-sub":
 		return config.CaddySubLog, svc
 	case "proxy-watchdog":

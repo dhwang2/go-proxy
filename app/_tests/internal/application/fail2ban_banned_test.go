@@ -128,9 +128,28 @@ esac`,
 	if log, _ := os.ReadFile(filepath.Join(stubs, "apt.log")); strings.TrimSpace(string(log)) != "install -y fail2ban python3-systemd" {
 		t.Fatalf("apt-get calls: %q", log)
 	}
-	// With the module present, a second enable installs nothing.
-	if _, err := a.NetworkFail2Ban(ctx, "enable"); err != nil {
+	// With the module present, a second enable installs nothing, and with
+	// the jail as this version writes it, changes nothing.
+	again, err = a.NetworkFail2Ban(ctx, "enable")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if info := again.Data.(network.Fail2BanInfo); again.Changed || info.Change != "already managed" {
+		t.Fatalf("repeated enable: changed=%v %q", again.Changed, info.Change)
+	}
+	// A jail an older version wrote is rewritten, and enable says so.
+	if err := os.WriteFile(network.Fail2BanJailPath, []byte("[sshd]\nenabled = true\nfilter = sshd\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := a.NetworkFail2Ban(ctx, "enable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info := updated.Data.(network.Fail2BanInfo); !updated.Changed || info.Change != "updated" {
+		t.Fatalf("enable over an old jail: changed=%v %q", updated.Changed, info.Change)
+	}
+	if jail, _ := os.ReadFile(network.Fail2BanJailPath); !strings.Contains(string(jail), "backend = systemd") {
+		t.Fatalf("old jail not rewritten:\n%s", jail)
 	}
 	if log, _ := os.ReadFile(filepath.Join(stubs, "apt.log")); strings.Count(string(log), "install") != 1 {
 		t.Fatalf("apt-get ran again: %q", log)

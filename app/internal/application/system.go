@@ -397,7 +397,7 @@ func (a *App) CoreCheck(ctx context.Context) (Result, error) {
 	components := core.AllComponents()
 	checks := make([]*core.UpdateCheck, 0, len(components))
 	for _, c := range components {
-		check, err := core.CheckUpdate(ctx, c, core.BinaryPath(c))
+		check, err := core.ResolveUpdate(ctx, c, core.BinaryPath(c), "")
 		if err != nil {
 			return Result{}, err
 		}

@@ -202,6 +202,13 @@ func sshdEnabled(path string) (enabled, set bool) {
 	return enabled, set
 }
 
+// Fail2BanJailCurrent reports whether gproxy's jail file already holds what
+// enable writes.
+func Fail2BanJailCurrent() bool {
+	data, err := os.ReadFile(Fail2BanJailPath)
+	return err == nil && string(data) == sshdJailConfig
+}
+
 func Fail2BanEnable(ctx context.Context) error {
 	// The journal backend needs python3-systemd, which fail2ban only
 	// recommends: an install without recommends lacks it.

@@ -545,10 +545,17 @@ func renderChainChange(w io.Writer, p palette, data any) bool {
 	return true
 }
 
+// renderChainRemoval answers a removal with the chain as a rule named it,
+// "res1 -> host:port", struck through as a removed rule is, or marked
+// "(removed)" without colour.
 func renderChainRemoval(w io.Writer, p palette, fields map[string]any) bool {
 	tag, ok := fields["tag"].(string)
 	if !ok {
 		return false
+	}
+	if chain, ok := fields["chain"].(application.ChainView); ok && fields["removed"] == true {
+		fmt.Fprintln(w, struck(p, p.wrap(ansiChainTag, clean(chain.Tag))+" -> "+p.wrap(ansiChainAddress, clean(chain.Address))))
+		return true
 	}
 	return writeRows(w, p, []row{{"chain", joinFields(p.label(clean(tag)), outcome(p, fields, "removed", "not found"))}})
 }
@@ -1433,7 +1440,7 @@ func jailOwners(info network.Fail2BanInfo) []string {
 
 // fail2banChange is enable's and disable's one line. disable stops fail2ban
 // itself, so it says how many bans that lifted; enable says whether it started
-// the service or only put gproxy's jail in place.
+// the service, added or updated gproxy's jail, or found it already in place.
 func fail2banChange(p palette, info network.Fail2BanInfo) string {
 	line := "fail2ban  "
 	switch info.Change {
@@ -1449,6 +1456,8 @@ func fail2banChange(p palette, info network.Fail2BanInfo) string {
 		return line + p.running("running") + " " + note(p, "started with gproxy's ssh jail")
 	case "added":
 		return line + p.running("running") + " " + note(p, "gproxy ssh jail added")
+	case "updated":
+		return line + p.running("running") + " " + note(p, "gproxy ssh jail updated")
 	case "already managed":
 		return line + p.running("running") + " " + note(p, "gproxy ssh jail already in place")
 	}

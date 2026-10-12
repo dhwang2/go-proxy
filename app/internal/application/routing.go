@@ -653,16 +653,14 @@ func (a *App) RoutingChainModify(ctx context.Context, tag string, change ChainCh
 
 func (a *App) RoutingChainRemove(ctx context.Context, tag string) (Result, error) {
 	return a.routingChange(ctx, func(s *store.Store) (any, error) {
-		found := false
-		for _, chain := range routing.ListChains(s) {
-			if chain.Tag == tag {
-				found = true
-				break
-			}
-		}
-		if !found {
+		chains := routing.ListChains(s)
+		at := slices.IndexFunc(chains, func(chain routing.ChainOutbound) bool { return chain.Tag == tag })
+		if at < 0 {
 			return map[string]any{"tag": tag, "removed": false}, nil
 		}
+		// What went, as route chain list showed it, so the answer names the
+		// server behind the tag.
+		gone := chainView(chains[at])
 		// A refusal names what still uses the chain, every user's rules and
 		// the route final together, so one answer is enough to clear it.
 		referenced := slices.ContainsFunc(s.UserRoutes, func(rule store.UserRouteRule) bool { return rule.Outbound == tag })
@@ -683,7 +681,7 @@ func (a *App) RoutingChainRemove(ctx context.Context, tag string) (Result, error
 		if err := routing.RemoveChain(s, tag); err != nil {
 			return nil, err
 		}
-		return map[string]any{"tag": tag, "removed": true}, nil
+		return map[string]any{"tag": tag, "removed": true, "chain": gone}, nil
 	})
 }
 

@@ -303,7 +303,6 @@ func numberedLayoutCases() map[string]any {
 			Tag: "vless_reality_443", Type: "vless", Port: 443, Security: "reality", Users: []string{"alice"},
 		},
 		"gproxy protocol remove":         map[string]any{"tag": "vless_reality_443", "removed": true, "user": "bob"},
-		"gproxy route chain remove":      map[string]any{"tag": "relay", "removed": true},
 		"gproxy network fail2ban enable": network.Fail2BanInfo{Installed: true, Running: true, SSHJailEnabled: true},
 		"gproxy server restart": []service.Status{
 			{Name: service.SingBox, Installed: true, Running: true, State: "active"},
@@ -1527,6 +1526,7 @@ func TestFail2banChangesAreOneLine(t *testing.T) {
 		{network.Fail2BanInfo{Installed: true, Change: "already stopped"}, "fail2ban  already stopped\n"},
 		{network.Fail2BanInfo{Installed: true, Running: true, Change: "started"}, "fail2ban  running (started with gproxy's ssh jail)\n"},
 		{network.Fail2BanInfo{Installed: true, Running: true, Change: "added"}, "fail2ban  running (gproxy ssh jail added)\n"},
+		{network.Fail2BanInfo{Installed: true, Running: true, Change: "updated"}, "fail2ban  running (gproxy ssh jail updated)\n"},
 		{network.Fail2BanInfo{Installed: true, Running: true, Change: "already managed"}, "fail2ban  running (gproxy ssh jail already in place)\n"},
 	} {
 		var out bytes.Buffer
@@ -1788,5 +1788,23 @@ func TestRouteFinalIsOneLine(t *testing.T) {
 				t.Fatalf("%s: got %q, want %q", command, out.String(), c.want)
 			}
 		}
+	}
+}
+
+// A removed chain reads the way route chain list named it, struck through as
+// a removed rule is; without colour it is marked "(removed)".
+func TestChainRemovalShowsTheChainStruckThrough(t *testing.T) {
+	fields := map[string]any{"tag": "res1", "removed": true,
+		"chain": application.ChainView{Tag: "res1", Host: "198.51.100.7", Port: 1080, Address: "198.51.100.7:1080"}}
+	var plain bytes.Buffer
+	render(&plain, palette{}, "gproxy route chain remove", fields)
+	if plain.String() != "res1 -> 198.51.100.7:1080 (removed)\n" {
+		t.Fatalf("plain: %q", plain.String())
+	}
+	var coloured bytes.Buffer
+	render(&coloured, palette{on: true}, "gproxy route chain remove", fields)
+	want := "\x1b[9m" + ansiChainTag + "res1" + ansiReset + "\x1b[9m -> " + ansiChainAddress + "198.51.100.7:1080" + ansiReset + "\x1b[9m" + ansiReset + "\n"
+	if coloured.String() != want {
+		t.Fatalf("coloured: %q\nwant      %q", coloured.String(), want)
 	}
 }

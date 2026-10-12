@@ -247,9 +247,11 @@ func (a *App) NetworkFail2Ban(ctx context.Context, action string) (Result, error
 			switch {
 			case !before.Running:
 				change = "started"
+			case before.Managed && !network.Fail2BanJailCurrent():
+				// gproxy's jail, but not what this version writes: an edited
+				// file, or one an older version wrote.
+				change = "updated"
 			case before.Managed:
-				// Written again so an edited file is put back, but the jail
-				// was already gproxy's.
 				changed, change = false, "already managed"
 			}
 			a.Progress("enabling the fail2ban ssh jail")

@@ -747,8 +747,13 @@ func TestChainRemoveNamesWhatStillUsesIt(t *testing.T) {
 	if _, err := a.RoutingFinal(ctx, "direct", true); err != nil {
 		t.Fatal(err)
 	}
-	if result, err := a.RoutingChainRemove(ctx, "res1"); err != nil || !result.Changed {
+	result, err := a.RoutingChainRemove(ctx, "res1")
+	if err != nil || !result.Changed {
 		t.Fatalf("unused chain: %#v %v", result, err)
+	}
+	// The answer names what went, as route chain list showed it.
+	if gone, _ := result.Data.(map[string]any)["chain"].(ChainView); gone.Tag != "res1" || gone.Address != "192.0.2.10:1080" {
+		t.Fatalf("removed chain = %#v", gone)
 	}
 }
 

@@ -44,10 +44,6 @@ func BinaryPath(c Component) string {
 	return ""
 }
 
-func CheckUpdate(ctx context.Context, component Component, binPath string) (*UpdateCheck, error) {
-	return ResolveUpdate(ctx, component, binPath, "")
-}
-
 func ResolveUpdate(ctx context.Context, component Component, binPath, version string) (*UpdateCheck, error) {
 	info := InstalledVersion(ctx, binPath, component)
 	check := &UpdateCheck{Component: component, Installed: info.Installed, CurrentVersion: info.Version, CurrentError: info.Error}
