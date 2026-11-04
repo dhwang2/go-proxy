@@ -362,7 +362,7 @@ func detectPublicCertIP(ctx context.Context, endpoints ...string) string {
 }
 
 func refreshManagedFirewall(ctx context.Context) error {
-	managed, err := network.FirewallManaged(ctx)
+	managed, err := network.FirewallApplied(ctx)
 	if err != nil {
 		return err
 	}

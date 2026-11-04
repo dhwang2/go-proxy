@@ -599,7 +599,7 @@ func (a *App) uninstallScope() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	paths = append(paths, config.WorkDir, a.LockDir, network.BBRSysctlPath, network.Fail2BanJailPath, config.LockSetupFile,
+	paths = append(paths, config.WorkDir, a.LockDir, network.FirewallUnitPath, network.FirewallRulesPath, network.BBRSysctlPath, network.Fail2BanJailPath, config.LockSetupFile,
 		config.BashCompletionPath, config.ZshCompletionPath)
 	executable, err := os.Executable()
 	if err != nil {

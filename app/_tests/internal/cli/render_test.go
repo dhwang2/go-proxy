@@ -565,13 +565,21 @@ func TestFirewallStatusListsWhatApplyWouldOpen(t *testing.T) {
 		t.Fatalf("got\n%s\nwant\n%s", out.String(), want)
 	}
 
-	// Applied and in sync: the same ports, and nothing to run.
-	info.Managed, info.Add = true, nil
+	// Applied, in sync and kept at boot: the same ports, and nothing to run.
+	info.Managed, info.Add, info.Boot = true, nil, true
 	info.Rules = "table inet proxy_firewall {\n  chain input {\n  }\n}\n"
 	var synced bytes.Buffer
 	render(&synced, palette{}, "gproxy network firewall apply", info)
-	if !strings.HasPrefix(synced.String(), "firewall  applied  in sync\n22/tcp") || strings.Contains(synced.String(), "gproxy network firewall apply") {
+	if !strings.HasPrefix(synced.String(), "firewall  applied  in sync, kept at boot\n22/tcp") || strings.Contains(synced.String(), "gproxy network firewall apply") {
 		t.Fatalf("in sync:\n%s", synced.String())
+	}
+	// A table a reboot would drop, as one applied before gproxy kept it at
+	// boot: apply is the command that keeps it.
+	info.Boot = false
+	var volatile bytes.Buffer
+	render(&volatile, palette{}, "gproxy network firewall status", info)
+	if !strings.HasPrefix(volatile.String(), "firewall  applied  in sync, not kept at boot\n") || !strings.HasSuffix(volatile.String(), "gproxy network firewall apply (keeps it at boot)\n") {
+		t.Fatalf("not kept at boot:\n%s", volatile.String())
 	}
 	// nft's own syntax stays in the JSON.
 	if strings.Contains(synced.String(), "chain input") {
@@ -583,7 +591,7 @@ func TestFirewallStatusListsWhatApplyWouldOpen(t *testing.T) {
 func TestFirewallStatusShowsOnlyTheDrift(t *testing.T) {
 	var out bytes.Buffer
 	render(&out, palette{}, "gproxy network firewall status", network.FirewallInfo{
-		Available: true, Managed: true,
+		Available: true, Managed: true, Boot: true,
 		Desired: []network.FirewallPortSpec{
 			{Proto: "tcp", Port: 22, Sources: []string{"ssh"}},
 			{Proto: "tcp", Port: 8443, Sources: []string{"custom"}},
@@ -592,7 +600,7 @@ func TestFirewallStatusShowsOnlyTheDrift(t *testing.T) {
 		Add:     []network.CurrentPortEntry{{Proto: "tcp", Port: 8443}},
 		Remove:  []network.CurrentPortEntry{{Proto: "udp", Port: 9000}},
 	})
-	want := "firewall  applied  2 changes pending\n" +
+	want := "firewall  applied  2 changes pending, kept at boot\n" +
 		"+ 8443/tcp  custom\n" +
 		"- 9000/udp  no longer used\n" +
 		"gproxy network firewall apply\n"

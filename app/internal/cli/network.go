@@ -36,7 +36,7 @@ func registerNetwork(r *Runner, root *cobra.Command) {
 	firewall.AddCommand(r.leaf("apply", "Converge managed firewall rules", cobra.NoArgs, func(ctx context.Context, _ *cobra.Command, _ []string) (application.Result, error) {
 		return r.App.NetworkFirewallApply(ctx)
 	}))
-	firewall.AddCommand(r.leaf("release", "Remove only the managed firewall table", r.confirming(cobra.NoArgs), func(ctx context.Context, _ *cobra.Command, _ []string) (application.Result, error) {
+	firewall.AddCommand(r.leaf("release", "Remove the managed firewall table and its boot unit", r.confirming(cobra.NoArgs), func(ctx context.Context, _ *cobra.Command, _ []string) (application.Result, error) {
 		return r.App.NetworkFirewallClear(ctx)
 	}))
 	for _, action := range []string{"add", "remove"} {

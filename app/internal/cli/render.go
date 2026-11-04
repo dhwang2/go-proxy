@@ -1541,6 +1541,7 @@ func renderFail2ban(w io.Writer, p palette, data any) bool {
 // whether gproxy's table is in place and, when it is, whether the kernel
 // matches what gproxy wants. Unapplied or in sync, the ports listed are the
 // ones gproxy keeps open; with drift, only the changes apply would make.
+// An applied table also says whether gproxy loads it again at boot.
 // The last line is the command that closes the gap, when there is one, with
 // what applying does: everything else inbound is dropped.
 func renderFirewall(w io.Writer, p palette, data any) bool {
@@ -1550,17 +1551,23 @@ func renderFirewall(w io.Writer, p palette, data any) bool {
 	}
 	pending := len(info.Add) + len(info.Remove)
 	state, detail := p.stopped("not applied"), p.hint("nftables available")
+	boot := "not kept at boot"
+	if info.Boot {
+		boot = "kept at boot"
+	}
 	switch {
 	case !info.Managed && !info.Available:
 		detail = p.hint("nftables not installed; apply installs it")
+	case !info.Managed && info.Boot:
+		detail = p.hint("nftables available; loaded at boot")
 	case info.Managed && pending == 0:
-		state, detail = p.running("applied"), p.hint("in sync")
+		state, detail = p.running("applied"), p.hint("in sync, "+boot)
 	case info.Managed:
 		noun := "changes"
 		if pending == 1 {
 			noun = "change"
 		}
-		state, detail = p.running("applied"), p.sys(fmt.Sprintf("%d %s pending", pending, noun))
+		state, detail = p.running("applied"), p.sys(fmt.Sprintf("%d %s pending", pending, noun))+p.hint(", "+boot)
 	}
 	fmt.Fprintln(w, "firewall  "+state+"  "+detail)
 
@@ -1597,6 +1604,8 @@ func renderFirewall(w io.Writer, p palette, data any) bool {
 			note(p, fmt.Sprintf("opens these %d ports, drops other inbound", len(info.Desired))))
 	case info.Managed && pending > 0:
 		fmt.Fprintln(w, p.command("gproxy network firewall apply"))
+	case info.Managed && !info.Boot:
+		fmt.Fprintln(w, p.command("gproxy network firewall apply")+" "+note(p, "keeps it at boot"))
 	}
 	return true
 }

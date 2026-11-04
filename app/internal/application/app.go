@@ -304,7 +304,7 @@ func (a *App) Activate(ctx context.Context, snapshot *Snapshot, names ...service
 			return &Error{Code: "activation_record_failed", Stage: "activate", Message: err.Error(), Changed: true}
 		}
 	}
-	managed, err := network.FirewallManaged(ctx)
+	managed, err := network.FirewallApplied(ctx)
 	if err != nil {
 		return &Error{Code: "firewall_failed", Stage: "firewall", Message: err.Error(), Changed: snapshot.committed}
 	}

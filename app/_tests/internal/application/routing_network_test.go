@@ -1030,3 +1030,123 @@ func TestSpaceXPresetCompilesToItsRuleSet(t *testing.T) {
 	}
 	t.Fatalf("geosite-spacex is not in the rule-set catalogue: %s", data)
 }
+
+// firewallHost puts an nft that keeps the loaded ruleset as a file and a
+// systemctl that keeps "enabled" as a file in the fixture's PATH, and points
+// gproxy's boot files there too.
+func firewallHost(t *testing.T) (loaded string) {
+	t.Helper()
+	dir := os.Getenv("PATH")
+	saved := []string{network.FirewallRulesPath, network.FirewallUnitPath}
+	network.FirewallRulesPath = filepath.Join(dir, "conf", "proxy-firewall.nft")
+	network.FirewallUnitPath = filepath.Join(dir, "units", "proxy-firewall.service")
+	t.Cleanup(func() { network.FirewallRulesPath, network.FirewallUnitPath = saved[0], saved[1] })
+	loaded = filepath.Join(dir, "loaded.nft")
+	enabled := filepath.Join(dir, "enabled")
+	stubs := map[string]string{
+		"nft": "#!/bin/sh\ncase \"$1\" in\n" +
+			"-j) if [ -f '" + loaded + "' ]; then echo '{\"nftables\":[{\"table\":{\"family\":\"inet\",\"name\":\"proxy_firewall\"}}]}'; else echo '{\"nftables\":[]}'; fi;;\n" +
+			"-f) /bin/cat \"$2\" > '" + loaded + "';;\n" +
+			"list) /bin/cat '" + loaded + "';;\n" +
+			"delete) /bin/rm -f '" + loaded + "';;\n" +
+			"*) exit 1;;\nesac\n",
+		"systemctl": "#!/bin/sh\ncase \"$1\" in\n" +
+			"is-enabled) test -f '" + enabled + "'; exit $?;;\n" +
+			"enable) : > '" + enabled + "';;\n" +
+			"disable) /bin/rm -f '" + enabled + "';;\n" +
+			"esac\nexit 0\n",
+	}
+	for name, body := range stubs {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return loaded
+}
+
+// apply keeps the table at boot, a custom-port change rewrites the boot copy
+// with the table, and release takes both away. A table lost at runtime with
+// the boot files still in place is applied: the next change restores it
+// rather than leaving a reboot to load a stale file.
+func TestFirewallBootCopyFollowsApplyReconcileAndRelease(t *testing.T) {
+	a := routingApplicationFixture(t)
+	loaded := firewallHost(t)
+	ctx := context.Background()
+
+	result, err := a.NetworkFirewallApply(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info := result.Data.(network.FirewallInfo); !info.Managed || !info.Boot || info.BootRules != network.FirewallRulesPath {
+		t.Fatalf("apply: %+v", info)
+	}
+	if _, err := os.Stat(network.FirewallUnitPath); err != nil {
+		t.Fatal(err)
+	}
+
+	os.Remove(loaded)
+	if _, err := a.NetworkFirewallPort(ctx, 8443, "tcp", false); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{loaded, network.FirewallRulesPath} {
+		data, err := os.ReadFile(path)
+		if err != nil || !strings.Contains(string(data), "8443") {
+			t.Fatalf("%s after the port change: %q %v", path, data, err)
+		}
+	}
+
+	result, err = a.NetworkFirewallClear(ctx)
+	if err != nil || !result.Changed || result.Data.(map[string]any)["removed"] != true {
+		t.Fatalf("release: %#v %v", result, err)
+	}
+	for _, path := range []string{loaded, network.FirewallRulesPath, network.FirewallUnitPath} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("release left %s", path)
+		}
+	}
+	// Nothing left of it, so a port change only saves the port.
+	if _, err := a.NetworkFirewallPort(ctx, 9443, "tcp", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(network.FirewallRulesPath); !os.IsNotExist(err) {
+		t.Fatal("a port change after release brought the boot copy back")
+	}
+
+	// The boot files alone, the table never loaded this boot: release still
+	// removes them.
+	if err := os.MkdirAll(filepath.Dir(network.FirewallRulesPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(network.FirewallRulesPath, []byte("table inet proxy_firewall\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err = a.NetworkFirewallClear(ctx)
+	if err != nil || result.Data.(map[string]any)["removed"] != true {
+		t.Fatalf("release of the boot copy: %#v %v", result, err)
+	}
+	if _, err := os.Lstat(network.FirewallRulesPath); !os.IsNotExist(err) {
+		t.Fatal("release left the boot copy")
+	}
+}
+
+// The uninstall preview names the boot unit and ruleset, which uninstall
+// removes with the table.
+func TestUninstallPreviewNamesTheFirewallBootFiles(t *testing.T) {
+	a := routingApplicationFixture(t)
+	firewallHost(t)
+	if _, err := a.NetworkFirewallApply(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	result, err := a.Uninstall(context.Background(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := result.Data.(map[string]any)
+	paths, _ := data["paths"].([]string)
+	if !slices.Contains(paths, network.FirewallUnitPath) || !slices.Contains(paths, network.FirewallRulesPath) || data["firewall_table"] != "inet proxy_firewall" {
+		t.Fatalf("preview: %#v", data)
+	}
+	if _, err := os.Stat(network.FirewallUnitPath); err != nil {
+		t.Fatal("the preview removed the unit")
+	}
+}

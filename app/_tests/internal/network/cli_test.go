@@ -41,6 +41,7 @@ func TestFirewallInspectionReportsCommandFailure(t *testing.T) {
 
 func TestFirewallClearTouchesOnlyManagedTable(t *testing.T) {
 	dir := t.TempDir()
+	firewallBootFixture(t, dir)
 	calls := filepath.Join(dir, "calls")
 	script := "#!/bin/sh\ncase \"$1\" in\n-j) echo '{\"nftables\":[{\"table\":{\"family\":\"inet\",\"name\":\"proxy_firewall\"}},{\"table\":{\"family\":\"inet\",\"name\":\"other\"}}]}';;\n*) echo \"$*\" >> '" + calls + "' ;;\nesac\n"
 	if err := os.WriteFile(filepath.Join(dir, "nft"), []byte(script), 0755); err != nil {

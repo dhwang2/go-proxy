@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,7 +17,20 @@ import (
 	"go-proxy/internal/derived"
 	"go-proxy/internal/service"
 	"go-proxy/internal/store"
+	"go-proxy/pkg/fileutil"
 )
+
+// The files that restore gproxy's table at boot, both gproxy's own: nothing
+// else reads them, and /etc/nftables.conf is left as the host has it.
+// Variables so tests can point them at a fixture.
+var (
+	// FirewallRulesPath is the table as last applied, in nft's syntax.
+	FirewallRulesPath = filepath.Join(config.ConfDir, "proxy-firewall.nft")
+	// FirewallUnitPath loads FirewallRulesPath early in boot.
+	FirewallUnitPath = "/etc/systemd/system/proxy-firewall.service"
+)
+
+const firewallUnitName = "proxy-firewall.service"
 
 type FirewallPortSpec struct {
 	Proto   string   `json:"transport"`
@@ -140,6 +154,10 @@ type FirewallInfo struct {
 	Add       []CurrentPortEntry `json:"add"`
 	Remove    []CurrentPortEntry `json:"remove"`
 	Rules     string             `json:"managed_rules"`
+	// Boot says gproxy's unit loads the table at boot; BootRules is the file
+	// it loads, empty when there is none.
+	Boot      bool   `json:"boot"`
+	BootRules string `json:"boot_rules"`
 }
 
 func FirewallStatus(ctx context.Context, s *store.Store, bindings []service.ShadowTLSBinding) (FirewallInfo, error) {
@@ -148,6 +166,10 @@ func FirewallStatus(ctx context.Context, s *store.Store, bindings []service.Shad
 	info.Desired, err = DesiredFirewallPortsWithBindings(ctx, s, bindings)
 	if err != nil {
 		return info, err
+	}
+	info.Boot = FirewallKeptAtBoot(ctx)
+	if _, err := os.Stat(FirewallRulesPath); err == nil {
+		info.BootRules = FirewallRulesPath
 	}
 	if _, err = exec.LookPath("nft"); err == nil {
 		info.Available = true
@@ -185,8 +207,45 @@ func FirewallStatus(ctx context.Context, s *store.Store, bindings []service.Shad
 	return info, ctx.Err()
 }
 
-// RemoveFirewallRules removes all nftables tables created by this application.
+// FirewallKeptAtBoot reports whether gproxy's unit is enabled and has its
+// ruleset to load, so the table comes back after a reboot.
+func FirewallKeptAtBoot(ctx context.Context) bool {
+	if _, err := os.Stat(FirewallRulesPath); err != nil {
+		return false
+	}
+	if _, err := os.Stat(FirewallUnitPath); err != nil {
+		return false
+	}
+	_, err := runCommand(ctx, "systemctl", "is-enabled", "--quiet", firewallUnitName)
+	return err == nil
+}
+
+// FirewallApplied reports whether the operator has the managed firewall on:
+// the table is loaded, or gproxy restores it at boot. Every change that moves
+// a port reconciles it while either holds, so the file a reboot loads never
+// falls behind the table that is running.
+func FirewallApplied(ctx context.Context) (bool, error) {
+	if firewallBootFiles() {
+		return true, nil
+	}
+	return FirewallManaged(ctx)
+}
+
+func firewallBootFiles() bool {
+	for _, path := range []string{FirewallRulesPath, FirewallUnitPath} {
+		if _, err := os.Lstat(path); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// RemoveFirewallRules removes gproxy's table and what restores it at boot.
+// Other tables, and the host's own nftables configuration, are left alone.
 func RemoveFirewallRules(ctx context.Context) error {
+	if err := removeFirewallBoot(ctx); err != nil {
+		return err
+	}
 	nft, err := exec.LookPath("nft")
 	if err != nil {
 		return nil
@@ -197,6 +256,27 @@ func RemoveFirewallRules(ctx context.Context) error {
 	}
 	if out, err := runCommand(ctx, nft, "delete", "table", "inet", "proxy_firewall"); err != nil {
 		return fmt.Errorf("remove managed firewall: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func removeFirewallBoot(ctx context.Context) error {
+	if _, err := os.Lstat(FirewallUnitPath); err == nil {
+		// Stopping the unit runs nothing: it has no ExecStop, and the table
+		// is deleted on its own.
+		if out, err := runCommand(ctx, "systemctl", "disable", "--now", firewallUnitName); err != nil {
+			return fmt.Errorf("disable %s: %w: %s", firewallUnitName, err, strings.TrimSpace(string(out)))
+		}
+		if err := os.Remove(FirewallUnitPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if out, err := runCommand(ctx, "systemctl", "daemon-reload"); err != nil {
+			return fmt.Errorf("systemctl daemon-reload: %w: %s", err, strings.TrimSpace(string(out)))
+		}
+		_, _ = runCommand(ctx, "systemctl", "reset-failed", firewallUnitName)
+	}
+	if err := os.Remove(FirewallRulesPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
 	return nil
 }
@@ -377,15 +457,16 @@ func normalizeFirewallProto(proto string) string {
 	return "tcp"
 }
 
-func nftApplyPorts(ctx context.Context, tcpPorts, udpPorts []int) error {
+// firewallRules is the whole table in nft's syntax, both what apply loads now
+// and what the boot unit loads. The bare "table" line adds the table when it
+// is missing, so the delete after it always succeeds: loading the file
+// replaces gproxy's table whether one is loaded or not, in one transaction,
+// and touches no other table. No "flush ruleset", so fail2ban's tables and
+// the host's own survive it.
+func firewallRules(tcpPorts, udpPorts []int) string {
 	var builder strings.Builder
-	managed, err := FirewallManaged(ctx)
-	if err != nil {
-		return err
-	}
-	if managed {
-		builder.WriteString("delete table inet proxy_firewall\n")
-	}
+	builder.WriteString("table inet proxy_firewall\n")
+	builder.WriteString("delete table inet proxy_firewall\n")
 	builder.WriteString("table inet proxy_firewall {\n")
 	builder.WriteString("  chain input {\n")
 	builder.WriteString("    type filter hook input priority -10; policy accept;\n")
@@ -407,13 +488,47 @@ func nftApplyPorts(ctx context.Context, tcpPorts, udpPorts []int) error {
 	builder.WriteString("    counter drop\n")
 	builder.WriteString("  }\n")
 	builder.WriteString("}\n")
+	return builder.String()
+}
 
+// firewallUnit loads the ruleset early in boot, the way Debian's
+// nftables.service does, but after it: a host whose /etc/nftables.conf starts
+// with "flush ruleset" clears everything first and gproxy's table is added
+// after. It is ordered before the network comes up and before the proxies
+// listen, so no port is reachable without the table in front of it.
+func firewallUnit(nft string) string {
+	return "[Unit]\n" +
+		"Description=go-proxy managed firewall (inet proxy_firewall)\n" +
+		"DefaultDependencies=no\n" +
+		"Wants=network-pre.target\n" +
+		"After=nftables.service\n" +
+		"Before=network-pre.target network-online.target sing-box.service snell-v6.service caddy-sub.service shutdown.target\n" +
+		"Conflicts=shutdown.target\n" +
+		"RequiresMountsFor=" + filepath.Dir(FirewallRulesPath) + "\n" +
+		"ConditionPathExists=" + FirewallRulesPath + "\n\n" +
+		"[Service]\n" +
+		"Type=oneshot\n" +
+		"RemainAfterExit=yes\n" +
+		"ExecStart=" + nft + " -f " + FirewallRulesPath + "\n\n" +
+		"[Install]\n" +
+		"WantedBy=sysinit.target\n"
+}
+
+// nftApplyPorts loads the table, then keeps it at boot: the file the boot unit
+// loads is written only after nft accepted the same rules, so a ruleset nft
+// refuses never replaces the one a reboot restores.
+func nftApplyPorts(ctx context.Context, tcpPorts, udpPorts []int) error {
+	nft, err := exec.LookPath("nft")
+	if err != nil {
+		return fmt.Errorf("nft not found")
+	}
+	rules := firewallRules(tcpPorts, udpPorts)
 	tmp, err := os.CreateTemp("", "gproxy-nft-*")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(tmp.Name())
-	if _, err := tmp.WriteString(builder.String()); err != nil {
+	if _, err := tmp.WriteString(rules); err != nil {
 		tmp.Close()
 		return err
 	}
@@ -421,8 +536,30 @@ func nftApplyPorts(ctx context.Context, tcpPorts, udpPorts []int) error {
 		return err
 	}
 
-	if out, err := runCommand(ctx, "nft", "-f", tmp.Name()); err != nil {
+	if out, err := runCommand(ctx, nft, "-f", tmp.Name()); err != nil {
 		return fmt.Errorf("nft apply: %s: %s", err, strings.TrimSpace(string(out)))
+	}
+	if err := keepFirewallAtBoot(ctx, nft, rules); err != nil {
+		return fmt.Errorf("keep firewall at boot: %w", err)
+	}
+	return nil
+}
+
+func keepFirewallAtBoot(ctx context.Context, nft, rules string) error {
+	if err := fileutil.AtomicWriteMode(FirewallRulesPath, []byte(rules), 0o600); err != nil {
+		return err
+	}
+	unit := firewallUnit(nft)
+	if current, err := os.ReadFile(FirewallUnitPath); err != nil || string(current) != unit {
+		if err := fileutil.AtomicWriteMode(FirewallUnitPath, []byte(unit), 0o644); err != nil {
+			return err
+		}
+		if out, err := runCommand(ctx, "systemctl", "daemon-reload"); err != nil {
+			return fmt.Errorf("systemctl daemon-reload: %w: %s", err, strings.TrimSpace(string(out)))
+		}
+	}
+	if out, err := runCommand(ctx, "systemctl", "enable", "--quiet", firewallUnitName); err != nil {
+		return fmt.Errorf("enable %s: %w: %s", firewallUnitName, err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }

@@ -111,11 +111,12 @@ func (a *App) NetworkFirewallApply(ctx context.Context) (Result, error) {
 
 func (a *App) NetworkFirewallClear(ctx context.Context) (Result, error) {
 	return a.Operation(ctx, func() (Result, error) {
-		managed, err := network.FirewallManaged(ctx)
+		// What a reboot would restore counts as much as the loaded table.
+		applied, err := network.FirewallApplied(ctx)
 		if err != nil {
 			return Result{}, err
 		}
-		if !managed {
+		if !applied {
 			// removed says which of the two happened: there was no managed table
 			// to release, which is the same envelope otherwise.
 			return Result{Data: map[string]any{"managed": false, "removed": false}}, nil
@@ -152,7 +153,7 @@ func (a *App) NetworkFirewallPort(ctx context.Context, port int, transport strin
 		if err != nil {
 			return Result{}, err
 		}
-		managed, err := network.FirewallManaged(ctx)
+		managed, err := network.FirewallApplied(ctx)
 		if err != nil {
 			return Result{}, err
 		}
